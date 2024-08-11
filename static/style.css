@@ -1,0 +1,56 @@
+body {
+    font-family: Arial, sans-serif;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.character-field {
+    align-content: center;
+}
+
+.character {
+    border: 1px solid #ddd;
+    padding: 10px;
+    margin-bottom: 10px;
+    cursor: move;
+    transition: all 0.5s ease-out;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+.character.active {
+    background-color: #e6f3ff;
+    border-color: #3498db;
+}
+
+.sortable-ghost {
+    opacity: 0.5;
+    background: #c8ebfb;
+}
+
+button {
+    margin-bottom: 20px;
+}
+
+.editable {
+    padding: 4px;
+    border: none;
+    outline: none;
+    display: inline-block;
+    cursor: text;
+    transition: background-color 0.2s ease, border-bottom 0.2s ease;
+}
+
+.editable.unfocused {
+    background-color: transparent;
+    border-bottom: 1px solid transparent;
+    cursor: pointer;
+}
+
+/* Optional: add styles when focused */
+.editable:focus {
+    background-color: #f0f0f0;
+    border-bottom: 1px solid #aaa;
+}

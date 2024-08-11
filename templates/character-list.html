@@ -1,0 +1,16 @@
+{{range .}}
+<div class="character {{if .IsActive}}active{{end}}" data-id="{{.ID}}">
+    <h2 class="character-field">{{.Name}}</h2>
+    <p class="character-field">Armor Class: {{.ArmorClass}}</p>
+    <div class="character-field">
+        <!-- Must be div within div like this in order to have it on one line -->
+        <div>HP:
+            <div class="editable" contenteditable="true" onblur="this.classList.add('unfocused')"
+                onfocus="this.classList.remove('unfocused')">
+                {{.CurrentHP}}
+            </div>/{{.MaxHP}}
+        </div>
+    </div>
+    <p class="character-field">Initiative: {{.Initiative}}</p>
+</div>
+{{end}}

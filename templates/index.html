@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D&D Character List</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <h1>D&D Character List</h1>
+    <button hx-post="/sort" hx-target="#character-list" hx-swap="innerHTML">Sort by Initiative</button>
+    <button hx-post="/next" hx-target="#character-list" hx-swap="innerHTML">Next Character</button>
+    <div id="character-list" hx-get="/characters" hx-trigger="load">
+        <!-- Character list will be loaded here -->
+    </div>
+
+    <script>
+        document.body.addEventListener('htmx:afterSwap', function (event) {
+            if (event.detail.target.id === 'character-list') {
+                initializeSortable();
+            }
+        });
+
+        function initializeSortable() {
+            new Sortable(document.getElementById('character-list'), {
+                animation: 150,
+                ghostClass: 'sortable-ghost',
+                onEnd: function (evt) {
+                    fetch('/reorder', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ oldIndex: evt.oldIndex, newIndex: evt.newIndex }),
+                    }).then(response => response.json())
+                        .then(data => console.log('Success:', data))
+                        .catch((error) => console.error('Error:', error));
+                }
+            });
+        }
+
+        initializeSortable();
+    </script>
+</body>
+
+</html>
