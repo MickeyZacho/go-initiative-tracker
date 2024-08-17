@@ -14,6 +14,7 @@
     <h1>D&D Character List</h1>
     <button hx-post="/sort" hx-target="#character-list" hx-swap="innerHTML">Sort by Initiative</button>
     <button hx-post="/next" hx-target="#character-list" hx-swap="innerHTML">Next Character</button>
+    <button hx-get="/add-character" hx-target="#character-list" hx-swap="beforeend">Add Character</button>
     <div id="character-list" hx-get="/characters" hx-trigger="load">
         <!-- Character list will be loaded here -->
     </div>
@@ -44,6 +45,48 @@
         }
 
         initializeSortable();
+
+        document.body.addEventListener('htmx:afterSettle', function(event) {
+            if (event.detail.requestConfig.path === '/add-character') {
+                const newCharacter = event.detail.target.lastElementChild;
+                newCharacter.querySelector('.edit-mode').style.display = 'block';
+                newCharacter.querySelector('.view-mode').style.display = 'none';
+            }
+        });
+
+        function saveCharacter(button) {
+            const characterDiv = button.closest('.character');
+            const id = characterDiv.parentElement.children.length;
+            const name = characterDiv.querySelector('input[name="name"]').value;
+            const armorClass = parseFloat(characterDiv.querySelector('input[name="armorClass"]').value);
+            const maxHP = parseFloat(characterDiv.querySelector('input[name="maxHP"]').value);
+            const currentHP = parseFloat(characterDiv.querySelector('input[name="currentHP"]').value);
+            const initiative = parseFloat(characterDiv.querySelector('input[name="initiative"]').value);
+
+            fetch('/save-character', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({id, name, armorClass, maxHP, currentHP, initiative}),
+            }).then(response => response.text())
+              .then(html => {
+                  characterDiv.outerHTML = html;
+              })
+              .catch((error) => console.error('Error:', error));
+        }
+
+        function editCharacter(button) {
+            const characterDiv = button.closest('.character');
+            characterDiv.querySelector('.edit-mode').style.display = 'block';
+            characterDiv.querySelector('.view-mode').style.display = 'none';
+        }
+
+        function cancelEdit(button) {
+            const characterDiv = button.closest('.character');
+            characterDiv.querySelector('.edit-mode').style.display = 'none';
+            characterDiv.querySelector('.view-mode').style.display = 'block';
+        }
     </script>
 </body>
 

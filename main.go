@@ -22,6 +22,7 @@ type Character struct {
 var characters []Character
 var currentCharacterIndex = -1
 var templates *template.Template
+var nextID = 1
 
 func init() {
 	templates = template.Must(template.ParseFiles("templates/index.html", "templates/character-list.html"))
@@ -33,12 +34,15 @@ func main() {
 		{ID: 2, Name: "Gandalf", ArmorClass: 15, MaxHP: 40, CurrentHP: 35, Initiative: 18, Order: 1},
 		{ID: 3, Name: "Legolas", ArmorClass: 16, MaxHP: 45, CurrentHP: 40, Initiative: 20, Order: 2},
 	}
+	nextID++
 
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/characters", characterListHandler)
 	http.HandleFunc("/next", nextCharacterHandler)
 	http.HandleFunc("/sort", sortCharactersHandler)
 	http.HandleFunc("/reorder", reorderCharactersHandler)
+	http.HandleFunc("/add-character", addCharacterHandler)
+	http.HandleFunc("/save-character", saveCharacterHandler)
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -106,4 +110,37 @@ func reorderCharactersHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
+	newCharacter := Character{
+		//ID:    nextID,
+		Order: len(characters),
+	}
+	//nextID++
+	//characters = append(characters, newCharacter)
+	templates.ExecuteTemplate(w, "character-list.html", []Character{newCharacter})
+}
+
+func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
+	var char Character
+	err := json.NewDecoder(r.Body).Decode(&char)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	is_new_character := true
+	for _, c := range characters {
+		if c.ID == char.ID {
+			c = char
+			is_new_character = false
+			break
+		}
+	}
+	if is_new_character {
+		characters = append(characters, char)
+	}
+
+	templates.ExecuteTemplate(w, "character-list.html", []Character{char})
 }
