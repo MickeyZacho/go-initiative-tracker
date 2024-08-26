@@ -56,7 +56,7 @@
 
         function saveCharacter(button) {
             const characterDiv = button.closest('.character');
-            const id = characterDiv.parentElement.children.length;
+            const id = parseInt(characterDiv.getAttribute("data-id"));
             const name = characterDiv.querySelector('input[name="name"]').value;
             const armorClass = parseFloat(characterDiv.querySelector('input[name="armorClass"]').value);
             const maxHP = parseFloat(characterDiv.querySelector('input[name="maxHP"]').value);
@@ -87,8 +87,8 @@
             characterDiv.querySelector('.edit-mode').style.display = 'none';
             characterDiv.querySelector('.view-mode').style.display = '';
         }
-        // on press spacebar, trigger next character
         document.body.addEventListener('keydown', function(event) {
+            // on press spacebar, trigger next character
             if (event.code === 'Space') {
                 fetch('/next', {
                     method: 'POST',
@@ -101,6 +101,27 @@
                       initializeSortable();
                   })
                   .catch((error) => console.error('Error:', error));
+            }
+            // on press e, trigger edit mode
+            if (event.code === 'KeyE') {
+                const characterDiv = document.querySelector('.character.active');
+                // prevent default if there is an active character and it is not in edit mode
+                if (characterDiv && characterDiv.querySelector('.edit-mode').style.display === 'none') {
+                    event.preventDefault();
+
+                    characterDiv.querySelector('.edit-mode').style.display = '';
+                    characterDiv.querySelector('.view-mode').style.display = 'none';
+                    characterDiv.querySelector('.edit-mode input[name="name"]').focus();
+                } 
+            }
+            // on press escape, cancel edit mode
+            if (event.code === 'Escape') {
+                const characterDiv = document.querySelector('.character.active');
+                // if there is an active character and it is in edit mode
+                if (characterDiv && characterDiv.querySelector('.edit-mode').style.display !== 'none') {
+                    characterDiv.querySelector('.edit-mode').style.display = 'none';
+                    characterDiv.querySelector('.view-mode').style.display = '';
+                }
             }
         });
     </script>
