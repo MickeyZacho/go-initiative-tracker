@@ -1,11 +1,12 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"html/template"
 	"log"
 	"net/http"
-	"sort"
+	"slices"
 )
 
 type Character struct {
@@ -20,9 +21,7 @@ type Character struct {
 }
 
 var characters []Character
-var currentCharacterIndex = -1
 var templates *template.Template
-var nextID = 1
 
 func init() {
 	templates = template.Must(template.ParseFiles("templates/index.html", "templates/character-list.html"))
@@ -34,7 +33,6 @@ func main() {
 		{ID: 2, Name: "Gandalf", ArmorClass: 15, MaxHP: 40, CurrentHP: 35, Initiative: 18, Order: 1},
 		{ID: 3, Name: "Legolas", ArmorClass: 16, MaxHP: 45, CurrentHP: 40, Initiative: 20, Order: 2},
 	}
-	nextID++
 
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/characters", characterListHandler)
@@ -56,27 +54,41 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func characterListHandler(w http.ResponseWriter, r *http.Request) {
-	sort.Slice(characters, func(i, j int) bool {
-		return characters[i].Order < characters[j].Order
-	})
+	// sort.Slice(characters, func(i, j int) bool {
+	// 	return characters[i].Order < characters[j].Order
+	// })
 	templates.ExecuteTemplate(w, "character-list.html", characters)
 }
 
 func nextCharacterHandler(w http.ResponseWriter, r *http.Request) {
-	currentCharacterIndex = (currentCharacterIndex + 1) % len(characters)
+	// Find the currently active character
+	selectedCharacter := -1
 	for i := range characters {
-		characters[i].IsActive = (i == currentCharacterIndex)
+		if characters[i].IsActive {
+			selectedCharacter = i
+			break
+		}
 	}
+	// If no character is currently active, select the first character
+	if selectedCharacter == -1 {
+		characters[0].IsActive = true
+		selectedCharacter = 0
+	} else {
+		// Otherwise, find the next character
+		characters[selectedCharacter].IsActive = false
+		selectedCharacter++
+		selectedCharacter %= len(characters)
+		characters[selectedCharacter].IsActive = true
+	}
+
 	characterListHandler(w, r)
 }
 
 func sortCharactersHandler(w http.ResponseWriter, r *http.Request) {
-	sort.Slice(characters, func(i, j int) bool {
-		return characters[i].Initiative > characters[j].Initiative
+	slices.SortFunc(characters, func(a, b Character) int {
+		return cmp.Compare(b.Initiative, a.Initiative)
 	})
-	for i := range characters {
-		characters[i].Order = i
-	}
+
 	characterListHandler(w, r)
 }
 
@@ -91,22 +103,19 @@ func reorderCharactersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Perform the reordering
-	character := characters[reorderRequest.OldIndex]
-	if reorderRequest.NewIndex > reorderRequest.OldIndex {
-		for i := reorderRequest.OldIndex; i < reorderRequest.NewIndex; i++ {
-			characters[i].Order = characters[i+1].Order
+	if reorderRequest.OldIndex < reorderRequest.NewIndex {
+		low := reorderRequest.OldIndex
+		high := reorderRequest.NewIndex
+		for i := low; i < high; i++ {
+			characters[i], characters[i+1] = characters[i+1], characters[i]
 		}
 	} else {
-		for i := reorderRequest.OldIndex; i > reorderRequest.NewIndex; i-- {
-			characters[i].Order = characters[i-1].Order
+		low := reorderRequest.NewIndex
+		high := reorderRequest.OldIndex
+		for i := high; i > low; i-- {
+			characters[i], characters[i-1] = characters[i-1], characters[i]
 		}
 	}
-	character.Order = reorderRequest.NewIndex
-
-	sort.Slice(characters, func(i, j int) bool {
-		return characters[i].Order < characters[j].Order
-	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
@@ -115,9 +124,8 @@ func reorderCharactersHandler(w http.ResponseWriter, r *http.Request) {
 func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	newCharacter := Character{
 		//ID:    nextID,
-		Order: len(characters),
+		//Order: len(characters),
 	}
-	//nextID++
 	//characters = append(characters, newCharacter)
 	templates.ExecuteTemplate(w, "character-list.html", []Character{newCharacter})
 }

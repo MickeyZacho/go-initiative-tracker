@@ -1,9 +1,8 @@
 {{range .}}
 <div class="character {{if .IsActive}}active{{end}}" data-id="{{.ID}}">
     <div class="view-mode">
-
-        <h2 class="character-field">{{.Name}}</h2>
-        <p class="character-field">Armor Class: {{.ArmorClass}}</p>
+        <div class="character-field character-name">{{.Name}}</div>
+        <div class="character-field">Armor Class: {{.ArmorClass}}</div>
         <div class="character-field">
             <!-- Must be div within div like this in order to have it on one line -->
             <div>HP:
@@ -12,16 +11,32 @@
                     {{.CurrentHP}}
                 </div>/{{.MaxHP}}
             </div>
-            <p class="character-field">Initiative: {{.Initiative}}</p>
         </div>
-        <button onclick="editCharacter(this)">edit</button>
+        <div class="character-field">Initiative: {{.Initiative}}</div>
+        <div><button onclick="editCharacter(this)">edit</button></div>
+        
     </div>
     <div class="edit-mode" style="display: none;">
-        <input type="text" name="name" value="{{.Name}}" placeholder="Name">
-        <input type="number" name="armorClass" value="{{.ArmorClass}}" placeholder="Armor Class">
-        <input type="number" name="maxHP" value="{{.MaxHP}}" placeholder="Max HP">
-        <input type="number" name="currentHP" value="{{.CurrentHP}}" placeholder="Current HP">
-        <input type="number" name="initiative" value="{{.Initiative}}" placeholder="Initiative">
+        <div class="character-field">
+            <label for="name">Name</label>
+            <input type="text" name="name" value="{{.Name}}" placeholder="Name">
+        </div>
+        <div class="character-field">
+            <label for="armorClass">Armor Class</label>
+            <input type="number" name="armorClass" value="{{.ArmorClass}}" placeholder="Armor Class">
+        </div>
+        <div class="character-field">
+            <label for="maxHP">Max HP</label>
+            <input type="number" name="maxHP" value="{{.MaxHP}}" placeholder="Max HP">
+        </div>
+        <div class="character-field">
+            <label for="currentHP">Current HP</label>
+            <input type="number" name="currentHP" value="{{.CurrentHP}}" placeholder="Current HP">
+        </div>
+        <div class="character-field">
+            <label for="initiative">Initiative</label>
+            <input type="number" name="initiative" value="{{.Initiative}}" placeholder="Initiative">
+        </div>
         <button onclick="saveCharacter(this)">Save</button>
         <button onclick="cancelEdit(this)">Cancel</button>
     </div>

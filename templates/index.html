@@ -4,14 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>D&D Character List</title>
+    <title>Initiative Tracker</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 
 <body>
-    <h1>D&D Character List</h1>
+    <h1>Initiative Tracker</h1>
     <button hx-post="/sort" hx-target="#character-list" hx-swap="innerHTML">Sort by Initiative</button>
     <button hx-post="/next" hx-target="#character-list" hx-swap="innerHTML">Next Character</button>
     <button hx-get="/add-character" hx-target="#character-list" hx-swap="beforeend">Add Character</button>
@@ -78,14 +78,14 @@
 
         function editCharacter(button) {
             const characterDiv = button.closest('.character');
-            characterDiv.querySelector('.edit-mode').style.display = 'block';
+            characterDiv.querySelector('.edit-mode').style.display = '';
             characterDiv.querySelector('.view-mode').style.display = 'none';
         }
 
         function cancelEdit(button) {
             const characterDiv = button.closest('.character');
             characterDiv.querySelector('.edit-mode').style.display = 'none';
-            characterDiv.querySelector('.view-mode').style.display = 'block';
+            characterDiv.querySelector('.view-mode').style.display = '';
         }
     </script>
 </body>

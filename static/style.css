@@ -7,6 +7,14 @@ body {
 
 .character-field {
     align-content: center;
+    justify-content: center;
+}
+
+.view-mode {
+    width: -webkit-fill-available;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
 }
 
 .character {
@@ -20,6 +28,12 @@ body {
     justify-content: space-between;
 }
 
+.character-name {
+    font-size: x-large;
+    font-weight: bold;
+    width: 40%;
+}
+
 .character.active {
     background-color: #e6f3ff;
     border-color: #3498db;
@@ -28,10 +42,6 @@ body {
 .sortable-ghost {
     opacity: 0.5;
     background: #c8ebfb;
-}
-
-button {
-    margin-bottom: 20px;
 }
 
 .editable {
