@@ -54,9 +54,6 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func characterListHandler(w http.ResponseWriter, r *http.Request) {
-	// sort.Slice(characters, func(i, j int) bool {
-	// 	return characters[i].Order < characters[j].Order
-	// })
 	templates.ExecuteTemplate(w, "character-list.html", characters)
 }
 
@@ -122,12 +119,12 @@ func reorderCharactersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
+	nextID := len(characters) + 1
 	newCharacter := Character{
-		//ID:    nextID,
-		//Order: len(characters),
+		ID: nextID,
 	}
-	//characters = append(characters, newCharacter)
-	templates.ExecuteTemplate(w, "character-list.html", []Character{newCharacter})
+	characters = append(characters, newCharacter)
+	characterListHandler(w, r)
 }
 
 func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
@@ -137,17 +134,11 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	is_new_character := true
-	for _, c := range characters {
+	for i, c := range characters {
 		if c.ID == char.ID {
-			c = char
-			is_new_character = false
+			characters[i] = char
 			break
 		}
-	}
-	if is_new_character {
-		characters = append(characters, char)
 	}
 
 	templates.ExecuteTemplate(w, "character-list.html", []Character{char})

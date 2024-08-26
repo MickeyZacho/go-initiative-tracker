@@ -14,7 +14,7 @@
     <h1>Initiative Tracker</h1>
     <button hx-post="/sort" hx-target="#character-list" hx-swap="innerHTML">Sort by Initiative</button>
     <button hx-post="/next" hx-target="#character-list" hx-swap="innerHTML">Next Character</button>
-    <button hx-get="/add-character" hx-target="#character-list" hx-swap="beforeend">Add Character</button>
+    <button hx-get="/add-character" hx-target="#character-list" hx-swap="innerHTML">Add Character</button>
     <div id="character-list" hx-get="/characters" hx-trigger="load">
         <!-- Character list will be loaded here -->
     </div>
