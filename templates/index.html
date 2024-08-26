@@ -87,6 +87,22 @@
             characterDiv.querySelector('.edit-mode').style.display = 'none';
             characterDiv.querySelector('.view-mode').style.display = '';
         }
+        // on press spacebar, trigger next character
+        document.body.addEventListener('keydown', function(event) {
+            if (event.code === 'Space') {
+                fetch('/next', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                }).then(response => response.text())
+                  .then(html => {
+                      document.getElementById('character-list').innerHTML = html;
+                      initializeSortable();
+                  })
+                  .catch((error) => console.error('Error:', error));
+            }
+        });
     </script>
 </body>
 
