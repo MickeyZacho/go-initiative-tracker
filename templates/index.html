@@ -63,6 +63,11 @@
             const currentHP = parseFloat(characterDiv.querySelector('input[name="currentHP"]').value);
             const initiative = parseFloat(characterDiv.querySelector('input[name="initiative"]').value);
 
+            if (name === '') {
+                alert('Name is required');
+                return;
+            }
+
             fetch('/save-character', {
                 method: 'POST',
                 headers: {
