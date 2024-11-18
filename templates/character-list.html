@@ -1,5 +1,5 @@
 {{range .}}
-<div class="character {{if .IsActive}}active{{end}}" data-id="{{.ID}}">
+<div class="character {{if .IsActive}}active{{end}}" data-id="{{.ID}}" onclick="selectCharacter(this)">
     <div class="view-mode">
         <div class="character-field character-name">{{.Name}}</div>
         <div class="character-field">Armor Class: {{.ArmorClass}}</div>

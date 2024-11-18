@@ -54,6 +54,21 @@
             }
         });
 
+        function selectCharacter(characterDiv) {
+            fetch('/select-character', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ id: parseInt(characterDiv.getAttribute("data-id")) }),
+            }).then(response => response.text())
+                .then(html => {
+                    document.getElementById('character-list').innerHTML = html;
+                    initializeSortable();
+                })
+                .catch((error) => console.error('Error:', error));
+        }
+
         function saveCharacter(button) {
             const characterDiv = button.closest('.character');
             const id = parseInt(characterDiv.getAttribute("data-id"));

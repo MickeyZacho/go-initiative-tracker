@@ -41,6 +41,7 @@ func main() {
 	http.HandleFunc("/reorder", reorderCharactersHandler)
 	http.HandleFunc("/add-character", addCharacterHandler)
 	http.HandleFunc("/save-character", saveCharacterHandler)
+	http.HandleFunc("/select-character", selectCharacterHandler)
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -76,6 +77,23 @@ func nextCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		selectedCharacter++
 		selectedCharacter %= len(characters)
 		characters[selectedCharacter].IsActive = true
+	}
+
+	characterListHandler(w, r)
+}
+
+func selectCharacterHandler(w http.ResponseWriter, r *http.Request) {
+	var selectRequest struct {
+		ID int `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&selectRequest); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	for i := range characters {
+		characters[i].IsActive = characters[i].ID == selectRequest.ID
 	}
 
 	characterListHandler(w, r)
