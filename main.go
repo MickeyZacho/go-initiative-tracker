@@ -2,38 +2,45 @@ package main
 
 import (
 	"cmp"
+	"database/sql"
 	"encoding/json"
 	"html/template"
 	"log"
 	"net/http"
 	"slices"
+
+	_ "github.com/lib/pq" // Import the PostgreSQL driver
 )
 
-type Character struct {
-	ID         int
-	Name       string
-	ArmorClass int
-	MaxHP      int
-	CurrentHP  int
-	Initiative int
-	IsActive   bool
-	Order      int
-}
-
+var db *sql.DB
+var characterDAO CharacterDAO
 var characters []Character
 var templates *template.Template
 
 func init() {
+	var err error
+	connStr := "user=postgres password=12Taller dbname=postgres sslmode=disable"
+	db, err = sql.Open("postgres", connStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	characterDAO = NewCharacterDAO(db)
+
 	templates = template.Must(template.ParseFiles("templates/index.html", "templates/character-list.html"))
+
+	loadCharactersFromDB()
+}
+
+func loadCharactersFromDB() {
+	var err error
+	characters, err = characterDAO.GetAll()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func main() {
-	characters = []Character{
-		{ID: 1, Name: "Aragorn", ArmorClass: 18, MaxHP: 50, CurrentHP: 45, Initiative: 15, Order: 0},
-		{ID: 2, Name: "Gandalf", ArmorClass: 15, MaxHP: 40, CurrentHP: 35, Initiative: 18, Order: 1},
-		{ID: 3, Name: "Legolas", ArmorClass: 16, MaxHP: 45, CurrentHP: 40, Initiative: 20, Order: 2},
-	}
-
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/characters", characterListHandler)
 	http.HandleFunc("/next", nextCharacterHandler)
@@ -55,6 +62,12 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func characterListHandler(w http.ResponseWriter, r *http.Request) {
+	// fresh_character_list, err := characterDAO.GetAll()
+	// if err != nil {
+	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 	return
+	// }
+	// characters = fresh_character_list
 	templates.ExecuteTemplate(w, "character-list.html", characters)
 }
 
