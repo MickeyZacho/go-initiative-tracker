@@ -23,10 +23,10 @@ jobs:
 
     - name: Set environment variables
       env:
-        USER: ${{ secrets.DB_USER }}
-        PASSWORD: ${{ secrets.DB_PASSWORD }}
-        DBNAME: ${{ secrets.DB_NAME }}
-        SSLMODE: ${{ secrets.DB_SSLMODE }}
+        USER: test
+        PASSWORD: test
+        DBNAME: test
+        SSLMODE: test
       run: |
         echo "Environment variables set"
 
