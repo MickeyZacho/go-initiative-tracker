@@ -30,6 +30,13 @@ jobs:
       run: |
         echo "Environment variables set"
 
+    - name: Create .env file
+      run: |
+        echo "USER=${{ secrets.DB_USER }}" >> .env
+        echo "PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
+        echo "DBNAME=${{ secrets.DB_NAME }}" >> .env
+        echo "SSLMODE=${{ secrets.DB_SSLMODE }}" >> .env
+
     - name: Build
       run: go build -v ./...
 
