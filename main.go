@@ -21,33 +21,9 @@ var characterDAO CharacterDAO
 var characters []Character
 var templates *template.Template
 
-func init() {
-	// Load environment variables from .env file
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-
-	user := os.Getenv("USER")
-	password := os.Getenv("PASSWORD")
-	dbname := os.Getenv("DBNAME")
-	sslmode := os.Getenv("SSLMODE")
-
-	if user == "" || password == "" || dbname == "" || sslmode == "" {
-		log.Fatal("One or more required environment variables are not set")
-	}
-
-	connStr := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=%s", user, password, dbname, sslmode)
-
-	db, err = sql.Open("postgres", connStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+func initializeApp(db *sql.DB) {
 	characterDAO = NewCharacterDAO(db)
-
 	templates = template.Must(template.ParseFiles("templates/index.html", "templates/character-list.html"))
-
 	loadCharactersFromDB()
 }
 
@@ -76,6 +52,25 @@ func loggingMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
+	// Load environment variables
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	user := os.Getenv("USER")
+	password := os.Getenv("PASSWORD")
+	dbname := os.Getenv("DBNAME")
+	sslmode := os.Getenv("SSLMODE")
+
+	connStr := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=%s", user, password, dbname, sslmode)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	initializeApp(db)
+
 	http.Handle("/", loggingMiddleware(http.HandlerFunc(indexHandler)))
 	http.Handle("/characters", loggingMiddleware(http.HandlerFunc(characterListHandler)))
 	http.Handle("/next", loggingMiddleware(http.HandlerFunc(nextCharacterHandler)))

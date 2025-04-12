@@ -3,12 +3,37 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+var mock sqlmock.Sqlmock
+
+func TestMain(m *testing.M) {
+	// Create a mock database
+	var err error
+	db, mock, err = sqlmock.New()
+	if err != nil {
+		log.Fatalf("failed to create mock database: %v", err)
+	}
+	defer db.Close()
+
+	// Mock the query executed in loadCharactersFromDB
+	mock.ExpectQuery("SELECT id, name, armor_class, max_hp, current_hp, initiative FROM characters").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "armor_class", "max_hp", "current_hp", "initiative"}).
+			AddRow(1, "Test Character", 15, 100, 90, 10))
+
+	// Initialize the app with the mock database
+	initializeApp(db)
+
+	// Run tests
+	os.Exit(m.Run())
+}
 
 func TestIndexHandler(t *testing.T) {
 	req, err := http.NewRequest("GET", "/", nil)
@@ -42,6 +67,10 @@ func TestSaveCharacterHandler(t *testing.T) {
 	}
 	body, _ := json.Marshal(character)
 
+	mock.ExpectExec("UPDATE characters SET name = \\$1, armor_class = \\$2, max_hp = \\$3, current_hp = \\$4, initiative = \\$5 WHERE id = \\$6").
+		WithArgs("Test Character", 15, 100, 90, 10, 1).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
 	req, err := http.NewRequest("POST", "/save-character", bytes.NewBuffer(body))
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +94,10 @@ func TestSaveCharacterHandler_InvalidInput(t *testing.T) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	mock.ExpectExec("UPDATE characters SET name = \\$1, armor_class = \\$2, max_hp = \\$3, current_hp = \\$4, initiative = \\$5 WHERE id = \\$6").
+		WithArgs("Test Character", 15, 100, 90, 10, 1).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(saveCharacterHandler)
 
@@ -84,6 +117,10 @@ func TestSelectCharacterHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	mock.ExpectExec("UPDATE characters SET is_active = \\$1 WHERE id = \\$2").
+		WithArgs(true, 1).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(selectCharacterHandler)
