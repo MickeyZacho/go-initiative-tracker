@@ -7,38 +7,40 @@
             <!-- Must be div within div like this in order to have it on one line -->
             <div>HP:
                 <div class="editable" contenteditable="true" onblur="this.classList.add('unfocused')"
-                    onfocus="this.classList.remove('unfocused')">
+                    onfocus="this.classList.remove('unfocused')" onclick="stopPropagation(event)">  
                     {{.CurrentHP}}
                 </div>/{{.MaxHP}}
             </div>
         </div>
         <div class="character-field">Initiative: {{.Initiative}}</div>
-        <div><button onclick="editCharacter(this)">edit</button></div>
+        <div><button onclick="editCharacter(this, event)">edit</button></div>
         
     </div>
-    <div class="edit-mode" style="display: none;">
+    <div class="edit-mode" style="display: none;" onclick="stopPropagation(event)">
         <div class="character-field">
             <label for="name">Name</label>
-            <input type="text" name="name" value="{{.Name}}" placeholder="Name">
+            <input type="text" name="name" value="{{.Name}}" placeholder="Name" onclick="stopPropagation(event)">
         </div>
         <div class="character-field">
             <label for="armorClass">Armor Class</label>
-            <input type="number" name="armorClass" value="{{.ArmorClass}}" placeholder="Armor Class">
+            <input type="number" name="armorClass" value="{{.ArmorClass}}" placeholder="Armor Class" onclick="stopPropagation(event)">
         </div>
         <div class="character-field">
             <label for="maxHP">Max HP</label>
-            <input type="number" name="maxHP" value="{{.MaxHP}}" placeholder="Max HP">
+            <input type="number" name="maxHP" value="{{.MaxHP}}" placeholder="Max HP" onclick="stopPropagation(event)">
         </div>
         <div class="character-field">
             <label for="currentHP">Current HP</label>
-            <input type="number" name="currentHP" value="{{.CurrentHP}}" placeholder="Current HP">
+            <input type="number" name="currentHP" value="{{.CurrentHP}}" placeholder="Current HP" onclick="stopPropagation(event)">
         </div>
         <div class="character-field">
             <label for="initiative">Initiative</label>
-            <input type="number" name="initiative" value="{{.Initiative}}" placeholder="Initiative">
+            <input type="number" name="initiative" value="{{.Initiative}}" placeholder="Initiative" onclick="stopPropagation(event)">
         </div>
         <button onclick="saveCharacter(this)">Save</button>
         <button onclick="cancelEdit(this)">Cancel</button>
     </div>
 </div>
 {{end}}
+
+<script src="/static/scripts.js"></script>

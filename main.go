@@ -4,11 +4,15 @@ import (
 	"cmp"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"slices"
+	"time"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq" // Import the PostgreSQL driver
 )
 
@@ -18,8 +22,23 @@ var characters []Character
 var templates *template.Template
 
 func init() {
-	var err error
-	connStr := "user=postgres password=12Taller dbname=postgres sslmode=disable"
+	// Load environment variables from .env file
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	user := os.Getenv("USER")
+	password := os.Getenv("PASSWORD")
+	dbname := os.Getenv("DBNAME")
+	sslmode := os.Getenv("SSLMODE")
+
+	if user == "" || password == "" || dbname == "" || sslmode == "" {
+		log.Fatal("One or more required environment variables are not set")
+	}
+
+	connStr := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=%s", user, password, dbname, sslmode)
+
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
@@ -34,21 +53,37 @@ func init() {
 
 func loadCharactersFromDB() {
 	var err error
-	characters, err = characterDAO.GetAll()
+	characters, err = characterDAO.GetAllCharacters()
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
+func loggingMiddleware(next http.Handler) http.Handler {
+	log.Printf("Logging middleware initialized")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("Panic occurred: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		log.Printf("Started %s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+		log.Printf("Completed %s in %v", r.URL.Path, time.Since(start))
+	})
+}
+
 func main() {
-	http.HandleFunc("/", indexHandler)
-	http.HandleFunc("/characters", characterListHandler)
-	http.HandleFunc("/next", nextCharacterHandler)
-	http.HandleFunc("/sort", sortCharactersHandler)
-	http.HandleFunc("/reorder", reorderCharactersHandler)
-	http.HandleFunc("/add-character", addCharacterHandler)
-	http.HandleFunc("/save-character", saveCharacterHandler)
-	http.HandleFunc("/select-character", selectCharacterHandler)
+	http.Handle("/", loggingMiddleware(http.HandlerFunc(indexHandler)))
+	http.Handle("/characters", loggingMiddleware(http.HandlerFunc(characterListHandler)))
+	http.Handle("/next", loggingMiddleware(http.HandlerFunc(nextCharacterHandler)))
+	http.Handle("/sort", loggingMiddleware(http.HandlerFunc(sortCharactersHandler)))
+	http.Handle("/reorder", loggingMiddleware(http.HandlerFunc(reorderCharactersHandler)))
+	http.Handle("/add-character", loggingMiddleware(http.HandlerFunc(addCharacterHandler)))
+	http.Handle("/save-character", loggingMiddleware(http.HandlerFunc(saveCharacterHandler)))
+	http.Handle("/select-character", loggingMiddleware(http.HandlerFunc(selectCharacterHandler)))
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -62,12 +97,6 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func characterListHandler(w http.ResponseWriter, r *http.Request) {
-	// fresh_character_list, err := characterDAO.GetAll()
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
-	// characters = fresh_character_list
 	templates.ExecuteTemplate(w, "character-list.html", characters)
 }
 
@@ -96,6 +125,11 @@ func nextCharacterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func selectCharacterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var selectRequest struct {
 		ID int `json:"id"`
 	}
@@ -121,6 +155,11 @@ func sortCharactersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func reorderCharactersHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var reorderRequest struct {
 		OldIndex int `json:"oldIndex"`
 		NewIndex int `json:"newIndex"`
@@ -152,22 +191,50 @@ func reorderCharactersHandler(w http.ResponseWriter, r *http.Request) {
 func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	nextID := len(characters) + 1
 	newCharacter := Character{
-		ID: nextID,
+		ID:        nextID,
+		CurrentHP: 0,
 	}
 	characters = append(characters, newCharacter)
+	err := characterDAO.CreateCharacter(newCharacter) // Persist to the database
+	if err != nil {
+		log.Printf("Error creating character: %v", err)
+		http.Error(w, "Failed to create character", http.StatusInternalServerError)
+		return
+	}
 	characterListHandler(w, r)
 }
 
 func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Saving character...")
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var char Character
 	err := json.NewDecoder(r.Body).Decode(&char)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	if char.CurrentHP < 0 || char.CurrentHP > char.MaxHP {
+		http.Error(w, "Invalid HP value", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Received character: %+v", char)
 	for i, c := range characters {
 		if c.ID == char.ID {
+			// Update the character locally
 			characters[i] = char
+			// Update the character in the database
+			err := characterDAO.UpdateCharacter(char)
+			if err != nil {
+				log.Printf("Error updating character: %v", err)
+				http.Error(w, "Failed to update character", http.StatusInternalServerError)
+				return
+			}
 			break
 		}
 	}

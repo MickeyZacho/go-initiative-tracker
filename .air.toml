@@ -1,0 +1,35 @@
+# Config file for `air` hot reloading
+
+[build]
+# Binary name
+bin = "dndcharacters"
+
+# Command to build the project
+cmd = "go build -o dndcharacters.exe"
+
+# Include file extensions to watch
+include_ext = ["go", "html"]
+
+# Exclude directories from watching
+exclude_dir = ["vendor", "tmp"]
+
+# Exclude specific files from watching
+exclude_file = ["*_test.go"]
+
+# Build delay in milliseconds
+delay = 200
+
+[log]
+# Log level (debug, info, warn, error, fatal, panic)
+level = "debug"
+
+[color]
+# Enable or disable colored output
+enable = true
+
+[server]
+# Command to run the server
+cmd = "./dndcharacters.exe"
+
+# Port to run the server on
+port = 8080

@@ -8,6 +8,7 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/scripts.js"></script>
 </head>
 
 <body>
@@ -26,27 +27,9 @@
             }
         });
 
-        function initializeSortable() {
-            new Sortable(document.getElementById('character-list'), {
-                animation: 150,
-                ghostClass: 'sortable-ghost',
-                onEnd: function (evt) {
-                    fetch('/reorder', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ oldIndex: evt.oldIndex, newIndex: evt.newIndex }),
-                    }).then(response => response.json())
-                        .then(data => console.log('Success:', data))
-                        .catch((error) => console.error('Error:', error));
-                }
-            });
-        }
-
         initializeSortable();
 
-        document.body.addEventListener('htmx:afterSettle', function(event) {
+        document.body.addEventListener('htmx:afterSettle', function (event) {
             if (event.detail.requestConfig.path === '/add-character') {
                 const newCharacter = event.detail.target.lastElementChild;
                 newCharacter.querySelector('.edit-mode').style.display = 'block';
@@ -54,60 +37,7 @@
             }
         });
 
-        function selectCharacter(characterDiv) {
-            fetch('/select-character', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ id: parseInt(characterDiv.getAttribute("data-id")) }),
-            }).then(response => response.text())
-                .then(html => {
-                    document.getElementById('character-list').innerHTML = html;
-                    initializeSortable();
-                })
-                .catch((error) => console.error('Error:', error));
-        }
-
-        function saveCharacter(button) {
-            const characterDiv = button.closest('.character');
-            const id = parseInt(characterDiv.getAttribute("data-id"));
-            const name = characterDiv.querySelector('input[name="name"]').value;
-            const armorClass = parseFloat(characterDiv.querySelector('input[name="armorClass"]').value);
-            const maxHP = parseFloat(characterDiv.querySelector('input[name="maxHP"]').value);
-            const currentHP = parseFloat(characterDiv.querySelector('input[name="currentHP"]').value);
-            const initiative = parseFloat(characterDiv.querySelector('input[name="initiative"]').value);
-
-            if (name === '') {
-                alert('Name is required');
-                return;
-            }
-
-            fetch('/save-character', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({id, name, armorClass, maxHP, currentHP, initiative}),
-            }).then(response => response.text())
-              .then(html => {
-                  characterDiv.outerHTML = html;
-              })
-              .catch((error) => console.error('Error:', error));
-        }
-
-        function editCharacter(button) {
-            const characterDiv = button.closest('.character');
-            characterDiv.querySelector('.edit-mode').style.display = '';
-            characterDiv.querySelector('.view-mode').style.display = 'none';
-        }
-
-        function cancelEdit(button) {
-            const characterDiv = button.closest('.character');
-            characterDiv.querySelector('.edit-mode').style.display = 'none';
-            characterDiv.querySelector('.view-mode').style.display = '';
-        }
-        document.body.addEventListener('keydown', function(event) {
+        document.body.addEventListener('keydown', function (event) {
             // on press spacebar, trigger next character
             if (event.code === 'Space') {
                 fetch('/next', {
@@ -116,11 +46,11 @@
                         'Content-Type': 'application/json',
                     },
                 }).then(response => response.text())
-                  .then(html => {
-                      document.getElementById('character-list').innerHTML = html;
-                      initializeSortable();
-                  })
-                  .catch((error) => console.error('Error:', error));
+                    .then(html => {
+                        document.getElementById('character-list').innerHTML = html;
+                        initializeSortable();
+                    })
+                    .catch((error) => console.error('Error:', error));
             }
             // on press e, trigger edit mode
             if (event.code === 'KeyE') {
@@ -132,7 +62,7 @@
                     characterDiv.querySelector('.edit-mode').style.display = '';
                     characterDiv.querySelector('.view-mode').style.display = 'none';
                     characterDiv.querySelector('.edit-mode input[name="name"]').focus();
-                } 
+                }
             }
             // on press escape, cancel edit mode
             if (event.code === 'Escape') {
