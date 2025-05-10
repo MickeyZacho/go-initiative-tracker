@@ -1,4 +1,4 @@
-module dndcharacters
+module go-initiative-tracker
 
 go 1.21
 

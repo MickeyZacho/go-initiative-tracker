@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"go-initiative-tracker/dao"
 	"html/template"
 	"log"
 	"net/http"
@@ -17,12 +18,12 @@ import (
 )
 
 var db *sql.DB
-var characterDAO CharacterDAO
-var characters []Character
+var characterDAO dao.CharacterDAO
+var characters []dao.Character
 var templates *template.Template
 
 func initializeApp(db *sql.DB) {
-	characterDAO = NewCharacterDAO(db)
+	characterDAO = dao.NewCharacterDAO(db)
 	templates = template.Must(template.ParseFiles("templates/index.html", "templates/character-list.html"))
 	loadCharactersFromDB()
 }
@@ -142,7 +143,7 @@ func selectCharacterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func sortCharactersHandler(w http.ResponseWriter, r *http.Request) {
-	slices.SortFunc(characters, func(a, b Character) int {
+	slices.SortFunc(characters, func(a, b dao.Character) int {
 		return cmp.Compare(b.Initiative, a.Initiative)
 	})
 
@@ -185,7 +186,7 @@ func reorderCharactersHandler(w http.ResponseWriter, r *http.Request) {
 
 func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	nextID := len(characters) + 1
-	newCharacter := Character{
+	newCharacter := dao.Character{
 		ID:        nextID,
 		CurrentHP: 0,
 	}
@@ -206,7 +207,7 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var char Character
+	var char dao.Character
 	err := json.NewDecoder(r.Body).Decode(&char)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -234,5 +235,5 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	templates.ExecuteTemplate(w, "character-list.html", []Character{char})
+	templates.ExecuteTemplate(w, "character-list.html", []dao.Character{char})
 }
