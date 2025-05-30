@@ -97,18 +97,19 @@ func main() {
 	dbname := os.Getenv("DBNAME")
 	sslmode := os.Getenv("SSLMODE")
 
+	connStr := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=%s", user, password, dbname, sslmode)
+	var errDB error
+	db, errDB = sql.Open("postgres", connStr)
+	if errDB != nil {
+		log.Fatalf("Error opening database connection: %v", errDB)
+	}
+
 	discordOAuthConfig = &oauth2.Config{
 		ClientID:     os.Getenv("DISCORD_CLIENT_ID"),
 		ClientSecret: os.Getenv("DISCORD_CLIENT_SECRET"),
 		RedirectURL:  "http://localhost:8080/auth/discord/callback",
 		Scopes:       []string{"identify"},
 		Endpoint:     discordEndpoint,
-	}
-
-	connStr := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=%s", user, password, dbname, sslmode)
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		log.Fatalf("Error opening database connection: %v", err)
 	}
 
 	log.Printf("Connected to database %s as user %s", dbname, user)
@@ -503,6 +504,14 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 // Redirects user to Discord's OAuth2 login page
 func discordLoginHandler(w http.ResponseWriter, r *http.Request) {
 	state := generateState()
+	// Store state in a cookie for CSRF protection
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		Path:     "/",
+		MaxAge:   300, // 5 minutes
+		HttpOnly: true,
+	})
 	url := discordOAuthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline)
 	log.Printf("Redirecting to Discord OAuth URL: %s", url)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
@@ -511,12 +520,30 @@ func discordLoginHandler(w http.ResponseWriter, r *http.Request) {
 // Handles Discord's callback and retrieves user info
 func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+	log.Printf("[OAUTH DEBUG] code: %s, state: %s", code, state)
 	if code == "" {
 		http.Error(w, "No code in request", http.StatusBadRequest)
 		return
 	}
+	// Validate state
+	cookie, err := r.Cookie("oauth_state")
+	if err != nil || cookie.Value != state {
+		log.Printf("[OAUTH DEBUG] Invalid state. Cookie: %v, Query: %v", cookie, state)
+		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+		return
+	}
+	// Clear the state cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:   "oauth_state",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+	log.Printf("[OAUTH DEBUG] Exchanging token with redirect_uri: %s", discordOAuthConfig.RedirectURL)
 	token, err := discordOAuthConfig.Exchange(r.Context(), code)
 	if err != nil {
+		log.Printf("[OAUTH DEBUG] Token exchange error: %v", err)
 		http.Error(w, "Failed to exchange token: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -543,5 +570,19 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		Value: userInfo.Username + "#" + userInfo.Discriminator,
 		Path:  "/",
 	})
+
+	// Save user to database
+	user := dao.User{
+		DiscordID:     userInfo.ID,
+		Username:      userInfo.Username,
+		Discriminator: userInfo.Discriminator,
+		Avatar:        userInfo.Avatar,
+	}
+	err = dao.NewUserDAO(db).UpsertUser(user)
+	if err != nil {
+		http.Error(w, "Failed to save user: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
