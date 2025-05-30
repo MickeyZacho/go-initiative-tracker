@@ -2,7 +2,9 @@ package main
 
 import (
 	"cmp"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"go-initiative-tracker/dao"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq" // Import the PostgreSQL driver
+	"golang.org/x/oauth2"
 )
 
 var db *sql.DB
@@ -25,6 +28,13 @@ var encounterDAO dao.EncounterDAO
 var encounters []dao.Encounter
 var selectedEncounterID int
 var templates *template.Template
+
+var discordEndpoint = oauth2.Endpoint{
+	AuthURL:  "https://discord.com/api/oauth2/authorize",
+	TokenURL: "https://discord.com/api/oauth2/token",
+}
+
+var discordOAuthConfig *oauth2.Config
 
 func initializeApp(db *sql.DB) {
 	characterDAO = dao.NewCharacterDAO(db)
@@ -87,6 +97,14 @@ func main() {
 	dbname := os.Getenv("DBNAME")
 	sslmode := os.Getenv("SSLMODE")
 
+	discordOAuthConfig = &oauth2.Config{
+		ClientID:     os.Getenv("DISCORD_CLIENT_ID"),
+		ClientSecret: os.Getenv("DISCORD_CLIENT_SECRET"),
+		RedirectURL:  "http://localhost:8080/auth/discord/callback",
+		Scopes:       []string{"identify"},
+		Endpoint:     discordEndpoint,
+	}
+
 	connStr := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=%s", user, password, dbname, sslmode)
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -110,6 +128,9 @@ func main() {
 	http.Handle("/search-characters", loggingMiddleware(http.HandlerFunc(searchCharactersHandler)))
 	http.Handle("/add-character-to-encounter", loggingMiddleware(http.HandlerFunc(addCharacterToEncounterHandler)))
 	http.Handle("/remove-character-from-encounter", loggingMiddleware(http.HandlerFunc(removeCharacterFromEncounterHandler)))
+
+	http.HandleFunc("/login/discord", discordLoginHandler)
+	http.HandleFunc("/auth/discord/callback", discordCallbackHandler)
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -416,6 +437,15 @@ func escapeAndLower(s string) string {
 	return strings.ToLower(escape(s))
 }
 
+func generateState() string {
+	b := make([]byte, 16)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "state"
+	}
+	return base64.URLEncoding.EncodeToString(b)
+}
+
 // Handler to add a character to the selected encounter
 func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -468,4 +498,50 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 	// Reload characters for the encounter
 	loadCharactersFromDB()
 	characterListHandler(w, r)
+}
+
+// Redirects user to Discord's OAuth2 login page
+func discordLoginHandler(w http.ResponseWriter, r *http.Request) {
+	state := generateState()
+	url := discordOAuthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	log.Printf("Redirecting to Discord OAuth URL: %s", url)
+	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+}
+
+// Handles Discord's callback and retrieves user info
+func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "No code in request", http.StatusBadRequest)
+		return
+	}
+	token, err := discordOAuthConfig.Exchange(r.Context(), code)
+	if err != nil {
+		http.Error(w, "Failed to exchange token: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	client := discordOAuthConfig.Client(r.Context(), token)
+	resp, err := client.Get("https://discord.com/api/users/@me")
+	if err != nil {
+		http.Error(w, "Failed to get user info: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	var userInfo struct {
+		ID            string `json:"id"`
+		Username      string `json:"username"`
+		Discriminator string `json:"discriminator"`
+		Avatar        string `json:"avatar"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+		http.Error(w, "Failed to decode user info: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Store user info in a cookie (for demo; use secure session in production)
+	http.SetCookie(w, &http.Cookie{
+		Name:  "discord_user",
+		Value: userInfo.Username + "#" + userInfo.Discriminator,
+		Path:  "/",
+	})
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
