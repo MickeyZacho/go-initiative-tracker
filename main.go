@@ -40,13 +40,24 @@ func initializeApp(db *sql.DB) {
 	characterDAO = dao.NewCharacterDAO(db)
 	encounterDAO = dao.NewEncounterDAO(db)
 	templates = template.Must(template.ParseFiles("templates/index.html", "templates/character-list.html", "templates/encounter-list.html"))
-	loadEncountersFromDB()
-	loadCharactersFromDB()
+	loadEncountersFromDB(nil)
+	loadCharactersFromDB(nil)
 }
 
-func loadEncountersFromDB() {
+func loadEncountersFromDB(r *http.Request) {
 	var err error
-	encounters, err = encounterDAO.GetAllEncounters()
+	discordID := ""
+	if r != nil {
+		if cookie, errCookie := r.Cookie("discord_id"); errCookie == nil {
+			discordID = cookie.Value
+		}
+	}
+	if discordID != "" {
+		// Only load encounters for this user
+		encounters, err = encounterDAO.GetEncountersByOwnerDiscordID(discordID)
+	} else {
+		encounters, err = encounterDAO.GetAllEncounters()
+	}
 	if err != nil {
 		log.Fatalf("Error in loadEncountersFromDB: %v", err)
 	}
@@ -55,13 +66,26 @@ func loadEncountersFromDB() {
 	}
 }
 
-func loadCharactersFromDB() {
+func loadCharactersFromDB(r *http.Request) {
 	var err error
-	log.Printf("Loading characters for encounter ID: %d", selectedEncounterID)
+	discordID := ""
+	if r != nil {
+		if cookie, errCookie := r.Cookie("discord_id"); errCookie == nil {
+			discordID = cookie.Value
+		}
+	}
 	if selectedEncounterID > 0 {
-		characters, err = characterDAO.GetCharactersByEncounterID(selectedEncounterID)
+		if discordID != "" {
+			characters, err = characterDAO.GetCharactersByEncounterIDAndOwner(selectedEncounterID, discordID)
+		} else {
+			characters, err = characterDAO.GetCharactersByEncounterID(selectedEncounterID)
+		}
 	} else {
-		characters, err = characterDAO.GetAllCharacters()
+		if discordID != "" {
+			characters, err = characterDAO.GetAllCharactersByOwner(discordID)
+		} else {
+			characters, err = characterDAO.GetAllCharacters()
+		}
 	}
 	if err != nil {
 		log.Fatalf("Error in loadCharactersFromDB: %v", err)
@@ -141,29 +165,49 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
+func getDiscordIDFromRequest(r *http.Request) string {
+	if cookie, err := r.Cookie("discord_id"); err == nil {
+		log.Printf("Found discord_id cookie: %s", cookie.Value)
+		return cookie.Value
+	}
+	return ""
+}
+
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	var username string
 	if cookie, err := r.Cookie("discord_user"); err == nil {
 		username = cookie.Value
 	}
+	discordID := getDiscordIDFromRequest(r)
+	log.Printf("Discord ID from request: %s", discordID)
+	var userCharacters []dao.Character
+	if discordID != "" {
+		userCharacters, _ = characterDAO.GetAllCharactersByOwner(discordID)
+	}
 	data := struct {
 		Characters []dao.Character
 		Username   string
 	}{
-		Characters: characters,
+		Characters: userCharacters,
 		Username:   username,
 	}
 	templates.ExecuteTemplate(w, "index.html", data)
 }
 
 func encounterListHandler(w http.ResponseWriter, r *http.Request) {
+	discordID := getDiscordIDFromRequest(r)
+	log.Printf("Discord ID from request: %s", discordID)
+	userEncounters := []dao.Encounter{}
+	if discordID != "" {
+		userEncounters, _ = encounterDAO.GetEncountersByOwnerDiscordID(discordID)
+	}
 	type EncounterView struct {
 		ID         int
 		Name       string
 		IsSelected bool
 	}
 	var viewData []EncounterView
-	for _, e := range encounters {
+	for _, e := range userEncounters {
 		viewData = append(viewData, EncounterView{
 			ID:         e.ID,
 			Name:       e.Name,
@@ -174,6 +218,15 @@ func encounterListHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func characterListHandler(w http.ResponseWriter, r *http.Request) {
+	discordID := getDiscordIDFromRequest(r)
+	var userCharacters []dao.Character
+	if discordID != "" {
+		if selectedEncounterID > 0 {
+			userCharacters, _ = characterDAO.GetCharactersByEncounterIDAndOwner(selectedEncounterID, discordID)
+		} else {
+			userCharacters, _ = characterDAO.GetAllCharactersByOwner(discordID)
+		}
+	}
 	type EditCharacterView struct {
 		ID         int
 		Name       string
@@ -186,7 +239,7 @@ func characterListHandler(w http.ResponseWriter, r *http.Request) {
 		EditMode   bool
 	}
 	var tmplData []EditCharacterView
-	for _, c := range characters {
+	for _, c := range userCharacters {
 		tmplData = append(tmplData, EditCharacterView{
 			ID:         c.ID,
 			Name:       c.Name,
@@ -383,12 +436,8 @@ func selectEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	var selectRequest struct {
 		ID int `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&selectRequest); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 	selectedEncounterID = selectRequest.ID
-	loadCharactersFromDB()
+	loadCharactersFromDB(r)
 	characterListHandler(w, r) // This will now render the full character list
 }
 
@@ -478,11 +527,11 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	err := encounterDAO.AddCharacterToEncounter(selectedEncounterID, req.CharacterID)
 	if err != nil {
-		http.Error(w, "Failed to add character to encounter", http.StatusInternalServerError)
-		return
+		loadCharactersFromDB(r)
+		characterListHandler(w, r)
 	}
 	// Reload characters for the encounter
-	loadCharactersFromDB()
+	loadCharactersFromDB(r)
 	characterListHandler(w, r)
 }
 
@@ -509,7 +558,7 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	// Reload characters for the encounter
-	loadCharactersFromDB()
+	loadCharactersFromDB(r)
 	characterListHandler(w, r)
 }
 
@@ -580,6 +629,11 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:  "discord_user",
 		Value: userInfo.Username + "#" + userInfo.Discriminator,
+		Path:  "/",
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:  "discord_id",
+		Value: userInfo.ID,
 		Path:  "/",
 	})
 

@@ -1,12 +1,16 @@
 package dao
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+)
 
 type EncounterDAO interface {
 	GetAllEncounters() ([]Encounter, error)
 	// GetCharactersByEncounter(encounterID int) ([]Character, error)
 	AddCharacterToEncounter(encounterID, characterID int) error
 	RemoveCharacterFromEncounter(encounterID, characterID int) error
+	GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error)
 }
 type Encounter struct {
 	ID            int
@@ -78,4 +82,25 @@ func (dao *encounterDAOImpl) AddCharacterToEncounter(encounterID, characterID in
 func (dao *encounterDAOImpl) RemoveCharacterFromEncounter(encounterID, characterID int) error {
 	_, err := dao.db.Exec("DELETE FROM encounter_characters WHERE encounter_id = $1 AND character_id = $2", encounterID, characterID)
 	return err
+}
+
+// Get all encounters for a given Discord user
+func (dao *encounterDAOImpl) GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error) {
+	fmt.Println("Fetching encounters for Discord ID:", discordID)
+	rows, err := dao.db.Query("SELECT id, name FROM encounters WHERE owner_id = $1", discordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var encounters []Encounter
+	for rows.Next() {
+		var e Encounter
+		err := rows.Scan(&e.ID, &e.Name)
+		if err != nil {
+			return nil, err
+		}
+		encounters = append(encounters, e)
+	}
+	return encounters, nil
 }

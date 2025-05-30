@@ -23,6 +23,8 @@ type CharacterDAO interface {
 	CreateCharacter(character Character) (int, error)
 	UpdateCharacter(character Character) error
 	DeleteCharacter(id int) error
+	GetAllCharactersByOwner(discordID string) ([]Character, error)
+	GetCharactersByEncounterIDAndOwner(encounterID int, discordID string) ([]Character, error)
 }
 
 type characterDAOImpl struct {
@@ -100,4 +102,44 @@ func (dao *characterDAOImpl) UpdateCharacter(character Character) error {
 func (dao *characterDAOImpl) DeleteCharacter(id int) error {
 	_, err := dao.db.Exec("DELETE FROM characters WHERE id = $1", id)
 	return err
+}
+
+// Get all characters for a given Discord user
+func (dao *characterDAOImpl) GetAllCharactersByOwner(discordID string) ([]Character, error) {
+	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative, c.owner_id FROM characters c JOIN users u ON c.owner_id = u.id WHERE u.discord_id = $1`, discordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var characters []Character
+	for rows.Next() {
+		var c Character
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.OwnerID)
+		if err != nil {
+			return nil, err
+		}
+		characters = append(characters, c)
+	}
+	return characters, nil
+}
+
+// Get all characters for a given encounter and Discord user
+func (dao *characterDAOImpl) GetCharactersByEncounterIDAndOwner(encounterID int, discordID string) ([]Character, error) {
+	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative, c.owner_id FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id JOIN users u ON c.owner_id = u.id WHERE ec.encounter_id = $1 AND u.discord_id = $2`, encounterID, discordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var characters []Character
+	for rows.Next() {
+		var c Character
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.OwnerID)
+		if err != nil {
+			return nil, err
+		}
+		characters = append(characters, c)
+	}
+	return characters, nil
 }
