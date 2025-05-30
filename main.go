@@ -132,6 +132,7 @@ func main() {
 
 	http.HandleFunc("/login/discord", discordLoginHandler)
 	http.HandleFunc("/auth/discord/callback", discordCallbackHandler)
+	http.HandleFunc("/logout", logoutHandler)
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -141,7 +142,18 @@ func main() {
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	templates.ExecuteTemplate(w, "index.html", characters)
+	var username string
+	if cookie, err := r.Cookie("discord_user"); err == nil {
+		username = cookie.Value
+	}
+	data := struct {
+		Characters []dao.Character
+		Username   string
+	}{
+		Characters: characters,
+		Username:   username,
+	}
+	templates.ExecuteTemplate(w, "index.html", data)
 }
 
 func encounterListHandler(w http.ResponseWriter, r *http.Request) {
@@ -584,5 +596,15 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func logoutHandler(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:   "discord_user",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

@@ -13,7 +13,11 @@
 
 <body>
     <h1>Initiative Tracker</h1>
-    <a href="/login/discord">Login with Discord</a>
+    {{ if .Username }}
+      <div>Welcome, {{ .Username }}! <a href="/logout">Logout</a></div>
+    {{ else }}
+      <a href="/login/discord">Login with Discord</a>
+    {{ end }}
     <div id="encounter-list" hx-get="/encounters" hx-trigger="load" hx-target="#encounter-list" hx-swap="innerHTML">
         <!-- Encounter list will be loaded here -->
     </div>
