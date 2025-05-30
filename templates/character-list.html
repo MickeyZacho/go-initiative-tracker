@@ -4,7 +4,6 @@
         <div class="character-field character-name">{{.Name}}</div>
         <div class="character-field">Armor Class: {{.ArmorClass}}</div>
         <div class="character-field">
-            <!-- Must be div within div like this in order to have it on one line -->
             <div>HP:
                 <div class="editable" contenteditable="true" onblur="this.classList.add('unfocused')"
                     onfocus="this.classList.remove('unfocused')" onclick="stopPropagation(event)">  
@@ -14,7 +13,6 @@
         </div>
         <div class="character-field">Initiative: {{.Initiative}}</div>
         <div><button onclick="editCharacter(this, event)">edit</button></div>
-        
     </div>
     <div class="edit-mode" style="display: none;" onclick="stopPropagation(event)">
         <div class="character-field">

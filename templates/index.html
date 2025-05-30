@@ -13,13 +13,15 @@
 
 <body>
     <h1>Initiative Tracker</h1>
+    <div id="encounter-list" hx-get="/encounters" hx-trigger="load" hx-target="#encounter-list" hx-swap="innerHTML">
+        <!-- Encounter list will be loaded here -->
+    </div>
     <button hx-post="/sort" hx-target="#character-list" hx-swap="innerHTML">Sort by Initiative</button>
     <button hx-post="/next" hx-target="#character-list" hx-swap="innerHTML">Next Character</button>
     <button hx-get="/add-character" hx-target="#character-list" hx-swap="innerHTML">Add Character</button>
     <div id="character-list" hx-get="/characters" hx-trigger="load">
         <!-- Character list will be loaded here -->
     </div>
-
     <script>
         document.body.addEventListener('htmx:afterSwap', function (event) {
             if (event.detail.target.id === 'character-list') {
@@ -30,7 +32,7 @@
         initializeSortable();
 
         document.body.addEventListener('htmx:afterSettle', function (event) {
-            if (event.detail.requestConfig.path === '/add-character') {
+            if (event.detail.requestConfig && event.detail.requestConfig.path === '/add-character') {
                 const newCharacter = event.detail.target.lastElementChild;
                 newCharacter.querySelector('.edit-mode').style.display = 'block';
                 newCharacter.querySelector('.view-mode').style.display = 'none';

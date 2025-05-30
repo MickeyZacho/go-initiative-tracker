@@ -1,0 +1,27 @@
+{{range .}}
+<div class="encounter{{if .IsSelected}} selected{{end}}" data-id="{{.ID}}" onclick="selectEncounter(this)">
+    {{.Name}}
+</div>
+{{end}}
+<script>
+function selectEncounter(element) {
+    fetch('/select-encounter', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: parseInt(element.getAttribute('data-id')) }),
+    })
+    .then(response => response.text())
+    .then(html => {
+        document.getElementById('character-list').innerHTML = html;
+        // Optionally, reload the encounter list to update selection highlight
+        fetch('/encounters')
+            .then(resp => resp.text())
+            .then(encHtml => {
+                document.getElementById('encounter-list').innerHTML = encHtml;
+            });
+    })
+    .catch((error) => console.error('Error:', error));
+}
+</script>
