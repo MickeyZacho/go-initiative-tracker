@@ -378,9 +378,8 @@ func searchCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	// Filter out characters already in the encounter and by fuzzy, case-insensitive search
 	var filtered []dao.Character
-	loweredSearch := escapeAndLower(search)
 	for _, c := range allChars {
-		if !encounterCharIDs[c.ID] && fuzzyMatchFold(c.Name, loweredSearch) {
+		if !encounterCharIDs[c.ID] && fuzzyMatchFold(c.Name, search) {
 			filtered = append(filtered, c)
 			if len(filtered) >= 10 {
 				break
@@ -396,7 +395,7 @@ func searchCharactersHandler(w http.ResponseWriter, r *http.Request) {
 
 // Fuzzy, case-insensitive substring match (all chars of substr in order in s)
 func fuzzyMatchFold(s, substr string) bool {
-	s, substr = toLower(s), toLower(substr)
+	s, substr = escapeAndLower(s), escapeAndLower(substr)
 	if substr == "" {
 		return true
 	}
