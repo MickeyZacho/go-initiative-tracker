@@ -12,7 +12,10 @@
             </div>
         </div>
         <div class="character-field">Initiative: {{.Initiative}}</div>
-        <div><button onclick="editCharacter(this, event)">edit</button></div>
+        <div>
+            <button onclick="editCharacter(this, event)">edit</button>
+            <button onclick="removeCharacterFromEncounter(event, '{{.ID}}')">remove</button>
+        </div>
     </div>
     <div class="edit-mode" style="display: none;" onclick="stopPropagation(event)">
         <div class="character-field">
@@ -42,3 +45,18 @@
 {{end}}
 
 <script src="/static/scripts.js"></script>
+<script>
+function removeCharacterFromEncounter(event, characterId) {
+    event.stopPropagation();
+    if (!confirm('Remove this character from the encounter?')) return;
+    fetch('/remove-character-from-encounter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ character_id: parseInt(characterId) })
+    })
+    .then(resp => resp.text())
+    .then(html => {
+        document.getElementById('character-list').innerHTML = html;
+    });
+}
+</script>

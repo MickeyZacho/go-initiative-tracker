@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"go-initiative-tracker/dao"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -160,7 +161,7 @@ func TestGetAllCharacters(t *testing.T) {
 	mock.ExpectQuery("SELECT id, name, armor_class, max_hp, current_hp, initiative FROM characters").
 		WillReturnRows(rows)
 
-	dao := NewCharacterDAO(db)
+	dao := dao.NewCharacterDAO(db)
 	characters, err := dao.GetAllCharacters()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -168,5 +169,24 @@ func TestGetAllCharacters(t *testing.T) {
 
 	if len(characters) != 1 || characters[0].Name != "Test Character" {
 		t.Errorf("unexpected result: %+v", characters)
+	}
+}
+
+func TestToLower(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Hello", "hello"},
+		{"WORLD", "world"},
+		{"GoLang", "golang"},
+		{"123abcDEF", "123abcdef"},
+		{"", ""},
+	}
+	for _, test := range tests {
+		result := toLower(test.input)
+		if result != test.expected {
+			t.Errorf("toLower(%q) = %q, want %q", test.input, result, test.expected)
+		}
 	}
 }

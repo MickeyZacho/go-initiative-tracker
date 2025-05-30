@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -106,6 +107,9 @@ func main() {
 	http.Handle("/add-character", loggingMiddleware(http.HandlerFunc(addCharacterHandler)))
 	http.Handle("/save-character", loggingMiddleware(http.HandlerFunc(saveCharacterHandler)))
 	http.Handle("/select-character", loggingMiddleware(http.HandlerFunc(selectCharacterHandler)))
+	http.Handle("/search-characters", loggingMiddleware(http.HandlerFunc(searchCharactersHandler)))
+	http.Handle("/add-character-to-encounter", loggingMiddleware(http.HandlerFunc(addCharacterToEncounterHandler)))
+	http.Handle("/remove-character-from-encounter", loggingMiddleware(http.HandlerFunc(removeCharacterFromEncounterHandler)))
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -352,4 +356,117 @@ func selectEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	selectedEncounterID = selectRequest.ID
 	loadCharactersFromDB()
 	characterListHandler(w, r) // This will now render the full character list
+}
+
+// Add this handler to search for characters not in the current encounter
+func searchCharactersHandler(w http.ResponseWriter, r *http.Request) {
+	search := r.URL.Query().Get("q")
+	allChars, err := characterDAO.GetAllCharacters()
+	if err != nil {
+		http.Error(w, "Failed to fetch characters", http.StatusInternalServerError)
+		return
+	}
+	// Get IDs of characters already in the encounter
+	encounterChars, err := characterDAO.GetCharactersByEncounterID(selectedEncounterID)
+	if err != nil {
+		http.Error(w, "Failed to fetch encounter characters", http.StatusInternalServerError)
+		return
+	}
+	encounterCharIDs := make(map[int]bool)
+	for _, c := range encounterChars {
+		encounterCharIDs[c.ID] = true
+	}
+	// Filter out characters already in the encounter and by fuzzy, case-insensitive search
+	var filtered []dao.Character
+	loweredSearch := escapeAndLower(search)
+	for _, c := range allChars {
+		if !encounterCharIDs[c.ID] && fuzzyMatchFold(c.Name, loweredSearch) {
+			filtered = append(filtered, c)
+			if len(filtered) >= 10 {
+				break
+			}
+		}
+	}
+	// Render as a simple HTML list with Add buttons
+	w.Header().Set("Content-Type", "text/html")
+	for _, c := range filtered {
+		fmt.Fprintf(w, `<div>%s <button onclick="addCharacterToEncounter(%d)">Add</button></div>`, template.HTMLEscapeString(c.Name), c.ID)
+	}
+}
+
+// Fuzzy, case-insensitive substring match (all chars of substr in order in s)
+func fuzzyMatchFold(s, substr string) bool {
+	s, substr = toLower(s), toLower(substr)
+	if substr == "" {
+		return true
+	}
+	si, subi := 0, 0
+	for si < len(s) && subi < len(substr) {
+		if s[si] == substr[subi] {
+			subi++
+		}
+		si++
+	}
+	return subi == len(substr)
+}
+
+func escape(s string) string {
+	return string([]rune(template.HTMLEscapeString(s)))
+}
+func escapeAndLower(s string) string {
+	return strings.ToLower(escape(s))
+}
+
+// Handler to add a character to the selected encounter
+func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		CharacterID int `json:"character_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if selectedEncounterID == 0 {
+		http.Error(w, "No encounter selected", http.StatusBadRequest)
+		return
+	}
+	err := encounterDAO.AddCharacterToEncounter(selectedEncounterID, req.CharacterID)
+	if err != nil {
+		http.Error(w, "Failed to add character to encounter", http.StatusInternalServerError)
+		return
+	}
+	// Reload characters for the encounter
+	loadCharactersFromDB()
+	characterListHandler(w, r)
+}
+
+// Handler to remove a character from the selected encounter
+func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		CharacterID int `json:"character_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if selectedEncounterID == 0 {
+		http.Error(w, "No encounter selected", http.StatusBadRequest)
+		return
+	}
+	err := encounterDAO.RemoveCharacterFromEncounter(selectedEncounterID, req.CharacterID)
+	if err != nil {
+		http.Error(w, "Failed to remove character from encounter", http.StatusInternalServerError)
+		return
+	}
+	// Reload characters for the encounter
+	loadCharactersFromDB()
+	characterListHandler(w, r)
 }
