@@ -235,7 +235,7 @@ func characterListHandler(w http.ResponseWriter, r *http.Request) {
 		CurrentHP  int
 		Initiative int
 		IsActive   bool
-		OwnerID    *int
+		OwnerID    string
 		EditMode   bool
 	}
 	var tmplData []EditCharacterView
@@ -353,7 +353,7 @@ func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		CurrentHP  int
 		Initiative int
 		IsActive   bool
-		OwnerID    *int
+		OwnerID    string
 		EditMode   bool
 	}
 	// Copy existing characters
@@ -371,9 +371,11 @@ func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			EditMode:   false,
 		})
 	}
+	discordId := getDiscordIDFromRequest(r)
 	// Add the new character in edit mode
 	newChar := EditCharacterView{
 		ID:       -1, // 0 or -1 to indicate new/unsaved
+		OwnerID:  discordId,
 		EditMode: true,
 	}
 	tmplData = append(tmplData, newChar)

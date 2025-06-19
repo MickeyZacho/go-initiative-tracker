@@ -12,7 +12,7 @@ type Character struct {
 	CurrentHP  int
 	Initiative int
 	IsActive   bool
-	OwnerID    *int // pointer to int, nil means NULL
+	OwnerID    string // pointer to int, nil means NULL
 	// InitiativeOrder int
 }
 
@@ -106,7 +106,7 @@ func (dao *characterDAOImpl) DeleteCharacter(id int) error {
 
 // Get all characters for a given Discord user
 func (dao *characterDAOImpl) GetAllCharactersByOwner(discordID string) ([]Character, error) {
-	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative, c.owner_id FROM characters c JOIN users u ON c.owner_id = u.id WHERE u.discord_id = $1`, discordID)
+	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative, c.owner_id FROM characters c WHERE c.owner_id = $1`, discordID)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (dao *characterDAOImpl) GetAllCharactersByOwner(discordID string) ([]Charac
 
 // Get all characters for a given encounter and Discord user
 func (dao *characterDAOImpl) GetCharactersByEncounterIDAndOwner(encounterID int, discordID string) ([]Character, error) {
-	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative, c.owner_id FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id JOIN users u ON c.owner_id = u.id WHERE ec.encounter_id = $1 AND u.discord_id = $2`, encounterID, discordID)
+	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative, c.owner_id FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1 AND c.owner_id = $2`, encounterID, discordID)
 	if err != nil {
 		return nil, err
 	}
