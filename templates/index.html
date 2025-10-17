@@ -14,34 +14,54 @@
 <body>
     <h1>Initiative Tracker</h1>
     {{ if .Username }}
-      <div>Welcome, {{ .Username }}! <a href="/logout">Logout</a></div>
+    <div>Welcome, {{ .Username }}! <a href="/logout">Logout</a></div>
     {{ else }}
-      <a href="/login/discord">Login with Discord</a>
+    <a href="/login/discord">Login with Discord</a>
     {{ end }}
     <div id="encounter-list" hx-get="/encounters" hx-trigger="load" hx-target="#encounter-list" hx-swap="innerHTML">
         <!-- Encounter list will be loaded here -->
     </div>
-    <button hx-post="/sort" hx-target="#character-list" hx-swap="innerHTML">Sort by Initiative</button>
-    <button hx-post="/next" hx-target="#character-list" hx-swap="innerHTML">Next Character</button>
+    <button onclick="window.sortCharactersByInitiative()">Sort by Initiative</button>
+    <button onclick="window.dispatchEvent(new CustomEvent('next-character'))">Next Character</button>
     <button hx-get="/add-character" hx-target="#character-list" hx-swap="innerHTML">Add Character</button>
     <button id="show-add-existing-character">Add Existing Character</button>
-    <div id="add-existing-character-modal" style="display:none; background:#fff; border:1px solid #ccc; padding:10px; position:absolute; z-index:1000;">
-        <input type="text" id="search-character-input" placeholder="Search characters...">
+    <div id="add-existing-character-modal"
+        style="display:none; background:#fff; border:1px solid #ccc; padding:10px; position:absolute; z-index:1000;">
+        <input type="text" id="search-character-i   nput" placeholder="Search characters...">
         <div id="search-character-results"></div>
         <button onclick="closeAddExistingCharacterModal()">Close</button>
     </div>
-    <div id="character-list" hx-get="/characters" hx-trigger="load">
+    <div id="character-list-container" hx-get="/characters" hx-trigger="load">
         <!-- Character list will be loaded here -->
     </div>
     <script>
-        document.body.addEventListener('htmx:afterSwap', function (event) {
-            if (event.detail.target.id === 'character-list') {
-                initializeSortable();
+        // Attach next-character event listener to #character-list after every HTMX swap
+        function attachNextCharacterListener() {
+            const el = document.getElementById('character-list');
+            if (!el) return;
+            // Remove any previous listener to avoid duplicates
+            el.removeEventListener('next-character', el._nextCharHandler);
+            el._nextCharHandler = function () {
+                if (this.__x && this.__x.$data && typeof this.__x.$data.nextCharacter === 'function') {
+                    this.__x.$data.nextCharacter();
+                }
+            };
+            el.addEventListener('next-character', el._nextCharHandler);
+        }
+        // Attach on initial load
+        attachNextCharacterListener();
+        // Attach after every HTMX swap or settle
+        document.body.addEventListener('htmx:afterSwap', attachNextCharacterListener);
+        document.body.addEventListener('htmx:afterSettle', attachNextCharacterListener);
+        // Sort characters by initiative using Alpine.js
+        window.sortCharactersByInitiative = function () {
+            const characterListEl = document.getElementById('character-list');
+            if (characterListEl && characterListEl.__x) {
+                const data = characterListEl.__x.$data;
+                data.characters.sort((a, b) => b.Initiative - a.Initiative);
             }
-        });
-
-        initializeSortable();
-
+        };
+        // Removed initializeSortable() calls; sortable logic is now handled in character-list.html
         document.body.addEventListener('htmx:afterSettle', function (event) {
             if (event.detail.requestConfig && event.detail.requestConfig.path === '/add-character') {
                 const newCharacter = event.detail.target.lastElementChild;
@@ -51,19 +71,9 @@
         });
 
         document.body.addEventListener('keydown', function (event) {
-            // on press spacebar, trigger next character
+            // on press spacebar, trigger next character (Alpine.js v3 way)
             if (event.code === 'Space') {
-                fetch('/next', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                }).then(response => response.text())
-                    .then(html => {
-                        document.getElementById('character-list').innerHTML = html;
-                        initializeSortable();
-                    })
-                    .catch((error) => console.error('Error:', error));
+                window.dispatchEvent(new CustomEvent('next-character'));
             }
             // on press e, trigger edit mode
             if (event.code === 'KeyE') {
@@ -89,7 +99,7 @@
         });
 
         // Add Existing Character modal logic
-        document.getElementById('show-add-existing-character').onclick = function() {
+        document.getElementById('show-add-existing-character').onclick = function () {
             document.getElementById('add-existing-character-modal').style.display = 'block';
             document.getElementById('search-character-input').value = '';
             document.getElementById('search-character-results').innerHTML = '';
@@ -99,7 +109,7 @@
         function closeAddExistingCharacterModal() {
             document.getElementById('add-existing-character-modal').style.display = 'none';
         }
-        document.getElementById('search-character-input').oninput = function() {
+        document.getElementById('search-character-input').oninput = function () {
             const q = this.value;
             fetch('/search-characters?q=' + encodeURIComponent(q))
                 .then(resp => resp.text())
@@ -107,17 +117,17 @@
                     document.getElementById('search-character-results').innerHTML = html;
                 });
         };
-        window.addCharacterToEncounter = function(characterId) {
+        window.addCharacterToEncounter = function (characterId) {
             fetch('/add-character-to-encounter', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ character_id: characterId })
             })
-            .then(resp => resp.text())
-            .then(html => {
-                document.getElementById('character-list').innerHTML = html;
-                closeAddExistingCharacterModal();
-            });
+                .then(resp => resp.text())
+                .then(html => {
+                    document.getElementById('character-list').innerHTML = html;
+                    closeAddExistingCharacterModal();
+                });
         };
     </script>
 </body>

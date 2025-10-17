@@ -1,62 +1,151 @@
-{{range .}}
-<div class="character {{if .IsActive}}active{{end}}" data-id="{{.ID}}" onclick="selectCharacter(this)">
-    <div class="view-mode">
-        <div class="character-field character-name">{{.Name}}</div>
-        <div class="character-field">Armor Class: {{.ArmorClass}}</div>
-        <div class="character-field">
-            <div>HP:
-                <div class="editable" contenteditable="true" onblur="this.classList.add('unfocused')"
-                    onfocus="this.classList.remove('unfocused')" onclick="stopPropagation(event)">  
-                    {{.CurrentHP}}
-                </div>/{{.MaxHP}}
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+    window.initialCharacters = JSON.parse('{{ .CharacterJSON }}');
+</script>
+<div x-data="characterList()" x-init="initSortable($el)" x-on:next-character.window="nextCharacter()"
+    id="character-list">
+    <template x-for="(character, index) in characters" :key="character.ID">
+        <div class="character" :class="{ 'active': character.IsActive }" :data-id="character.ID"
+            @click="if (!editingId) { characters.forEach(c => c.IsActive = false); character.IsActive = true; selected = character.ID }">
+            <div class="view-mode">
+                <div class="character-field character-name" x-text="character.Name"></div>
+                <div class="character-field">Armor Class: <span x-text="character.ArmorClass"></span></div>
+                <div class="character-field">
+                    <div>HP:
+                        <div class="editable" contenteditable="true" onblur="this.classList.add('unfocused')"
+                            onfocus="this.classList.remove('unfocused')" onclick="stopPropagation(event)">
+                            <span x-text="character.CurrentHP"></span>
+                        </div>/<span x-text="character.MaxHP"></span>
+                    </div>
+                </div>
+                <div class="character-field">Initiative: <span x-text="character.Initiative"></span></div>
+                <div>
+                    <button @click.stop="editingId = character.ID">edit</button>
+                    <button @click.stop="removeCharacterFromEncounter($event, character.ID)">remove</button>
+                </div>
+            </div>
+            <div class="edit-mode" x-show="editingId === character.ID" onclick="stopPropagation(event)">
+                <div class="character-field">
+                    <label for="name">Name</label>
+                    <input type="text" name="name" x-model="character.Name" placeholder="Name"
+                        onclick="stopPropagation(event)">
+                </div>
+                <div class="character-field">
+                    <label for="armorClass">Armor Class</label>
+                    <input type="number" name="armorClass" x-model="character.ArmorClass" placeholder="Armor Class"
+                        onclick="stopPropagation(event)">
+                </div>
+                <div class="character-field">
+                    <label for="maxHP">Max HP</label>
+                    <input type="number" name="maxHP" x-model="character.MaxHP" placeholder="Max HP"
+                        onclick="stopPropagation(event)">
+                </div>
+                <div class="character-field">
+                    <label for="currentHP">Current HP</label>
+                    <input type="number" name="currentHP" x-model="character.CurrentHP" placeholder="Current HP"
+                        onclick="stopPropagation(event)">
+                </div>
+                <div class="character-field">
+                    <label for="initiative">Initiative</label>
+                    <input type="number" name="initiative" x-model="character.Initiative" placeholder="Initiative"
+                        onclick="stopPropagation(event)">
+                </div>
+                <button @click="saveCharacter(character)">Save</button>
+                <button @click="editingId = null">Cancel</button>
             </div>
         </div>
-        <div class="character-field">Initiative: {{.Initiative}}</div>
-        <div>
-            <button onclick="editCharacter(this, event)">edit</button>
-            <button onclick="removeCharacterFromEncounter(event, '{{.ID}}')">remove</button>
-        </div>
-    </div>
-    <div class="edit-mode" style="display: none;" onclick="stopPropagation(event)">
-        <div class="character-field">
-            <label for="name">Name</label>
-            <input type="text" name="name" value="{{.Name}}" placeholder="Name" onclick="stopPropagation(event)">
-        </div>
-        <div class="character-field">
-            <label for="armorClass">Armor Class</label>
-            <input type="number" name="armorClass" value="{{.ArmorClass}}" placeholder="Armor Class" onclick="stopPropagation(event)">
-        </div>
-        <div class="character-field">
-            <label for="maxHP">Max HP</label>
-            <input type="number" name="maxHP" value="{{.MaxHP}}" placeholder="Max HP" onclick="stopPropagation(event)">
-        </div>
-        <div class="character-field">
-            <label for="currentHP">Current HP</label>
-            <input type="number" name="currentHP" value="{{.CurrentHP}}" placeholder="Current HP" onclick="stopPropagation(event)">
-        </div>
-        <div class="character-field">
-            <label for="initiative">Initiative</label>
-            <input type="number" name="initiative" value="{{.Initiative}}" placeholder="Initiative" onclick="stopPropagation(event)">
-        </div>
-        <button onclick="saveCharacter(this)">Save</button>
-        <button onclick="cancelEdit(this)">Cancel</button>
-    </div>
+    </template>
 </div>
-{{end}}
 
-<script src="/static/scripts.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
-function removeCharacterFromEncounter(event, characterId) {
-    event.stopPropagation();
-    if (!confirm('Remove this character from the encounter?')) return;
-    fetch('/remove-character-from-encounter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ character_id: parseInt(characterId) })
-    })
-    .then(resp => resp.text())
-    .then(html => {
-        document.getElementById('character-list').innerHTML = html;
+    function characterList() {
+        return {
+            selected: null,
+            editingId: null,
+            characters: window.initialCharacters || [],
+            reorderCharacters(oldIndex, newIndex) {
+                const moved = this.characters.splice(oldIndex, 1)[0];
+                this.characters.splice(newIndex, 0, moved);
+                // Optionally send to backend
+                fetch('/reorder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ oldIndex, newIndex })
+                });
+            },
+            saveCharacter(character) {
+                // Validate name
+                if (!character.Name) {
+                    alert('Name is required');
+                    return;
+                }
+                fetch('/save-character', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: character.ID,
+                        name: character.Name,
+                        armorClass: character.ArmorClass,
+                        maxHP: character.MaxHP,
+                        currentHP: character.CurrentHP,
+                        initiative: character.Initiative
+                    })
+                })
+                    .then(response => {
+                        if (!response.ok) throw new Error('Failed to save character');
+                        return response.text();
+                    })
+                    .then(html => {
+                        // Optionally update the character list or UI
+                        this.editingId = null;
+                    })
+                    .catch(error => {
+                        alert(error.message);
+                    });
+            },
+            nextCharacter() {
+                if (!this.characters || this.characters.length === 0) return;
+                let currentIdx = this.characters.findIndex(c => c.IsActive);
+                if (currentIdx === -1) {
+                    this.characters[0].IsActive = true;
+                    this.selected = this.characters[0].ID;
+                } else {
+                    this.characters[currentIdx].IsActive = false;
+                    const nextIdx = (currentIdx + 1) % this.characters.length;
+                    this.characters[nextIdx].IsActive = true;
+                    this.selected = this.characters[nextIdx].ID;
+                }
+            }
+        };
+    }
+    function initSortable(el) {
+        new Sortable(el, {
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            onEnd: function (evt) {
+                if (el.__x) {
+                    el.__x.$data.reorderCharacters(evt.oldIndex, evt.newIndex);
+                }
+            }
+        });
+    }
+    function removeCharacterFromEncounter(event, characterId) {
+        event.stopPropagation();
+        if (!confirm('Remove this character from the encounter?')) return;
+        fetch('/remove-character-from-encounter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ character_id: parseInt(characterId) })
+        })
+            .then(resp => resp.text())
+            .then(html => {
+                document.getElementById('character-list').innerHTML = html;
+            });
+    }
+    document.body.addEventListener('htmx:afterSwap', function (event) {
+        if (window.Alpine && event.target) {
+            window.Alpine.initTree(event.target);
+        }
     });
-}
 </script>

@@ -12,8 +12,7 @@ type Character struct {
 	CurrentHP  int
 	Initiative int
 	IsActive   bool
-	OwnerID    string // pointer to int, nil means NULL
-	// InitiativeOrder int
+	OwnerID    string
 }
 
 type CharacterDAO interface {

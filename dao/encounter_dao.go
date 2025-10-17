@@ -7,7 +7,6 @@ import (
 
 type EncounterDAO interface {
 	GetAllEncounters() ([]Encounter, error)
-	// GetCharactersByEncounter(encounterID int) ([]Character, error)
 	AddCharacterToEncounter(encounterID, characterID int) error
 	RemoveCharacterFromEncounter(encounterID, characterID int) error
 	GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error)
@@ -49,30 +48,6 @@ func (dao *encounterDAOImpl) GetAllEncounters() ([]Encounter, error) {
 	}
 	return encounters, nil
 }
-
-// func (dao *encounterDAOImpl) GetCharactersByEncounter(encounterID int) ([]Character, error) {
-// 	rows, err := dao.db.Query(`
-//         SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative
-//         FROM characters c
-//         JOIN encounter_characters ec ON c.id = ec.character_id
-//         WHERE ec.encounter_id = $1
-//     `, encounterID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer rows.Close()
-
-// 	var characters []Character
-// 	for rows.Next() {
-// 		var c Character
-// 		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.MaxHP, &c.CurrentHP, &c.Initiative)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		characters = append(characters, c)
-// 	}
-// 	return characters, nil
-// }
 
 func (dao *encounterDAOImpl) AddCharacterToEncounter(encounterID, characterID int) error {
 	_, err := dao.db.Exec("INSERT INTO encounter_characters (encounter_id, character_id) VALUES ($1, $2)", encounterID, characterID)

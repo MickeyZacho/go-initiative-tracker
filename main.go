@@ -252,7 +252,13 @@ func characterListHandler(w http.ResponseWriter, r *http.Request) {
 			EditMode:   false,
 		})
 	}
-	templates.ExecuteTemplate(w, "character-list.html", tmplData)
+	characterJSON, _ := json.Marshal(characters) // characters is your slice
+	data := struct {
+		CharacterJSON string
+	}{
+		CharacterJSON: string(characterJSON),
+	}
+	templates.ExecuteTemplate(w, "character-list.html", data)
 }
 
 func nextCharacterHandler(w http.ResponseWriter, r *http.Request) {
