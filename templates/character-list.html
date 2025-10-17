@@ -4,6 +4,7 @@
 </script>
 <div x-data="characterList()" x-init="initSortable($el)" x-on:next-character.window="nextCharacter()"
     id="character-list">
+    <button @click="addCharacter()">Add Character</button>
     <template x-for="(character, index) in characters" :key="character.ID">
         <div class="character" :class="{ 'active': character.IsActive }" :data-id="character.ID"
             @click="if (!editingId) { characters.forEach(c => c.IsActive = false); character.IsActive = true; selected = character.ID }">
@@ -116,6 +117,21 @@
                     this.characters[nextIdx].IsActive = true;
                     this.selected = this.characters[nextIdx].ID;
                 }
+            },
+            addCharacter() {
+                // Add a blank character in edit mode
+                const newId = Date.now(); // Temporary unique ID
+                this.characters.push({
+                    ID: newId,
+                    Name: '',
+                    ArmorClass: 10,
+                    MaxHP: 10,
+                    CurrentHP: 10,
+                    Initiative: 0,
+                    IsActive: false,
+                    OwnerID: '',
+                });
+                this.editingId = newId;
             }
         };
     }
