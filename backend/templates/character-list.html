@@ -3,8 +3,7 @@
     window.initialCharacters = JSON.parse('{{ .CharacterJSON }}');
 </script>
 <div x-data="characterList()" x-init="initSortable($el)" x-on:next-character.window="nextCharacter()"
-    id="character-list">
-    <button @click="addCharacter()">Add Character</button>
+    x-on:add-character.window="addCharacter()" id="character-list">
     <template x-for="(character, index) in characters" :key="character.ID">
         <div class="character" :class="{ 'active': character.IsActive }" :data-id="character.ID"
             @click="if (!editingId) { characters.forEach(c => c.IsActive = false); character.IsActive = true; selected = character.ID }">
@@ -14,7 +13,7 @@
                 <div class="character-field">
                     <div>HP:
                         <div class="editable" contenteditable="true" onblur="this.classList.add('unfocused')"
-                            onfocus="this.classList.remove('unfocused')" onclick="stopPropagation(event)">
+                            onfocus="this.classList.remove('unfocused')">
                             <span x-text="character.CurrentHP"></span>
                         </div>/<span x-text="character.MaxHP"></span>
                     </div>
@@ -25,31 +24,26 @@
                     <button @click.stop="removeCharacterFromEncounter($event, character.ID)">remove</button>
                 </div>
             </div>
-            <div class="edit-mode" x-show="editingId === character.ID" onclick="stopPropagation(event)">
+            <div class="edit-mode" x-show="editingId === character.ID">
                 <div class="character-field">
                     <label for="name">Name</label>
-                    <input type="text" name="name" x-model="character.Name" placeholder="Name"
-                        onclick="stopPropagation(event)">
+                    <input type="text" name="name" x-model="character.Name" placeholder="Name">
                 </div>
                 <div class="character-field">
                     <label for="armorClass">Armor Class</label>
-                    <input type="number" name="armorClass" x-model="character.ArmorClass" placeholder="Armor Class"
-                        onclick="stopPropagation(event)">
+                    <input type="number" name="armorClass" x-model="character.ArmorClass" placeholder="Armor Class">
                 </div>
                 <div class="character-field">
                     <label for="maxHP">Max HP</label>
-                    <input type="number" name="maxHP" x-model="character.MaxHP" placeholder="Max HP"
-                        onclick="stopPropagation(event)">
+                    <input type="number" name="maxHP" x-model="character.MaxHP" placeholder="Max HP">
                 </div>
                 <div class="character-field">
                     <label for="currentHP">Current HP</label>
-                    <input type="number" name="currentHP" x-model="character.CurrentHP" placeholder="Current HP"
-                        onclick="stopPropagation(event)">
+                    <input type="number" name="currentHP" x-model="character.CurrentHP" placeholder="Current HP">
                 </div>
                 <div class="character-field">
                     <label for="initiative">Initiative</label>
-                    <input type="number" name="initiative" x-model="character.Initiative" placeholder="Initiative"
-                        onclick="stopPropagation(event)">
+                    <input type="number" name="initiative" x-model="character.Initiative" placeholder="Initiative">
                 </div>
                 <button @click="saveCharacter(character)">Save</button>
                 <button @click="editingId = null">Cancel</button>
@@ -81,16 +75,21 @@
                     alert('Name is required');
                     return;
                 }
+                // If the ID is a temporary (large) value, send 0 to backend
+                let idToSend = character.ID;
+                if (typeof idToSend === 'number' && idToSend > 2147483647) {
+                    idToSend = 0;
+                }
                 fetch('/save-character', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        id: character.ID,
+                        id: idToSend,
                         name: character.Name,
-                        armorClass: character.ArmorClass,
-                        maxHP: character.MaxHP,
-                        currentHP: character.CurrentHP,
-                        initiative: character.Initiative
+                        armorClass: Number(character.ArmorClass),
+                        maxHP: Number(character.MaxHP),
+                        currentHP: Number(character.CurrentHP),
+                        initiative: Number(character.Initiative)
                     })
                 })
                     .then(response => {

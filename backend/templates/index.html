@@ -23,7 +23,7 @@
     </div>
     <button onclick="window.sortCharactersByInitiative()">Sort by Initiative</button>
     <button onclick="window.dispatchEvent(new CustomEvent('next-character'))">Next Character</button>
-    <button hx-get="/add-character" hx-target="#character-list" hx-swap="innerHTML">Add Character</button>
+    <button onclick="window.dispatchEvent(new CustomEvent('add-character'))">Add Character</button>
     <button id="show-add-existing-character">Add Existing Character</button>
     <div id="add-existing-character-modal"
         style="display:none; background:#fff; border:1px solid #ccc; padding:10px; position:absolute; z-index:1000;">

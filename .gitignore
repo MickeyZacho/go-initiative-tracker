@@ -1,3 +1,6 @@
 .env
 *.exe
 *.log
+node_modules/
+backend/tmp/
+front/tracker/node_modules/

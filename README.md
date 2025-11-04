@@ -1,51 +1,85 @@
 # Go Initiative Tracker
 
-A web-based initiative tracker for tabletop role-playing games, built with Go.
+A web-based initiative tracker for tabletop role-playing games, built with Go (backend) and React (frontend).
 
 ## Features
-- Add, edit, and delete characters.
-- Sort characters by initiative.
-- Track active characters in encounters.
-- Database-backed persistence using PostgreSQL.
 
-## Getting Started
+-   Add, edit, and delete characters
+-   Sort characters by initiative
+-   Track active characters in encounters
+-   Modern React UI with Material UI
+-   Database-backed persistence using PostgreSQL
 
-### Prerequisites
-- Go 1.21 or later
-- PostgreSQL database
-- `air` for hot reloading (optional)
+## Monorepo Structure
 
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/go-initiative-tracker.git
-   cd go-initiative-tracker
-   ```
+```
+go-initiative-tracker/
+  backend/      # Go backend (API, templates, static assets)
+  front/        # React/Vite frontend
+  README.md
+  .gitignore
+```
 
-2. Install dependencies:
-   ```bash
-   go mod tidy
-   ```
+### Backend Setup
 
-3. Set up the database:
-   - Create a PostgreSQL database using the credentials in `.env`.
-   - Run the SQL schema to initialize the database.
+**Prerequisites:**
 
-4. Start the server:
-   ```bash
-   go run main.go
-   ```
+-   Go 1.21 or later
+-   PostgreSQL database
+-   `air` for hot reloading (optional)
 
-5. Open your browser and navigate to `http://localhost:8080`.
+**Install dependencies:**
 
-### Running Tests
-Run the following command to execute the test suite:
+```bash
+cd backend
+go mod tidy
+```
+
+**Set up the database:**
+
+-   Create a PostgreSQL database using the credentials in `.env`.
+-   Run the SQL schema to initialize the database.
+
+**Start the server:**
+
+```bash
+go run main.go
+```
+
+**Run backend tests:**
+
 ```bash
 go test ./...
 ```
 
-### Configuration
-Edit the `.env` file to configure database credentials:
+### Frontend Setup
+
+**Prerequisites:**
+
+-   Node.js 18+
+
+**Install dependencies:**
+
+```bash
+cd front/tracker
+npm install
+```
+
+**Start the frontend dev server:**
+
+```bash
+npm run dev
+```
+
+**Open your browser:**
+
+-   Backend: `http://localhost:8080`
+-   Frontend: `http://localhost:5173`
+
+## Configuration
+
+Edit the `.env` file in `backend/` to configure database credentials:
+
 ```env
 USER=postgres
 PASSWORD=yourpassword
@@ -53,15 +87,10 @@ DBNAME=initiative_tracker
 SSLMODE=disable
 ```
 
-## Project Structure
-- `main.go`: Entry point and HTTP handlers.
-- `character_dao.go`: Data access layer for characters and encounters.
-- `templates/`: HTML templates for the web interface.
-- `static/`: Static assets (CSS, JavaScript).
-- `main_test.go`: Unit tests for handlers and database interactions.
-
 ## Contributing
+
 Contributions are welcome! Please open an issue or submit a pull request.
 
 ## License
+
 This project is licensed under the MIT License.
