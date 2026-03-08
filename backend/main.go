@@ -25,6 +25,7 @@ import (
 var db *sql.DB
 var characterDAO dao.CharacterDAO
 var encounterCharacterDAO dao.EncounterCharacterDAO
+var encounterLedgerDAO dao.EncounterLedgerDAO
 var characters []dao.Character
 var encounterDAO dao.EncounterDAO
 var encounters []dao.Encounter
@@ -61,6 +62,7 @@ func initializeApp(db *sql.DB) {
 	characterDAO = dao.NewCharacterDAO(db)
 	encounterDAO = dao.NewEncounterDAO(db)
 	encounterCharacterDAO = dao.NewEncounterCharacterDAO(db)
+	encounterLedgerDAO = dao.NewEncounterLedgerDAO(db)
 	loadEncountersFromDB(nil)
 	loadCharactersFromDB(nil)
 }
@@ -207,6 +209,11 @@ func main() {
 	http.Handle("/api/characters/library/delete", loggingMiddleware(http.HandlerFunc(apiDeleteLibraryCharacterHandler)))
 	http.Handle("/api/select-encounter", loggingMiddleware(http.HandlerFunc(apiSelectEncounterHandler)))
 	http.Handle("/api/me", loggingMiddleware(http.HandlerFunc(apiMeHandler)))
+	http.Handle("/api/encounters/combat/start", loggingMiddleware(http.HandlerFunc(apiStartCombatHandler)))
+	http.Handle("/api/encounters/combat/setup", loggingMiddleware(http.HandlerFunc(apiResetCombatHandler)))
+	http.Handle("/api/encounters/combat/next-turn", loggingMiddleware(http.HandlerFunc(apiNextTurnHandler)))
+	http.Handle("/api/encounters/ledger", loggingMiddleware(http.HandlerFunc(apiEncounterLedgerHandler)))
+	http.Handle("/api/encounters/ledger/add", loggingMiddleware(http.HandlerFunc(apiAddEncounterLedgerHandler)))
 
 	http.HandleFunc("/login/discord", discordLoginHandler)
 	http.HandleFunc("/auth/discord/callback", discordCallbackHandler)
@@ -519,6 +526,182 @@ func apiMeHandler(w http.ResponseWriter, r *http.Request) {
 		"username":  username,
 		"discordID": discordID,
 	})
+}
+
+func encounterIDFromRequest(r *http.Request) (int, error) {
+	var req struct {
+		EncounterID int `json:"encounter_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return 0, err
+	}
+	if req.EncounterID <= 0 {
+		return 0, fmt.Errorf("invalid encounter id")
+	}
+	return req.EncounterID, nil
+}
+
+func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		return
+	}
+
+	encounterID, err := encounterIDFromRequest(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		return
+	}
+
+	activeCharacterID, err := encounterCharacterDAO.StartCombat(encounterID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no characters") {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Encounter has no characters"})
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to start combat"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
+}
+
+func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		return
+	}
+
+	encounterID, err := encounterIDFromRequest(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		return
+	}
+
+	if err := encounterCharacterDAO.ResetCombat(encounterID); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to reset combat"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+func apiNextTurnHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		return
+	}
+
+	encounterID, err := encounterIDFromRequest(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		return
+	}
+
+	activeCharacterID, err := encounterCharacterDAO.AdvanceTurn(encounterID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no characters") {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Encounter has no characters"})
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to advance turn"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
+}
+
+func apiEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		return
+	}
+
+	encounterIDRaw := r.URL.Query().Get("encounter_id")
+	encounterID, err := strconv.Atoi(encounterIDRaw)
+	if err != nil || encounterID <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid encounter id"})
+		return
+	}
+
+	entries, err := encounterLedgerDAO.ListByEncounterID(encounterID, 50)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to load encounter log"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "entries": entries})
+}
+
+func apiAddEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		return
+	}
+
+	var req struct {
+		EncounterID int    `json:"encounter_id"`
+		ActorID     int    `json:"actor_id"`
+		TargetID    int    `json:"target_id"`
+		ActionType  string `json:"action_type"`
+		HPChange    int    `json:"hp_change"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		return
+	}
+	if req.EncounterID <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid encounter id"})
+		return
+	}
+	if req.ActorID <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Actor is required"})
+		return
+	}
+	actionType := strings.TrimSpace(req.ActionType)
+	if actionType == "" {
+		actionType = "note"
+	}
+
+	entry, err := encounterLedgerDAO.Create(dao.EncounterLedgerInsert{
+		EncounterID: req.EncounterID,
+		ActorID:     req.ActorID,
+		TargetID:    req.TargetID,
+		ActionType:  actionType,
+		HPChange:    req.HPChange,
+		Description: strings.TrimSpace(req.Description),
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to add combat log entry"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "entry": entry})
 }
 
 func nextCharacterHandler(w http.ResponseWriter, r *http.Request) {

@@ -13,6 +13,7 @@ import {
 	FormControl,
 	InputLabel,
 	Stack,
+	TextField,
 } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material/Select";
 
@@ -33,6 +34,19 @@ interface Encounter {
 	Name: string;
 }
 
+interface LedgerEntry {
+	id: number;
+	encounter_id: number;
+	actor_id: number;
+	actor_name: string;
+	target_id: number;
+	target_name: string;
+	action_type: string;
+	hp_change: number;
+	description: string;
+	created_at: string;
+}
+
 interface CharacterListProps {
 	initialEncounterId?: number | null;
 }
@@ -43,19 +57,45 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const [encounters, setEncounters] = useState<Encounter[]>([]);
 	const [encounterId, setEncounterId] = useState<number>(0);
 	const [characters, setCharacters] = useState<Character[]>([]);
-	const [combatStartedByEncounter, setCombatStartedByEncounter] = useState<
-		Record<number, boolean>
-	>({});
 	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
 	const [selectedAddCharacterId, setSelectedAddCharacterId] =
 		useState<number>(0);
+	const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+	const [logActorId, setLogActorId] = useState<number>(0);
+	const [logTargetId, setLogTargetId] = useState<number>(0);
+	const [logActionType, setLogActionType] = useState<string>("note");
+	const [logHPChange, setLogHPChange] = useState<string>("0");
+	const [logDescription, setLogDescription] = useState<string>("");
 	const [, setSelected] = useState<number | null>(null);
 	const [isLoading, setIsLoading] = useState<boolean>(false);
 	const [error, setError] = useState<string>("");
-	const combatStarted =
-		encounterId > 0
-			? Boolean(combatStartedByEncounter[encounterId])
-			: false;
+	const combatStarted = characters.some((c) => c.IsActive);
+
+	const fetchLedger = useCallback(async (encId: number) => {
+		if (!encId) {
+			setLedgerEntries([]);
+			return;
+		}
+		try {
+			const response = await fetch(
+				apiUrl(`/api/encounters/ledger?encounter_id=${encId}`),
+				{ credentials: "include" },
+			);
+			const payload = await parseJsonResponse<{
+				status?: string;
+				entries?: LedgerEntry[];
+				message?: string;
+			}>(response);
+			if (!response.ok || payload.status !== "success") {
+				throw new Error(payload.message || "Failed to load combat log");
+			}
+			setLedgerEntries(
+				Array.isArray(payload.entries) ? payload.entries : [],
+			);
+		} catch {
+			setLedgerEntries([]);
+		}
+	}, []);
 
 	const fetchCharacters = useCallback(async (encId: number) => {
 		setIsLoading(true);
@@ -110,9 +150,11 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						: data[0].ID;
 				setEncounterId(preferredEncounterId);
 				await fetchCharacters(preferredEncounterId);
+				await fetchLedger(preferredEncounterId);
 			} else {
 				setEncounterId(0);
 				setCharacters([]);
+				setLedgerEntries([]);
 			}
 		} catch (err) {
 			setError(
@@ -125,7 +167,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		} finally {
 			setIsLoading(false);
 		}
-	}, [fetchCharacters, initialEncounterId]);
+	}, [fetchCharacters, fetchLedger, initialEncounterId]);
 
 	const fetchLibraryCharacters = useCallback(async () => {
 		try {
@@ -169,6 +211,48 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		const newId = Number(event.target.value);
 		setEncounterId(newId);
 		await fetchCharacters(newId);
+		await fetchLedger(newId);
+	};
+
+	const addLogEntry = async () => {
+		if (!encounterId || !logActorId) {
+			setError("Select an actor before adding a combat log entry");
+			return;
+		}
+		setError("");
+		try {
+			const response = await fetch(apiUrl("/api/encounters/ledger/add"), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					encounter_id: encounterId,
+					actor_id: logActorId,
+					target_id: logTargetId,
+					action_type: logActionType,
+					hp_change: Number(logHPChange) || 0,
+					description: logDescription.trim(),
+				}),
+			});
+			const payload = await parseJsonResponse<{
+				status?: string;
+				message?: string;
+			}>(response);
+			if (!response.ok || payload.status !== "success") {
+				throw new Error(
+					payload.message || "Failed to add combat log entry",
+				);
+			}
+			setLogDescription("");
+			setLogHPChange("0");
+			await fetchLedger(encounterId);
+		} catch (err) {
+			setError(
+				err instanceof Error
+					? err.message
+					: "Failed to add combat log entry",
+			);
+		}
 	};
 
 	const addCharacter = () => {
@@ -272,44 +356,126 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		}
 	};
 
-	const nextCharacter = () => {
-		if (characters.length === 0) return;
-		// Always use sorted list for cycling
-		const sorted = [...characters].sort(
-			(a, b) => b.Initiative - a.Initiative,
-		);
-		const currentIdx = sorted.findIndex((c) => c.IsActive);
-		let nextIdx = currentIdx + 1;
-		if (currentIdx === -1 || nextIdx >= sorted.length) nextIdx = 0;
-		const nextId = sorted[nextIdx].ID;
-		// Update IsActive based on sorted order, but preserve original array order
-		const updated = characters.map((c) => ({
-			...c,
-			IsActive: c.ID === nextId,
-		}));
-		setCharacters(updated);
-		setSelected(nextId);
-	};
-
-	const handleStartCombat = () => {
+	const nextCharacter = useCallback(async () => {
 		if (!encounterId || characters.length === 0) return;
-		setCombatStartedByEncounter((prev) => ({
-			...prev,
-			[encounterId]: true,
-		}));
+		setError("");
+		try {
+			const response = await fetch(
+				apiUrl("/api/encounters/combat/next-turn"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ encounter_id: encounterId }),
+				},
+			);
+			const data = await parseJsonResponse<{
+				status?: string;
+				message?: string;
+			}>(response);
+			if (!response.ok || data.status !== "success") {
+				throw new Error(data.message || "Failed to advance turn");
+			}
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "Failed to advance turn",
+			);
+		}
+	}, [encounterId, characters.length, fetchCharacters]);
+
+	const handleStartCombat = async () => {
+		if (!encounterId || characters.length === 0) return;
+		setError("");
+		try {
+			const response = await fetch(
+				apiUrl("/api/encounters/combat/start"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ encounter_id: encounterId }),
+				},
+			);
+			const data = await parseJsonResponse<{
+				status?: string;
+				message?: string;
+			}>(response);
+			if (!response.ok || data.status !== "success") {
+				throw new Error(data.message || "Failed to start combat");
+			}
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "Failed to start combat",
+			);
+		}
 	};
 
-	const handleBackToSetup = () => {
+	const handleBackToSetup = async () => {
 		if (!encounterId) return;
-		setCombatStartedByEncounter((prev) => ({
-			...prev,
-			[encounterId]: false,
-		}));
+		setError("");
+		try {
+			const response = await fetch(
+				apiUrl("/api/encounters/combat/setup"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ encounter_id: encounterId }),
+				},
+			);
+			const data = await parseJsonResponse<{
+				status?: string;
+				message?: string;
+			}>(response);
+			if (!response.ok || data.status !== "success") {
+				throw new Error(data.message || "Failed to reset combat");
+			}
+			setSelected(null);
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "Failed to reset combat",
+			);
+		}
 	};
 
 	const availableLibraryCharacters = libraryCharacters.filter(
 		(libChar) => !characters.some((encChar) => encChar.ID === libChar.ID),
 	);
+	const characterNameByID = useCallback(
+		(id: number) => characters.find((c) => c.ID === id)?.Name || "Unknown",
+		[characters],
+	);
+	const formatLogTime = useCallback((timestamp: string) => {
+		const date = new Date(timestamp);
+		if (Number.isNaN(date.getTime())) {
+			return timestamp;
+		}
+		return date.toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		});
+	}, []);
+
+	useEffect(() => {
+		if (characters.length === 0) {
+			setLogActorId(0);
+			setLogTargetId(0);
+			return;
+		}
+		if (!characters.some((c) => c.ID === logActorId)) {
+			setLogActorId(characters[0].ID);
+		}
+		if (
+			logTargetId !== 0 &&
+			!characters.some((c) => c.ID === logTargetId)
+		) {
+			setLogTargetId(0);
+		}
+	}, [characters, logActorId, logTargetId]);
 
 	// Spacebar triggers nextCharacter
 	useEffect(() => {
@@ -531,6 +697,146 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								Loading...
 							</Typography>
 						)}
+						<Stack spacing={1.5} mt={2}>
+							<Typography variant="h6" fontWeight={700}>
+								Combat Log
+							</Typography>
+							<Stack
+								direction="row"
+								spacing={1}
+								useFlexGap
+								flexWrap="wrap"
+							>
+								<FormControl sx={{ minWidth: 140 }}>
+									<InputLabel id="log-actor-label">
+										Actor
+									</InputLabel>
+									<Select
+										labelId="log-actor-label"
+										label="Actor"
+										value={
+											logActorId ? String(logActorId) : ""
+										}
+										onChange={(event: SelectChangeEvent) =>
+											setLogActorId(
+												Number(event.target.value),
+											)
+										}
+									>
+										{characters.map((character) => (
+											<MenuItem
+												key={character.ID}
+												value={String(character.ID)}
+											>
+												{character.Name}
+											</MenuItem>
+										))}
+									</Select>
+								</FormControl>
+								<FormControl sx={{ minWidth: 140 }}>
+									<InputLabel id="log-target-label">
+										Target
+									</InputLabel>
+									<Select
+										labelId="log-target-label"
+										label="Target"
+										value={String(logTargetId)}
+										onChange={(event: SelectChangeEvent) =>
+											setLogTargetId(
+												Number(event.target.value),
+											)
+										}
+									>
+										<MenuItem value="0">None</MenuItem>
+										{characters.map((character) => (
+											<MenuItem
+												key={character.ID}
+												value={String(character.ID)}
+											>
+												{character.Name}
+											</MenuItem>
+										))}
+									</Select>
+								</FormControl>
+								<FormControl sx={{ minWidth: 140 }}>
+									<InputLabel id="log-action-label">
+										Action
+									</InputLabel>
+									<Select
+										labelId="log-action-label"
+										label="Action"
+										value={logActionType}
+										onChange={(event: SelectChangeEvent) =>
+											setLogActionType(event.target.value)
+										}
+									>
+										<MenuItem value="attack">
+											Attack
+										</MenuItem>
+										<MenuItem value="heal">Heal</MenuItem>
+										<MenuItem value="note">Note</MenuItem>
+									</Select>
+								</FormControl>
+								<TextField
+									label="HP Change"
+									type="number"
+									value={logHPChange}
+									onChange={(event) =>
+										setLogHPChange(event.target.value)
+									}
+									sx={{ width: 120 }}
+								/>
+								<TextField
+									label="Description"
+									value={logDescription}
+									onChange={(event) =>
+										setLogDescription(event.target.value)
+									}
+									sx={{ minWidth: 220, flex: 1 }}
+								/>
+								<Button
+									variant="contained"
+									onClick={addLogEntry}
+									disabled={!encounterId || !logActorId}
+								>
+									Add Log
+								</Button>
+							</Stack>
+							<Box
+								sx={{
+									maxHeight: 180,
+									overflowY: "auto",
+									border: 1,
+									borderColor: "divider",
+									borderRadius: 1,
+									p: 1,
+								}}
+							>
+								{ledgerEntries.length === 0 ? (
+									<Typography color="text.secondary">
+										No combat log entries yet.
+									</Typography>
+								) : (
+									ledgerEntries.map((entry) => (
+										<Typography
+											key={entry.id}
+											variant="body2"
+											sx={{ mb: 0.5 }}
+										>
+											{`[${formatLogTime(entry.created_at)}] `}
+											{entry.actor_name ||
+												characterNameByID(
+													entry.actor_id,
+												)}
+											{entry.target_id > 0
+												? ` -> ${entry.target_name || characterNameByID(entry.target_id)}`
+												: ""}
+											{` [${entry.action_type}] ${entry.hp_change} ${entry.description}`}
+										</Typography>
+									))
+								)}
+							</Box>
+						</Stack>
 					</Stack>
 				</CardContent>
 			</Card>

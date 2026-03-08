@@ -2,6 +2,7 @@ package dao
 
 import (
 	"database/sql"
+	"fmt"
 )
 
 type EncounterCharacter struct {
@@ -16,6 +17,9 @@ type EncounterCharacterDAO interface {
 	GetByEncounterAndCharacter(encounterID, characterID int) (EncounterCharacter, error)
 	Update(enc EncounterCharacter) error
 	Upsert(enc EncounterCharacter) error
+	StartCombat(encounterID int) (int, error)
+	ResetCombat(encounterID int) error
+	AdvanceTurn(encounterID int) (int, error)
 }
 
 type encounterCharacterDAOImpl struct {
@@ -49,4 +53,130 @@ func (dao *encounterCharacterDAOImpl) Upsert(enc EncounterCharacter) error {
 		enc.EncounterID, enc.CharacterID, enc.Initiative, enc.CurrentHP, enc.IsActive,
 	)
 	return err
+}
+
+func (dao *encounterCharacterDAOImpl) StartCombat(encounterID int) (int, error) {
+	tx, err := dao.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(
+		"SELECT character_id FROM encounter_characters WHERE encounter_id = $1 ORDER BY COALESCE(initiative, 0) DESC, character_id ASC",
+		encounterID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var orderedIDs []int
+	for rows.Next() {
+		var id int
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return 0, scanErr
+		}
+		orderedIDs = append(orderedIDs, id)
+	}
+	if len(orderedIDs) == 0 {
+		return 0, fmt.Errorf("no characters in encounter")
+	}
+	activeID := orderedIDs[0]
+
+	if _, err = tx.Exec(
+		"UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1",
+		encounterID,
+	); err != nil {
+		return 0, err
+	}
+
+	if _, err = tx.Exec(
+		"UPDATE encounter_characters SET is_active = TRUE WHERE encounter_id = $1 AND character_id = $2",
+		encounterID, activeID,
+	); err != nil {
+		return 0, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return activeID, nil
+}
+
+func (dao *encounterCharacterDAOImpl) ResetCombat(encounterID int) error {
+	_, err := dao.db.Exec(
+		"UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1",
+		encounterID,
+	)
+	return err
+}
+
+func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) {
+	tx, err := dao.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(
+		"SELECT character_id FROM encounter_characters WHERE encounter_id = $1 ORDER BY COALESCE(initiative, 0) DESC, character_id ASC",
+		encounterID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var orderedIDs []int
+	for rows.Next() {
+		var id int
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return 0, scanErr
+		}
+		orderedIDs = append(orderedIDs, id)
+	}
+	if len(orderedIDs) == 0 {
+		return 0, fmt.Errorf("no characters in encounter")
+	}
+
+	currentActiveID := 0
+	if err = tx.QueryRow(
+		"SELECT COALESCE(MAX(character_id), 0) FROM encounter_characters WHERE encounter_id = $1 AND is_active = TRUE",
+		encounterID,
+	).Scan(&currentActiveID); err != nil {
+		return 0, err
+	}
+
+	nextIndex := 0
+	if currentActiveID != 0 {
+		for idx, id := range orderedIDs {
+			if id == currentActiveID {
+				nextIndex = (idx + 1) % len(orderedIDs)
+				break
+			}
+		}
+	}
+	nextActiveID := orderedIDs[nextIndex]
+
+	if _, err = tx.Exec(
+		"UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1",
+		encounterID,
+	); err != nil {
+		return 0, err
+	}
+
+	if _, err = tx.Exec(
+		"UPDATE encounter_characters SET is_active = TRUE WHERE encounter_id = $1 AND character_id = $2",
+		encounterID, nextActiveID,
+	); err != nil {
+		return 0, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return nextActiveID, nil
 }
