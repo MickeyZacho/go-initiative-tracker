@@ -23,6 +23,7 @@ import (
 
 var db *sql.DB
 var characterDAO dao.CharacterDAO
+var encounterCharacterDAO dao.EncounterCharacterDAO
 var characters []dao.Character
 var encounterDAO dao.EncounterDAO
 var encounters []dao.Encounter
@@ -39,6 +40,7 @@ var discordOAuthConfig *oauth2.Config
 func initializeApp(db *sql.DB) {
 	characterDAO = dao.NewCharacterDAO(db)
 	encounterDAO = dao.NewEncounterDAO(db)
+	encounterCharacterDAO = dao.NewEncounterCharacterDAO(db)
 	templates = template.Must(template.ParseFiles("templates/index.html", "templates/character-list.html", "templates/encounter-list.html"))
 	loadEncountersFromDB(nil)
 	loadCharactersFromDB(nil)
@@ -232,7 +234,6 @@ func characterListHandler(w http.ResponseWriter, r *http.Request) {
 		Name       string
 		ArmorClass int
 		MaxHP      int
-		CurrentHP  int
 		Initiative int
 		IsActive   bool
 		OwnerID    string
@@ -245,7 +246,6 @@ func characterListHandler(w http.ResponseWriter, r *http.Request) {
 			Name:       c.Name,
 			ArmorClass: c.ArmorClass,
 			MaxHP:      c.MaxHP,
-			CurrentHP:  c.CurrentHP,
 			Initiative: c.Initiative,
 			IsActive:   c.IsActive,
 			OwnerID:    c.OwnerID,
@@ -356,7 +356,6 @@ func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		Name       string
 		ArmorClass int
 		MaxHP      int
-		CurrentHP  int
 		Initiative int
 		IsActive   bool
 		OwnerID    string
@@ -370,7 +369,6 @@ func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			Name:       c.Name,
 			ArmorClass: c.ArmorClass,
 			MaxHP:      c.MaxHP,
-			CurrentHP:  c.CurrentHP,
 			Initiative: c.Initiative,
 			IsActive:   c.IsActive,
 			OwnerID:    c.OwnerID,
@@ -402,9 +400,18 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if char.CurrentHP < 0 || char.CurrentHP > char.MaxHP {
-		http.Error(w, "Invalid HP value", http.StatusBadRequest)
+	if char.MaxHP < 1 {
+		http.Error(w, "Invalid max HP value", http.StatusBadRequest)
 		return
+	}
+	if char.CurrentHP < 0 {
+		char.CurrentHP = 0
+	}
+	if char.CurrentHP > char.MaxHP {
+		char.CurrentHP = char.MaxHP
+	}
+	if char.OwnerID == "" {
+		char.OwnerID = getDiscordIDFromRequest(r)
 	}
 
 	if char.ID == 0 {
@@ -433,7 +440,24 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	templates.ExecuteTemplate(w, "character-list.html", []dao.Character{char})
+	if selectedEncounterID > 0 {
+		encChar := dao.EncounterCharacter{
+			EncounterID: selectedEncounterID,
+			CharacterID: char.ID,
+			Initiative:  char.Initiative,
+			CurrentHP:   char.CurrentHP,
+			IsActive:    char.IsActive,
+		}
+		err = encounterCharacterDAO.Upsert(encChar)
+		if err != nil {
+			log.Printf("Error upserting encounter character: %v", err)
+			http.Error(w, "Failed to save encounter values", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	loadCharactersFromDB(r)
+	characterListHandler(w, r)
 }
 
 func selectEncounterHandler(w http.ResponseWriter, r *http.Request) {
@@ -443,6 +467,14 @@ func selectEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var selectRequest struct {
 		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&selectRequest); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if selectRequest.ID <= 0 {
+		http.Error(w, "Invalid encounter id", http.StatusBadRequest)
+		return
 	}
 	selectedEncounterID = selectRequest.ID
 	loadCharactersFromDB(r)
@@ -518,56 +550,72 @@ func generateState() string {
 
 // Handler to add a character to the selected encounter
 func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
 		return
 	}
 	var req struct {
 		CharacterID int `json:"character_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		return
+	}
+	if req.CharacterID <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid character id"})
 		return
 	}
 	if selectedEncounterID == 0 {
-		http.Error(w, "No encounter selected", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "No encounter selected"})
 		return
 	}
 	err := encounterDAO.AddCharacterToEncounter(selectedEncounterID, req.CharacterID)
 	if err != nil {
-		loadCharactersFromDB(r)
-		characterListHandler(w, r)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to add character to encounter"})
+		return
 	}
-	// Reload characters for the encounter
-	loadCharactersFromDB(r)
-	characterListHandler(w, r)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
 // Handler to remove a character from the selected encounter
 func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
 		return
 	}
 	var req struct {
 		CharacterID int `json:"character_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		return
+	}
+	if req.CharacterID <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid character id"})
 		return
 	}
 	if selectedEncounterID == 0 {
-		http.Error(w, "No encounter selected", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "No encounter selected"})
 		return
 	}
 	err := encounterDAO.RemoveCharacterFromEncounter(selectedEncounterID, req.CharacterID)
 	if err != nil {
-		http.Error(w, "Failed to remove character from encounter", http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to remove character from encounter"})
 		return
 	}
-	// Reload characters for the encounter
-	loadCharactersFromDB(r)
-	characterListHandler(w, r)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
 // Redirects user to Discord's OAuth2 login page
@@ -664,6 +712,12 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:   "discord_user",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:   "discord_id",
 		Value:  "",
 		Path:   "/",
 		MaxAge: -1,

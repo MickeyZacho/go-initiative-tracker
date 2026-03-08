@@ -1,5 +1,6 @@
 import { CharacterList } from "./components/CharacterList";
 import type { Character } from "./components/CharacterList";
+import AuthButtons from "./components/AuthButtons";
 
 const dummyCharacters: Character[] = [
 	{
@@ -70,6 +71,7 @@ const enemies: Character[] = [
 function App() {
 	return (
 		<div style={{ padding: "2rem" }}>
+			<AuthButtons />
 			<h1>Initiative Tracker</h1>
 			<CharacterList
 				initialCharacters={dummyCharacters}

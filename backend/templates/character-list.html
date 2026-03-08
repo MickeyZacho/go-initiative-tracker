@@ -153,9 +153,15 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ character_id: parseInt(characterId) })
         })
-            .then(resp => resp.text())
-            .then(html => {
-                document.getElementById('character-list').innerHTML = html;
+            .then(async resp => {
+                const data = await resp.json();
+                if (!resp.ok || data.status !== 'success') {
+                    throw new Error(data.message || 'Failed to remove character from encounter');
+                }
+                window.location.reload();
+            })
+            .catch(error => {
+                alert(error.message);
             });
     }
     document.body.addEventListener('htmx:afterSwap', function (event) {

@@ -12,14 +12,10 @@ type EncounterDAO interface {
 	GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error)
 }
 type Encounter struct {
-	ID            int
-	Name          string
-	OwnerID       int
-	Description   string
-	CreatedAt     string
-	UpdatedAt     string
-	EncounterType string
-	CampaignID    int
+	ID          int
+	Name        string
+	OwnerID     string
+	Description string
 }
 
 type encounterDAOImpl struct {
@@ -31,7 +27,7 @@ func NewEncounterDAO(db *sql.DB) EncounterDAO {
 }
 
 func (dao *encounterDAOImpl) GetAllEncounters() ([]Encounter, error) {
-	rows, err := dao.db.Query("SELECT id, name FROM encounters")
+	rows, err := dao.db.Query("SELECT id, name, COALESCE(owner_id, ''), COALESCE(description, '') FROM encounters")
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +36,7 @@ func (dao *encounterDAOImpl) GetAllEncounters() ([]Encounter, error) {
 	var encounters []Encounter
 	for rows.Next() {
 		var e Encounter
-		err := rows.Scan(&e.ID, &e.Name)
+		err := rows.Scan(&e.ID, &e.Name, &e.OwnerID, &e.Description)
 		if err != nil {
 			return nil, err
 		}
@@ -62,7 +58,7 @@ func (dao *encounterDAOImpl) RemoveCharacterFromEncounter(encounterID, character
 // Get all encounters for a given Discord user
 func (dao *encounterDAOImpl) GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error) {
 	fmt.Println("Fetching encounters for Discord ID:", discordID)
-	rows, err := dao.db.Query("SELECT id, name FROM encounters WHERE owner_id = $1", discordID)
+	rows, err := dao.db.Query("SELECT id, name, COALESCE(owner_id, ''), COALESCE(description, '') FROM encounters WHERE owner_id = $1", discordID)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +67,7 @@ func (dao *encounterDAOImpl) GetEncountersByOwnerDiscordID(discordID string) ([]
 	var encounters []Encounter
 	for rows.Next() {
 		var e Encounter
-		err := rows.Scan(&e.ID, &e.Name)
+		err := rows.Scan(&e.ID, &e.Name, &e.OwnerID, &e.Description)
 		if err != nil {
 			return nil, err
 		}

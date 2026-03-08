@@ -5,14 +5,15 @@ import (
 )
 
 type Character struct {
-	ID         int
-	Name       string
-	ArmorClass int
-	MaxHP      int
-	CurrentHP  int
-	Initiative int
-	IsActive   bool
-	OwnerID    string
+	ID            int
+	Name          string
+	ArmorClass    int
+	ToHitModifier int
+	MaxHP         int
+	CurrentHP     int
+	Initiative    int
+	IsActive      bool
+	OwnerID       string
 }
 
 type CharacterDAO interface {
@@ -35,7 +36,7 @@ func NewCharacterDAO(db *sql.DB) CharacterDAO {
 }
 
 func (dao *characterDAOImpl) GetAllCharacters() ([]Character, error) {
-	rows, err := dao.db.Query("SELECT id, name, armor_class, max_hp, current_hp, initiative, owner_id FROM characters")
+	rows, err := dao.db.Query("SELECT id, name, armor_class, to_hit_modifier, max_hp, max_hp AS current_hp, 0 AS initiative, false AS is_active, COALESCE(owner_id, '') FROM characters")
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +45,7 @@ func (dao *characterDAOImpl) GetAllCharacters() ([]Character, error) {
 	var characters []Character
 	for rows.Next() {
 		var c Character
-		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.OwnerID)
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID)
 		if err != nil {
 			return nil, err
 		}
@@ -55,7 +56,7 @@ func (dao *characterDAOImpl) GetAllCharacters() ([]Character, error) {
 
 func (dao *characterDAOImpl) GetCharacterByID(id int) (Character, error) {
 	var c Character
-	err := dao.db.QueryRow("SELECT id, name, armor_class, max_hp, current_hp, initiative, owner_id FROM characters WHERE id = $1", id).Scan(&c.ID, &c.Name, &c.ArmorClass, &c.MaxHP, &c.CurrentHP, &c.Initiative)
+	err := dao.db.QueryRow("SELECT id, name, armor_class, to_hit_modifier, max_hp, max_hp AS current_hp, 0 AS initiative, false AS is_active, COALESCE(owner_id, '') FROM characters WHERE id = $1", id).Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID)
 	if err != nil {
 		return c, err
 	}
@@ -64,7 +65,7 @@ func (dao *characterDAOImpl) GetCharacterByID(id int) (Character, error) {
 
 func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Character, error) {
 	rows, err := dao.db.Query(
-		"SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative, c.owner_id FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1",
+		"SELECT c.id, c.name, c.armor_class, c.to_hit_modifier, c.max_hp, ec.current_hp, ec.initiative, ec.is_active, COALESCE(c.owner_id, '') FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1",
 		encounterID,
 	)
 	if err != nil {
@@ -74,7 +75,7 @@ func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Char
 	var characters []Character
 	for rows.Next() {
 		var c Character
-		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.OwnerID)
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID)
 		if err != nil {
 			return nil, err
 		}
@@ -86,15 +87,15 @@ func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Char
 func (dao *characterDAOImpl) CreateCharacter(character Character) (int, error) {
 	var newID int
 	err := dao.db.QueryRow(
-		"INSERT INTO characters (name, armor_class, max_hp, current_hp, initiative) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-		character.Name, character.ArmorClass, character.MaxHP, character.CurrentHP, 0,
+		"INSERT INTO characters (name, armor_class, to_hit_modifier, max_hp, owner_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+		character.Name, character.ArmorClass, character.ToHitModifier, character.MaxHP, character.OwnerID,
 	).Scan(&newID)
 	return newID, err
 }
 
 func (dao *characterDAOImpl) UpdateCharacter(character Character) error {
-	_, err := dao.db.Exec("UPDATE characters SET name = $1, armor_class = $2, max_hp = $3, current_hp = $4, initiative = $5 WHERE id = $6",
-		character.Name, character.ArmorClass, character.MaxHP, character.CurrentHP, character.Initiative, character.ID)
+	_, err := dao.db.Exec("UPDATE characters SET name = $1, armor_class = $2, to_hit_modifier = $3, max_hp = $4, owner_id = $5 WHERE id = $6",
+		character.Name, character.ArmorClass, character.ToHitModifier, character.MaxHP, character.OwnerID, character.ID)
 	return err
 }
 
@@ -105,7 +106,7 @@ func (dao *characterDAOImpl) DeleteCharacter(id int) error {
 
 // Get all characters for a given Discord user
 func (dao *characterDAOImpl) GetAllCharactersByOwner(discordID string) ([]Character, error) {
-	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative, c.owner_id FROM characters c WHERE c.owner_id = $1`, discordID)
+	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.to_hit_modifier, c.max_hp, c.max_hp AS current_hp, 0 AS initiative, false AS is_active, COALESCE(c.owner_id, '') FROM characters c WHERE c.owner_id = $1`, discordID)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +115,7 @@ func (dao *characterDAOImpl) GetAllCharactersByOwner(discordID string) ([]Charac
 	var characters []Character
 	for rows.Next() {
 		var c Character
-		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.OwnerID)
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID)
 		if err != nil {
 			return nil, err
 		}
@@ -125,7 +126,7 @@ func (dao *characterDAOImpl) GetAllCharactersByOwner(discordID string) ([]Charac
 
 // Get all characters for a given encounter and Discord user
 func (dao *characterDAOImpl) GetCharactersByEncounterIDAndOwner(encounterID int, discordID string) ([]Character, error) {
-	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.max_hp, c.current_hp, c.initiative, c.owner_id FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1 AND c.owner_id = $2`, encounterID, discordID)
+	rows, err := dao.db.Query(`SELECT c.id, c.name, c.armor_class, c.to_hit_modifier, c.max_hp, ec.current_hp, ec.initiative, ec.is_active, COALESCE(c.owner_id, '') FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1 AND c.owner_id = $2`, encounterID, discordID)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +135,7 @@ func (dao *characterDAOImpl) GetCharactersByEncounterIDAndOwner(encounterID int,
 	var characters []Character
 	for rows.Next() {
 		var c Character
-		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.OwnerID)
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID)
 		if err != nil {
 			return nil, err
 		}

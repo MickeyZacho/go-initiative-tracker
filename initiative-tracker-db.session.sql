@@ -1,1 +1,0 @@
-UPDATE characters SET initiative = 0;
