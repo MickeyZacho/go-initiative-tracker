@@ -47,6 +47,11 @@ interface LedgerEntry {
 	created_at: string;
 }
 
+interface QuickActionInput {
+	targetId: number;
+	amount: string;
+}
+
 interface CharacterListProps {
 	initialEncounterId?: number | null;
 }
@@ -66,6 +71,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const [logActionType, setLogActionType] = useState<string>("note");
 	const [logHPChange, setLogHPChange] = useState<string>("0");
 	const [logDescription, setLogDescription] = useState<string>("");
+	const [quickActionByActor, setQuickActionByActor] = useState<
+		Record<number, QuickActionInput>
+	>({});
 	const [, setSelected] = useState<number | null>(null);
 	const [isLoading, setIsLoading] = useState<boolean>(false);
 	const [error, setError] = useState<string>("");
@@ -221,28 +229,13 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		}
 		setError("");
 		try {
-			const response = await fetch(apiUrl("/api/encounters/ledger/add"), {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					encounter_id: encounterId,
-					actor_id: logActorId,
-					target_id: logTargetId,
-					action_type: logActionType,
-					hp_change: Number(logHPChange) || 0,
-					description: logDescription.trim(),
-				}),
-			});
-			const payload = await parseJsonResponse<{
-				status?: string;
-				message?: string;
-			}>(response);
-			if (!response.ok || payload.status !== "success") {
-				throw new Error(
-					payload.message || "Failed to add combat log entry",
-				);
-			}
+			await createLedgerEntry(
+				logActorId,
+				logTargetId,
+				logActionType,
+				Number(logHPChange) || 0,
+				logDescription.trim(),
+			);
 			setLogDescription("");
 			setLogHPChange("0");
 			await fetchLedger(encounterId);
@@ -254,6 +247,112 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			);
 		}
 	};
+
+	const createLedgerEntry = useCallback(
+		async (
+			actorID: number,
+			targetID: number,
+			actionType: string,
+			hpChange: number,
+			description: string,
+		) => {
+			const response = await fetch(apiUrl("/api/encounters/ledger/add"), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					encounter_id: encounterId,
+					actor_id: actorID,
+					target_id: targetID,
+					action_type: actionType,
+					hp_change: hpChange,
+					description,
+				}),
+			});
+			const payload = await parseJsonResponse<{
+				status?: string;
+				message?: string;
+			}>(response);
+			if (!response.ok || payload.status !== "success") {
+				throw new Error(
+					payload.message || "Failed to add combat log entry",
+				);
+			}
+		},
+		[encounterId],
+	);
+
+	const handleQuickActionChange = useCallback(
+		(
+			actorID: number,
+			field: keyof QuickActionInput,
+			value: number | string,
+		) => {
+			setQuickActionByActor((prev) => ({
+				...prev,
+				[actorID]: {
+					targetId: prev[actorID]?.targetId ?? 0,
+					amount: prev[actorID]?.amount ?? "1",
+					[field]: value,
+				},
+			}));
+		},
+		[],
+	);
+
+	const applyQuickAction = useCallback(
+		async (actor: Character, actionType: "attack" | "heal") => {
+			if (!encounterId) {
+				return;
+			}
+			const config = quickActionByActor[actor.ID];
+			const targetID = config?.targetId ?? 0;
+			const amount = Number(config?.amount ?? "0");
+			if (!targetID || amount <= 0) {
+				setError("Select a target and enter an amount greater than 0");
+				return;
+			}
+			const target = characters.find((c) => c.ID === targetID);
+			if (!target) {
+				setError("Target not found");
+				return;
+			}
+
+			const newHP =
+				actionType === "attack"
+					? Math.max(0, target.CurrentHP - amount)
+					: Math.min(target.MaxHP, target.CurrentHP + amount);
+			const hpChange = newHP - target.CurrentHP;
+
+			setError("");
+			try {
+				await saveCharacter({ ...target, CurrentHP: newHP });
+				await createLedgerEntry(
+					actor.ID,
+					target.ID,
+					actionType,
+					hpChange,
+					`${actor.Name} ${actionType === "attack" ? "attacks" : "heals"} ${target.Name}`,
+				);
+				await fetchCharacters(encounterId);
+				await fetchLedger(encounterId);
+			} catch (err) {
+				setError(
+					err instanceof Error
+						? err.message
+						: "Failed to apply combat action",
+				);
+			}
+		},
+		[
+			characters,
+			createLedgerEntry,
+			encounterId,
+			fetchCharacters,
+			fetchLedger,
+			quickActionByActor,
+		],
+	);
 
 	const addCharacter = () => {
 		const newId = Date.now();
@@ -477,6 +576,28 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		}
 	}, [characters, logActorId, logTargetId]);
 
+	useEffect(() => {
+		setQuickActionByActor((prev) => {
+			const next: Record<number, QuickActionInput> = {};
+			for (const actor of characters) {
+				const existing = prev[actor.ID];
+				const fallbackTarget =
+					characters.find((c) => c.ID !== actor.ID)?.ID ?? 0;
+				const validTarget =
+					existing &&
+					existing.targetId !== actor.ID &&
+					characters.some((c) => c.ID === existing.targetId)
+						? existing.targetId
+						: fallbackTarget;
+				next[actor.ID] = {
+					targetId: validTarget,
+					amount: existing?.amount ?? "1",
+				};
+			}
+			return next;
+		});
+	}, [characters]);
+
 	// Spacebar triggers nextCharacter
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -588,6 +709,105 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 												}
 											>
 												Remove
+											</Button>
+											<FormControl
+												size="small"
+												sx={{ minWidth: 140 }}
+											>
+												<InputLabel
+													id={`target-label-${character.ID}`}
+												>
+													Target
+												</InputLabel>
+												<Select
+													size="small"
+													labelId={`target-label-${character.ID}`}
+													label="Target"
+													value={String(
+														quickActionByActor[
+															character.ID
+														]?.targetId ?? 0,
+													)}
+													onChange={(
+														event: SelectChangeEvent,
+													) =>
+														handleQuickActionChange(
+															character.ID,
+															"targetId",
+															Number(
+																event.target
+																	.value,
+															),
+														)
+													}
+												>
+													{characters
+														.filter(
+															(c) =>
+																c.ID !==
+																character.ID,
+														)
+														.map((targetChar) => (
+															<MenuItem
+																key={
+																	targetChar.ID
+																}
+																value={String(
+																	targetChar.ID,
+																)}
+															>
+																{
+																	targetChar.Name
+																}
+															</MenuItem>
+														))}
+												</Select>
+											</FormControl>
+											<TextField
+												size="small"
+												type="number"
+												label="Amount"
+												value={
+													quickActionByActor[
+														character.ID
+													]?.amount ?? "1"
+												}
+												onChange={(event) =>
+													handleQuickActionChange(
+														character.ID,
+														"amount",
+														event.target.value,
+													)
+												}
+												sx={{ width: 100 }}
+											/>
+											<Button
+												size="small"
+												color="error"
+												variant="contained"
+												onClick={() =>
+													applyQuickAction(
+														character,
+														"attack",
+													)
+												}
+												disabled={characters.length < 2}
+											>
+												Attack
+											</Button>
+											<Button
+												size="small"
+												color="success"
+												variant="contained"
+												onClick={() =>
+													applyQuickAction(
+														character,
+														"heal",
+													)
+												}
+												disabled={characters.length < 2}
+											>
+												Heal
 											</Button>
 										</Stack>
 									</div>
