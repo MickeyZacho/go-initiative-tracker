@@ -33,6 +33,23 @@ var templates *template.Template
 var frontendURL string
 var allowedOrigins map[string]bool
 
+func isAllowedOrigin(origin string) bool {
+	origin = strings.TrimSpace(strings.TrimRight(origin, "/"))
+	if origin == "" {
+		return false
+	}
+	if allowedOrigins[origin] {
+		return true
+	}
+	if strings.HasPrefix(origin, "http://localhost:") ||
+		strings.HasPrefix(origin, "http://127.0.0.1:") ||
+		strings.HasPrefix(origin, "https://localhost:") ||
+		strings.HasPrefix(origin, "https://127.0.0.1:") {
+		return true
+	}
+	return false
+}
+
 var discordEndpoint = oauth2.Endpoint{
 	AuthURL:  "https://discord.com/api/oauth2/authorize",
 	TokenURL: "https://discord.com/api/oauth2/token",
@@ -100,7 +117,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	log.Printf("Logging middleware initialized")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := strings.TrimSpace(r.Header.Get("Origin"))
-		if origin != "" && allowedOrigins[origin] {
+		if origin != "" && isAllowedOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -108,7 +125,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		}
 		if r.Method == http.MethodOptions {
-			if origin != "" && !allowedOrigins[origin] {
+			if origin != "" && !isAllowedOrigin(origin) {
 				http.Error(w, "Origin not allowed", http.StatusForbidden)
 				return
 			}
@@ -804,6 +821,7 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		EncounterID int `json:"encounter_id"`
 		CharacterID int `json:"character_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -816,13 +834,22 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid character id"})
 		return
 	}
-	if selectedEncounterID == 0 {
+	encounterID := req.EncounterID
+	if encounterID <= 0 {
+		encounterID = selectedEncounterID
+	}
+	if encounterID <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "No encounter selected"})
 		return
 	}
-	err := encounterDAO.AddCharacterToEncounter(selectedEncounterID, req.CharacterID)
+	err := encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Character is already in this encounter"})
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to add character to encounter"})
 		return
@@ -839,6 +866,7 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req struct {
+		EncounterID int `json:"encounter_id"`
 		CharacterID int `json:"character_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -851,12 +879,16 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid character id"})
 		return
 	}
-	if selectedEncounterID == 0 {
+	encounterID := req.EncounterID
+	if encounterID <= 0 {
+		encounterID = selectedEncounterID
+	}
+	if encounterID <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "No encounter selected"})
 		return
 	}
-	err := encounterDAO.RemoveCharacterFromEncounter(selectedEncounterID, req.CharacterID)
+	err := encounterDAO.RemoveCharacterFromEncounter(encounterID, req.CharacterID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to remove character from encounter"})

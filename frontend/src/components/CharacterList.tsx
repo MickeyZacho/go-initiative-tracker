@@ -33,13 +33,29 @@ interface Encounter {
 	Name: string;
 }
 
-export const CharacterList: React.FC = () => {
+interface CharacterListProps {
+	initialEncounterId?: number | null;
+}
+
+export const CharacterList: React.FC<CharacterListProps> = ({
+	initialEncounterId,
+}) => {
 	const [encounters, setEncounters] = useState<Encounter[]>([]);
 	const [encounterId, setEncounterId] = useState<number>(0);
 	const [characters, setCharacters] = useState<Character[]>([]);
+	const [combatStartedByEncounter, setCombatStartedByEncounter] = useState<
+		Record<number, boolean>
+	>({});
+	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
+	const [selectedAddCharacterId, setSelectedAddCharacterId] =
+		useState<number>(0);
 	const [, setSelected] = useState<number | null>(null);
 	const [isLoading, setIsLoading] = useState<boolean>(false);
 	const [error, setError] = useState<string>("");
+	const combatStarted =
+		encounterId > 0
+			? Boolean(combatStartedByEncounter[encounterId])
+			: false;
 
 	const fetchCharacters = useCallback(async (encId: number) => {
 		setIsLoading(true);
@@ -87,8 +103,13 @@ export const CharacterList: React.FC = () => {
 			const data: Encounter[] = Array.isArray(payload) ? payload : [];
 			setEncounters(data);
 			if (data.length > 0) {
-				setEncounterId(data[0].ID);
-				await fetchCharacters(data[0].ID);
+				const preferredEncounterId =
+					initialEncounterId &&
+					data.some((enc) => enc.ID === initialEncounterId)
+						? initialEncounterId
+						: data[0].ID;
+				setEncounterId(preferredEncounterId);
+				await fetchCharacters(preferredEncounterId);
 			} else {
 				setEncounterId(0);
 				setCharacters([]);
@@ -104,11 +125,45 @@ export const CharacterList: React.FC = () => {
 		} finally {
 			setIsLoading(false);
 		}
-	}, [fetchCharacters]);
+	}, [fetchCharacters, initialEncounterId]);
+
+	const fetchLibraryCharacters = useCallback(async () => {
+		try {
+			const response = await fetch(apiUrl("/api/characters/library"), {
+				credentials: "include",
+			});
+			if (!response.ok) {
+				throw new Error("Failed to fetch character library");
+			}
+			const payload = await parseJsonResponse<unknown>(response);
+			const data: Character[] = Array.isArray(payload) ? payload : [];
+			setLibraryCharacters(data);
+			if (data.length > 0) {
+				setSelectedAddCharacterId(data[0].ID);
+			}
+		} catch {
+			setLibraryCharacters([]);
+		}
+	}, []);
 
 	useEffect(() => {
 		fetchEncounters();
-	}, [fetchEncounters]);
+		fetchLibraryCharacters();
+	}, [fetchEncounters, fetchLibraryCharacters]);
+
+	useEffect(() => {
+		const available = libraryCharacters.filter(
+			(libChar) =>
+				!characters.some((encChar) => encChar.ID === libChar.ID),
+		);
+		if (available.length === 0) {
+			setSelectedAddCharacterId(0);
+			return;
+		}
+		if (!available.some((c) => c.ID === selectedAddCharacterId)) {
+			setSelectedAddCharacterId(available[0].ID);
+		}
+	}, [libraryCharacters, characters, selectedAddCharacterId]);
 
 	const handleEncounterChange = async (event: SelectChangeEvent) => {
 		const newId = Number(event.target.value);
@@ -164,7 +219,10 @@ export const CharacterList: React.FC = () => {
 				method: "POST",
 				credentials: "include",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ character_id: characterID }),
+				body: JSON.stringify({
+					encounter_id: encounterId,
+					character_id: characterID,
+				}),
 			},
 		);
 		const data = await parseJsonResponse<{
@@ -175,6 +233,43 @@ export const CharacterList: React.FC = () => {
 			throw new Error(data.message || "Failed to remove character");
 		}
 		await fetchCharacters(encounterId);
+	};
+
+	const addExistingCharacterToEncounter = async () => {
+		if (!encounterId || !selectedAddCharacterId) {
+			return;
+		}
+		setError("");
+		try {
+			const response = await fetch(
+				apiUrl("/add-character-to-encounter"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						encounter_id: encounterId,
+						character_id: selectedAddCharacterId,
+					}),
+				},
+			);
+			const data = await parseJsonResponse<{
+				status?: string;
+				message?: string;
+			}>(response);
+			if (!response.ok || data.status !== "success") {
+				throw new Error(
+					data.message || "Failed to add character to encounter",
+				);
+			}
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setError(
+				err instanceof Error
+					? err.message
+					: "Failed to add character to encounter",
+			);
+		}
 	};
 
 	const nextCharacter = () => {
@@ -196,9 +291,30 @@ export const CharacterList: React.FC = () => {
 		setSelected(nextId);
 	};
 
+	const handleStartCombat = () => {
+		if (!encounterId || characters.length === 0) return;
+		setCombatStartedByEncounter((prev) => ({
+			...prev,
+			[encounterId]: true,
+		}));
+	};
+
+	const handleBackToSetup = () => {
+		if (!encounterId) return;
+		setCombatStartedByEncounter((prev) => ({
+			...prev,
+			[encounterId]: false,
+		}));
+	};
+
+	const availableLibraryCharacters = libraryCharacters.filter(
+		(libChar) => !characters.some((encChar) => encChar.ID === libChar.ID),
+	);
+
 	// Spacebar triggers nextCharacter
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
+			if (!combatStarted) return;
 			if (
 				e.code === "Space" &&
 				!(
@@ -212,7 +328,7 @@ export const CharacterList: React.FC = () => {
 		};
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [nextCharacter, characters, encounterId]);
+	}, [nextCharacter, characters, encounterId, combatStarted]);
 
 	return (
 		<Box display="flex" justifyContent="center" alignItems="center">
@@ -258,6 +374,15 @@ export const CharacterList: React.FC = () => {
 							letterSpacing={1}
 						>
 							Characters
+						</Typography>
+						<Typography
+							color={
+								combatStarted
+									? "success.main"
+									: "text.secondary"
+							}
+						>
+							Status: {combatStarted ? "In Combat" : "Setup"}
 						</Typography>
 						<Stack spacing={2}>
 							{[...characters]
@@ -309,6 +434,66 @@ export const CharacterList: React.FC = () => {
 							alignItems="center"
 							mt={2}
 						>
+							<FormControl sx={{ minWidth: 240 }}>
+								<InputLabel id="add-existing-character-label">
+									Add Existing Character
+								</InputLabel>
+								<Select
+									labelId="add-existing-character-label"
+									value={
+										selectedAddCharacterId
+											? String(selectedAddCharacterId)
+											: ""
+									}
+									label="Add Existing Character"
+									onChange={(event: SelectChangeEvent) =>
+										setSelectedAddCharacterId(
+											Number(event.target.value),
+										)
+									}
+								>
+									{availableLibraryCharacters.map(
+										(libChar) => (
+											<MenuItem
+												key={libChar.ID}
+												value={String(libChar.ID)}
+											>
+												{libChar.Name}
+											</MenuItem>
+										),
+									)}
+								</Select>
+							</FormControl>
+							<Button
+								variant="outlined"
+								onClick={addExistingCharacterToEncounter}
+								disabled={
+									!encounterId ||
+									!selectedAddCharacterId ||
+									availableLibraryCharacters.length === 0
+								}
+							>
+								Add to Encounter
+							</Button>
+							<Button
+								variant={
+									combatStarted ? "outlined" : "contained"
+								}
+								color={combatStarted ? "inherit" : "warning"}
+								onClick={
+									combatStarted
+										? handleBackToSetup
+										: handleStartCombat
+								}
+								disabled={
+									!encounterId ||
+									(!combatStarted && characters.length === 0)
+								}
+							>
+								{combatStarted
+									? "Back to Setup"
+									: "Start Combat"}
+							</Button>
 							<Button
 								variant="contained"
 								color="success"
@@ -326,7 +511,11 @@ export const CharacterList: React.FC = () => {
 								variant="contained"
 								color="primary"
 								onClick={nextCharacter}
-								disabled={isLoading}
+								disabled={
+									isLoading ||
+									!combatStarted ||
+									characters.length === 0
+								}
 								sx={{
 									fontWeight: 600,
 									fontSize: "1rem",

@@ -22,7 +22,13 @@ interface Encounter {
 	OwnerID: string;
 }
 
-export default function EncountersPage() {
+interface EncountersPageProps {
+	onOpenEncounter: (encounterId: number) => void;
+}
+
+export default function EncountersPage({
+	onOpenEncounter,
+}: EncountersPageProps) {
 	const [encounters, setEncounters] = useState<Encounter[]>([]);
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
@@ -159,16 +165,31 @@ export default function EncountersPage() {
 								<TableCell>{encounter.Name}</TableCell>
 								<TableCell>{encounter.Description}</TableCell>
 								<TableCell align="right">
-									<Button
-										size="small"
-										color="error"
-										variant="outlined"
-										onClick={() =>
-											handleDelete(encounter.ID)
-										}
+									<Stack
+										direction="row"
+										spacing={1}
+										justifyContent="flex-end"
 									>
-										Delete
-									</Button>
+										<Button
+											size="small"
+											variant="contained"
+											onClick={() =>
+												onOpenEncounter(encounter.ID)
+											}
+										>
+											Open
+										</Button>
+										<Button
+											size="small"
+											color="error"
+											variant="outlined"
+											onClick={() =>
+												handleDelete(encounter.ID)
+											}
+										>
+											Delete
+										</Button>
+									</Stack>
 								</TableCell>
 							</TableRow>
 						))}

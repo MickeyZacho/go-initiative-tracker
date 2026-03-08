@@ -9,6 +9,14 @@ function App() {
 	const [view, setView] = useState<"combat" | "characters" | "encounters">(
 		"characters",
 	);
+	const [selectedEncounterId, setSelectedEncounterId] = useState<
+		number | null
+	>(null);
+
+	const handleOpenEncounter = (encounterId: number) => {
+		setSelectedEncounterId(encounterId);
+		setView("combat");
+	};
 
 	return (
 		<div style={{ padding: "2rem" }}>
@@ -35,8 +43,12 @@ function App() {
 				</Button>
 			</Stack>
 			{view === "characters" && <CharactersPage />}
-			{view === "encounters" && <EncountersPage />}
-			{view === "combat" && <CharacterList />}
+			{view === "encounters" && (
+				<EncountersPage onOpenEncounter={handleOpenEncounter} />
+			)}
+			{view === "combat" && (
+				<CharacterList initialEncounterId={selectedEncounterId} />
+			)}
 		</div>
 	);
 }
