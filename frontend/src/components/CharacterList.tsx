@@ -78,6 +78,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const [isLoading, setIsLoading] = useState<boolean>(false);
 	const [error, setError] = useState<string>("");
 	const combatStarted = characters.some((c) => c.IsActive);
+	const activeCharacter = characters.find((c) => c.IsActive) ?? null;
 
 	const fetchLedger = useCallback(async (encId: number) => {
 		if (!encId) {
@@ -307,7 +308,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			}
 			const config = quickActionByActor[actor.ID];
 			const targetID = config?.targetId ?? 0;
-			const amount = Number(config?.amount ?? "0");
+			const amount = Math.floor(Number(config?.amount ?? "0"));
 			if (!targetID || amount <= 0) {
 				setError("Select a target and enter an amount greater than 0");
 				return;
@@ -354,7 +355,25 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		],
 	);
 
+	const handleQuickAmountKeyDown = useCallback(
+		(event: React.KeyboardEvent<HTMLElement>, actor: Character) => {
+			if (event.key !== "Enter") {
+				return;
+			}
+			event.preventDefault();
+			if (event.shiftKey) {
+				void applyQuickAction(actor, "heal");
+				return;
+			}
+			void applyQuickAction(actor, "attack");
+		},
+		[applyQuickAction],
+	);
+
 	const addCharacter = () => {
+		if (combatStarted) {
+			return;
+		}
 		const newId = Date.now();
 		setCharacters((prev) => [
 			...prev,
@@ -419,7 +438,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	};
 
 	const addExistingCharacterToEncounter = async () => {
-		if (!encounterId || !selectedAddCharacterId) {
+		if (combatStarted || !encounterId || !selectedAddCharacterId) {
 			return;
 		}
 		setError("");
@@ -582,10 +601,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			for (const actor of characters) {
 				const existing = prev[actor.ID];
 				const fallbackTarget =
-					characters.find((c) => c.ID !== actor.ID)?.ID ?? 0;
+					characters.find((c) => c.ID !== actor.ID)?.ID ?? actor.ID;
 				const validTarget =
 					existing &&
-					existing.targetId !== actor.ID &&
 					characters.some((c) => c.ID === existing.targetId)
 						? existing.targetId
 						: fallbackTarget;
@@ -671,147 +689,241 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						>
 							Status: {combatStarted ? "In Combat" : "Setup"}
 						</Typography>
+						{combatStarted && activeCharacter && (
+							<Typography color="primary" fontWeight={600}>
+								Current Turn: {activeCharacter.Name}
+							</Typography>
+						)}
 						<Stack spacing={2}>
 							{[...characters]
 								.sort((a, b) => b.Initiative - a.Initiative)
-								.map((character) => (
-									<div
-										style={{ width: "100%" }}
-										key={character.ID}
-									>
-										<CharacterRow
-											character={character}
-											setCharacters={setCharacters}
-											setSelected={setSelected}
-										/>
-										<Stack
-											direction="row"
-											spacing={1}
-											mt={1}
+								.map((character) => {
+									const quickConfig =
+										quickActionByActor[character.ID];
+									const quickTargetID =
+										quickConfig?.targetId ?? 0;
+									const quickAmountRaw =
+										quickConfig?.amount ?? "1";
+									const quickAmount = Math.floor(
+										Number(quickAmountRaw),
+									);
+									const targetCharacter = characters.find(
+										(c) => c.ID === quickTargetID,
+									);
+									const hasValidTarget =
+										Boolean(targetCharacter);
+									const hasValidAmount =
+										Number.isFinite(quickAmount) &&
+										quickAmount > 0;
+									const attackPreviewHP = targetCharacter
+										? Math.max(
+												0,
+												targetCharacter.CurrentHP -
+													quickAmount,
+											)
+										: 0;
+									const healPreviewHP = targetCharacter
+										? Math.min(
+												targetCharacter.MaxHP,
+												targetCharacter.CurrentHP +
+													quickAmount,
+											)
+										: 0;
+									const rowValidationMessage = !hasValidTarget
+										? "Pick a valid target"
+										: !hasValidAmount
+											? "Amount must be greater than 0"
+											: "";
+
+									return (
+										<div
+											style={{ width: "100%" }}
+											key={character.ID}
 										>
-											<Button
-												size="small"
-												variant="contained"
-												onClick={() =>
-													saveCharacter(character)
-												}
-											>
-												Save
-											</Button>
-											<Button
-												size="small"
-												color="error"
-												variant="outlined"
-												onClick={() =>
-													removeCharacter(
-														character.ID,
-													)
-												}
-											>
-												Remove
-											</Button>
-											<FormControl
-												size="small"
-												sx={{ minWidth: 140 }}
-											>
-												<InputLabel
-													id={`target-label-${character.ID}`}
-												>
-													Target
-												</InputLabel>
-												<Select
-													size="small"
-													labelId={`target-label-${character.ID}`}
-													label="Target"
-													value={String(
-														quickActionByActor[
-															character.ID
-														]?.targetId ?? 0,
-													)}
-													onChange={(
-														event: SelectChangeEvent,
-													) =>
-														handleQuickActionChange(
-															character.ID,
-															"targetId",
-															Number(
-																event.target
-																	.value,
-															),
-														)
-													}
-												>
-													{characters
-														.filter(
-															(c) =>
-																c.ID !==
-																character.ID,
-														)
-														.map((targetChar) => (
-															<MenuItem
-																key={
-																	targetChar.ID
-																}
-																value={String(
-																	targetChar.ID,
-																)}
-															>
-																{
-																	targetChar.Name
-																}
-															</MenuItem>
-														))}
-												</Select>
-											</FormControl>
-											<TextField
-												size="small"
-												type="number"
-												label="Amount"
-												value={
-													quickActionByActor[
-														character.ID
-													]?.amount ?? "1"
-												}
-												onChange={(event) =>
-													handleQuickActionChange(
-														character.ID,
-														"amount",
-														event.target.value,
-													)
-												}
-												sx={{ width: 100 }}
+											<CharacterRow
+												character={character}
+												setCharacters={setCharacters}
+												setSelected={setSelected}
 											/>
-											<Button
-												size="small"
-												color="error"
-												variant="contained"
-												onClick={() =>
-													applyQuickAction(
-														character,
-														"attack",
-													)
-												}
-												disabled={characters.length < 2}
+											<Stack
+												direction="row"
+												spacing={1}
+												useFlexGap
+												flexWrap="wrap"
+												alignItems="center"
+												mt={1}
 											>
-												Attack
-											</Button>
-											<Button
-												size="small"
-												color="success"
-												variant="contained"
-												onClick={() =>
-													applyQuickAction(
-														character,
-														"heal",
-													)
-												}
-												disabled={characters.length < 2}
-											>
-												Heal
-											</Button>
-										</Stack>
-									</div>
-								))}
+												{!combatStarted && (
+													<>
+														<Button
+															size="small"
+															variant="contained"
+															onClick={() =>
+																saveCharacter(
+																	character,
+																)
+															}
+														>
+															Save
+														</Button>
+														<Button
+															size="small"
+															color="error"
+															variant="outlined"
+															onClick={() =>
+																removeCharacter(
+																	character.ID,
+																)
+															}
+														>
+															Remove
+														</Button>
+													</>
+												)}
+												{combatStarted && (
+													<>
+														<FormControl
+															size="small"
+															sx={{
+																minWidth: 140,
+															}}
+														>
+															<InputLabel
+																id={`target-label-${character.ID}`}
+															>
+																Target
+															</InputLabel>
+															<Select
+																size="small"
+																labelId={`target-label-${character.ID}`}
+																label="Target"
+																value={String(
+																	quickActionByActor[
+																		character
+																			.ID
+																	]
+																		?.targetId ??
+																		0,
+																)}
+																onChange={(
+																	event: SelectChangeEvent,
+																) =>
+																	handleQuickActionChange(
+																		character.ID,
+																		"targetId",
+																		Number(
+																			event
+																				.target
+																				.value,
+																		),
+																	)
+																}
+															>
+																{characters.map(
+																	(
+																		targetChar,
+																	) => (
+																		<MenuItem
+																			key={
+																				targetChar.ID
+																			}
+																			value={String(
+																				targetChar.ID,
+																			)}
+																		>
+																			{
+																				targetChar.Name
+																			}
+																		</MenuItem>
+																	),
+																)}
+															</Select>
+														</FormControl>
+														<TextField
+															size="small"
+															type="number"
+															label="Amount"
+															value={
+																quickAmountRaw
+															}
+															onChange={(event) =>
+																handleQuickActionChange(
+																	character.ID,
+																	"amount",
+																	event.target
+																		.value,
+																)
+															}
+															onKeyDown={(
+																event,
+															) =>
+																handleQuickAmountKeyDown(
+																	event,
+																	character,
+																)
+															}
+															sx={{ width: 100 }}
+														/>
+														<Button
+															size="small"
+															color="error"
+															variant="contained"
+															onClick={() =>
+																applyQuickAction(
+																	character,
+																	"attack",
+																)
+															}
+															disabled={
+																!hasValidTarget ||
+																!hasValidAmount
+															}
+														>
+															Attack
+														</Button>
+														<Button
+															size="small"
+															color="success"
+															variant="contained"
+															onClick={() =>
+																applyQuickAction(
+																	character,
+																	"heal",
+																)
+															}
+															disabled={
+																!hasValidTarget ||
+																!hasValidAmount
+															}
+														>
+															Heal
+														</Button>
+													</>
+												)}
+											</Stack>
+											{combatStarted && (
+												<Typography
+													variant="caption"
+													color={
+														rowValidationMessage
+															? "error"
+															: "text.secondary"
+													}
+													sx={{
+														display: "block",
+														mt: 0.5,
+													}}
+												>
+													{rowValidationMessage
+														? rowValidationMessage
+														: targetCharacter
+															? `Preview: ${targetCharacter.Name} HP ${targetCharacter.CurrentHP} → ${attackPreviewHP} (Attack) / ${healPreviewHP} (Heal)  • Enter = Attack, Shift+Enter = Heal`
+															: "Select a target to preview result"}
+												</Typography>
+											)}
+										</div>
+									);
+								})}
 						</Stack>
 						<Stack
 							direction="row"
@@ -820,47 +932,60 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 							alignItems="center"
 							mt={2}
 						>
-							<FormControl sx={{ minWidth: 240 }}>
-								<InputLabel id="add-existing-character-label">
-									Add Existing Character
-								</InputLabel>
-								<Select
-									labelId="add-existing-character-label"
-									value={
-										selectedAddCharacterId
-											? String(selectedAddCharacterId)
-											: ""
-									}
-									label="Add Existing Character"
-									onChange={(event: SelectChangeEvent) =>
-										setSelectedAddCharacterId(
-											Number(event.target.value),
-										)
-									}
-								>
-									{availableLibraryCharacters.map(
-										(libChar) => (
-											<MenuItem
-												key={libChar.ID}
-												value={String(libChar.ID)}
-											>
-												{libChar.Name}
-											</MenuItem>
-										),
-									)}
-								</Select>
-							</FormControl>
-							<Button
-								variant="outlined"
-								onClick={addExistingCharacterToEncounter}
-								disabled={
-									!encounterId ||
-									!selectedAddCharacterId ||
-									availableLibraryCharacters.length === 0
-								}
-							>
-								Add to Encounter
-							</Button>
+							{!combatStarted && (
+								<>
+									<FormControl sx={{ minWidth: 240 }}>
+										<InputLabel id="add-existing-character-label">
+											Add Existing Character
+										</InputLabel>
+										<Select
+											labelId="add-existing-character-label"
+											value={
+												selectedAddCharacterId
+													? String(
+															selectedAddCharacterId,
+														)
+													: ""
+											}
+											label="Add Existing Character"
+											onChange={(
+												event: SelectChangeEvent,
+											) =>
+												setSelectedAddCharacterId(
+													Number(event.target.value),
+												)
+											}
+										>
+											{availableLibraryCharacters.map(
+												(libChar) => (
+													<MenuItem
+														key={libChar.ID}
+														value={String(
+															libChar.ID,
+														)}
+													>
+														{libChar.Name}
+													</MenuItem>
+												),
+											)}
+										</Select>
+									</FormControl>
+									<Button
+										variant="outlined"
+										onClick={
+											addExistingCharacterToEncounter
+										}
+										disabled={
+											!encounterId ||
+											!selectedAddCharacterId ||
+											availableLibraryCharacters.length ===
+												0
+										}
+									>
+										Add to Encounter
+									</Button>
+								</>
+							)}
 							<Button
 								variant={
 									combatStarted ? "outlined" : "contained"
@@ -884,6 +1009,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								variant="contained"
 								color="success"
 								onClick={addCharacter}
+								disabled={combatStarted}
 								sx={{
 									fontWeight: 600,
 									fontSize: "1rem",
