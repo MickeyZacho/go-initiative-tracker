@@ -1,1 +1,0 @@
-// Drag-and-drop ordering and character actions are now handled by Alpine.js and SortableJS integration in character-list.html

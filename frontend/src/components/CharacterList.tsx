@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { CharacterRow } from "./CharacterRow";
 import {
 	Card,
@@ -18,6 +18,7 @@ export interface Character {
 	ID: number;
 	Name: string;
 	ArmorClass: number;
+	ToHitModifier?: number;
 	MaxHP: number;
 	CurrentHP: number;
 	Initiative: number;
@@ -25,89 +26,148 @@ export interface Character {
 	OwnerID: string;
 }
 
-interface CharacterListProps {
-	initialCharacters: Character[];
-	enemies: Character[];
+interface Encounter {
+	ID: number;
+	Name: string;
 }
 
-export const CharacterList: React.FC<CharacterListProps> = ({
-	initialCharacters,
-	enemies,
-}) => {
-	// Enemy selector state
-	const [selectedEnemyId, setSelectedEnemyId] = useState<string>(
-		enemies[0]?.ID ? String(enemies[0].ID) : ""
-	);
-	// Encounter switcher state (demo encounters)
-	const [encounterId, setEncounterId] = useState<number>(1);
-	const encounters = [
-		{ id: 1, name: "Goblin Ambush" },
-		{ id: 2, name: "Dragon's Lair" },
-		{ id: 3, name: "Bandit Camp" },
-	];
-
-	// Characters state is now encounter-specific
-	const [charactersByEncounter, setCharactersByEncounter] = useState<
-		Record<number, Character[]>
-	>({
-		1: initialCharacters,
-		2: initialCharacters.slice(0, 2),
-		3: initialCharacters.slice(2),
-	});
-	const characters = charactersByEncounter[encounterId] || [];
+export const CharacterList: React.FC = () => {
+	const [encounters, setEncounters] = useState<Encounter[]>([]);
+	const [encounterId, setEncounterId] = useState<number>(0);
+	const [characters, setCharacters] = useState<Character[]>([]);
 	const [, setSelected] = useState<number | null>(null);
+	const [isLoading, setIsLoading] = useState<boolean>(false);
+	const [error, setError] = useState<string>("");
 
-	// Placeholder for fetching characters for an encounter
-	const fetchCharacters = (encId: number) => {
-		// TODO: Replace with real API call
-		// Simulate fetch by keeping state for now
-		// setCharactersByEncounter({ ...charactersByEncounter, [encId]: fetchedCharacters });
-	};
+	const fetchCharacters = useCallback(async (encId: number) => {
+		setIsLoading(true);
+		setError("");
+		try {
+			await fetch("/api/select-encounter", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ id: encId }),
+			});
+			const response = await fetch(
+				`/api/characters?encounter_id=${encId}`,
+			);
+			if (!response.ok) {
+				throw new Error("Failed to fetch characters");
+			}
+			const payload = await response.json();
+			const data: Character[] = Array.isArray(payload) ? payload : [];
+			setCharacters(data);
+		} catch (err) {
+			setError(
+				err instanceof Error
+					? err.message
+					: "Failed to fetch characters",
+			);
+			setCharacters([]);
+		} finally {
+			setIsLoading(false);
+		}
+	}, []);
 
-	// When encounter changes, fetch characters (future-proof)
-	const handleEncounterChange = (event: SelectChangeEvent) => {
+	const fetchEncounters = useCallback(async () => {
+		setIsLoading(true);
+		setError("");
+		try {
+			const response = await fetch("/api/encounters");
+			if (!response.ok) {
+				throw new Error("Failed to fetch encounters");
+			}
+			const payload = await response.json();
+			const data: Encounter[] = Array.isArray(payload) ? payload : [];
+			setEncounters(data);
+			if (data.length > 0) {
+				setEncounterId(data[0].ID);
+				await fetchCharacters(data[0].ID);
+			} else {
+				setEncounterId(0);
+				setCharacters([]);
+			}
+		} catch (err) {
+			setError(
+				err instanceof Error
+					? err.message
+					: "Failed to fetch encounters",
+			);
+			setEncounters([]);
+			setCharacters([]);
+		} finally {
+			setIsLoading(false);
+		}
+	}, [fetchCharacters]);
+
+	useEffect(() => {
+		fetchEncounters();
+	}, [fetchEncounters]);
+
+	const handleEncounterChange = async (event: SelectChangeEvent) => {
 		const newId = Number(event.target.value);
 		setEncounterId(newId);
-		fetchCharacters(newId);
+		await fetchCharacters(newId);
 	};
 
 	const addCharacter = () => {
 		const newId = Date.now();
-		const updated = [
-			...characters,
+		setCharacters((prev) => [
+			...prev,
 			{
 				ID: newId,
 				Name: "",
-				ArmorClass: 0,
-				MaxHP: 0,
-				CurrentHP: 0,
+				ArmorClass: 10,
+				ToHitModifier: 0,
+				MaxHP: 10,
+				CurrentHP: 10,
 				Initiative: 0,
 				IsActive: false,
 				OwnerID: "",
 			},
-		];
-		setCharactersByEncounter((prev) => ({
-			...prev,
-			[encounterId]: updated,
-		}));
+		]);
 	};
 
-	const addEnemyToEncounter = () => {
-		const enemy = enemies.find((e) => String(e.ID) === selectedEnemyId);
-		if (!enemy) return;
-		// Clone enemy with new ID to avoid duplicates
-		const newEnemy = { ...enemy, ID: Date.now() };
-		setCharactersByEncounter((prev) => ({
-			...prev,
-			[encounterId]: [...characters, newEnemy],
-		}));
+	const saveCharacter = async (character: Character) => {
+		const idToSend = character.ID > 2147483647 ? 0 : character.ID;
+		const response = await fetch("/save-character", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				id: idToSend,
+				name: character.Name,
+				armorClass: Number(character.ArmorClass),
+				maxHP: Number(character.MaxHP),
+				currentHP: Number(character.CurrentHP),
+				initiative: Number(character.Initiative),
+				toHitModifier: Number(character.ToHitModifier ?? 0),
+				isActive: Boolean(character.IsActive),
+			}),
+		});
+		if (!response.ok) {
+			throw new Error("Failed to save character");
+		}
+		await fetchCharacters(encounterId);
+	};
+
+	const removeCharacter = async (characterID: number) => {
+		const response = await fetch("/remove-character-from-encounter", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ character_id: characterID }),
+		});
+		const data = await response.json();
+		if (!response.ok || data.status !== "success") {
+			throw new Error(data.message || "Failed to remove character");
+		}
+		await fetchCharacters(encounterId);
 	};
 
 	const nextCharacter = () => {
 		if (characters.length === 0) return;
 		// Always use sorted list for cycling
 		const sorted = [...characters].sort(
-			(a, b) => b.Initiative - a.Initiative
+			(a, b) => b.Initiative - a.Initiative,
 		);
 		const currentIdx = sorted.findIndex((c) => c.IsActive);
 		let nextIdx = currentIdx + 1;
@@ -118,10 +178,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			...c,
 			IsActive: c.ID === nextId,
 		}));
-		setCharactersByEncounter((prev) => ({
-			...prev,
-			[encounterId]: updated,
-		}));
+		setCharacters(updated);
 		setSelected(nextId);
 	};
 
@@ -169,14 +226,17 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 							>
 								{encounters.map((enc) => (
 									<MenuItem
-										key={enc.id}
-										value={String(enc.id)}
+										key={enc.ID}
+										value={String(enc.ID)}
 									>
-										{enc.name}
+										{enc.Name}
 									</MenuItem>
 								))}
 							</Select>
 						</FormControl>
+						{error && (
+							<Typography color="error">{error}</Typography>
+						)}
 						<Typography
 							variant="h4"
 							color="primary"
@@ -195,24 +255,36 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 									>
 										<CharacterRow
 											character={character}
-											setCharacters={(chars) =>
-												setCharactersByEncounter(
-													(prev) => ({
-														...prev,
-														[encounterId]:
-															typeof chars ===
-															"function"
-																? chars(
-																		prev[
-																			encounterId
-																		] || []
-																  )
-																: chars,
-													})
-												)
-											}
+											setCharacters={setCharacters}
 											setSelected={setSelected}
 										/>
+										<Stack
+											direction="row"
+											spacing={1}
+											mt={1}
+										>
+											<Button
+												size="small"
+												variant="contained"
+												onClick={() =>
+													saveCharacter(character)
+												}
+											>
+												Save
+											</Button>
+											<Button
+												size="small"
+												color="error"
+												variant="outlined"
+												onClick={() =>
+													removeCharacter(
+														character.ID,
+													)
+												}
+											>
+												Remove
+											</Button>
+										</Stack>
 									</div>
 								))}
 						</Stack>
@@ -240,6 +312,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								variant="contained"
 								color="primary"
 								onClick={nextCharacter}
+								disabled={isLoading}
 								sx={{
 									fontWeight: 600,
 									fontSize: "1rem",
@@ -250,51 +323,11 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								Next Character
 							</Button>
 						</Stack>
-						<Stack
-							direction="row"
-							spacing={2}
-							justifyContent="center"
-							alignItems="center"
-							mt={2}
-						>
-							<FormControl
-								variant="outlined"
-								sx={{ minWidth: 120 }}
-							>
-								<InputLabel id="enemy-label">Enemy</InputLabel>
-								<Select
-									labelId="enemy-label"
-									value={selectedEnemyId}
-									label="Enemy"
-									onChange={(event: SelectChangeEvent) =>
-										setSelectedEnemyId(event.target.value)
-									}
-									sx={{ color: "#d32f2f" }}
-								>
-									{enemies.map((e) => (
-										<MenuItem
-											key={e.ID}
-											value={String(e.ID)}
-										>
-											{e.Name}
-										</MenuItem>
-									))}
-								</Select>
-							</FormControl>
-							<Button
-								variant="contained"
-								color="error"
-								onClick={addEnemyToEncounter}
-								sx={{
-									fontWeight: 600,
-									fontSize: "1rem",
-									px: 2,
-									py: 1,
-								}}
-							>
-								Add Enemy
-							</Button>
-						</Stack>
+						{isLoading && (
+							<Typography color="text.secondary">
+								Loading...
+							</Typography>
+						)}
 					</Stack>
 				</CardContent>
 			</Card>

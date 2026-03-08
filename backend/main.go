@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ var encounterDAO dao.EncounterDAO
 var encounters []dao.Encounter
 var selectedEncounterID int
 var templates *template.Template
+var frontendURL string
 
 var discordEndpoint = oauth2.Endpoint{
 	AuthURL:  "https://discord.com/api/oauth2/authorize",
@@ -41,7 +43,6 @@ func initializeApp(db *sql.DB) {
 	characterDAO = dao.NewCharacterDAO(db)
 	encounterDAO = dao.NewEncounterDAO(db)
 	encounterCharacterDAO = dao.NewEncounterCharacterDAO(db)
-	templates = template.Must(template.ParseFiles("templates/index.html", "templates/character-list.html", "templates/encounter-list.html"))
 	loadEncountersFromDB(nil)
 	loadCharactersFromDB(nil)
 }
@@ -122,6 +123,14 @@ func main() {
 	password := os.Getenv("PASSWORD")
 	dbname := os.Getenv("DBNAME")
 	sslmode := os.Getenv("SSLMODE")
+	frontendURL = os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:5173"
+	}
+	discordRedirectURL := os.Getenv("DISCORD_REDIRECT_URL")
+	if discordRedirectURL == "" {
+		discordRedirectURL = "http://localhost:8080/auth/discord/callback"
+	}
 
 	connStr := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=%s", user, password, dbname, sslmode)
 	var errDB error
@@ -133,7 +142,7 @@ func main() {
 	discordOAuthConfig = &oauth2.Config{
 		ClientID:     os.Getenv("DISCORD_CLIENT_ID"),
 		ClientSecret: os.Getenv("DISCORD_CLIENT_SECRET"),
-		RedirectURL:  "http://localhost:8080/auth/discord/callback",
+		RedirectURL:  discordRedirectURL,
 		Scopes:       []string{"identify"},
 		Endpoint:     discordEndpoint,
 	}
@@ -143,25 +152,17 @@ func main() {
 	initializeApp(db)
 
 	http.Handle("/", loggingMiddleware(http.HandlerFunc(indexHandler)))
-	http.Handle("/encounters", loggingMiddleware(http.HandlerFunc(encounterListHandler)))
-	http.Handle("/select-encounter", loggingMiddleware(http.HandlerFunc(selectEncounterHandler)))
-	http.Handle("/characters", loggingMiddleware(http.HandlerFunc(characterListHandler)))
-	http.Handle("/next", loggingMiddleware(http.HandlerFunc(nextCharacterHandler)))
-	http.Handle("/sort", loggingMiddleware(http.HandlerFunc(sortCharactersHandler)))
-	http.Handle("/reorder", loggingMiddleware(http.HandlerFunc(reorderCharactersHandler)))
-	http.Handle("/add-character", loggingMiddleware(http.HandlerFunc(addCharacterHandler)))
 	http.Handle("/save-character", loggingMiddleware(http.HandlerFunc(saveCharacterHandler)))
-	http.Handle("/select-character", loggingMiddleware(http.HandlerFunc(selectCharacterHandler)))
-	http.Handle("/search-characters", loggingMiddleware(http.HandlerFunc(searchCharactersHandler)))
 	http.Handle("/add-character-to-encounter", loggingMiddleware(http.HandlerFunc(addCharacterToEncounterHandler)))
 	http.Handle("/remove-character-from-encounter", loggingMiddleware(http.HandlerFunc(removeCharacterFromEncounterHandler)))
+	http.Handle("/api/encounters", loggingMiddleware(http.HandlerFunc(apiEncountersHandler)))
+	http.Handle("/api/characters", loggingMiddleware(http.HandlerFunc(apiCharactersHandler)))
+	http.Handle("/api/select-encounter", loggingMiddleware(http.HandlerFunc(apiSelectEncounterHandler)))
+	http.Handle("/api/me", loggingMiddleware(http.HandlerFunc(apiMeHandler)))
 
 	http.HandleFunc("/login/discord", discordLoginHandler)
 	http.HandleFunc("/auth/discord/callback", discordCallbackHandler)
 	http.HandleFunc("/logout", logoutHandler)
-
-	fs := http.FileServer(http.Dir("./static"))
-	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
 	log.Println("Server starting on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -176,24 +177,7 @@ func getDiscordIDFromRequest(r *http.Request) string {
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	var username string
-	if cookie, err := r.Cookie("discord_user"); err == nil {
-		username = cookie.Value
-	}
-	discordID := getDiscordIDFromRequest(r)
-	log.Printf("Discord ID from request: %s", discordID)
-	var userCharacters []dao.Character
-	if discordID != "" {
-		userCharacters, _ = characterDAO.GetAllCharactersByOwner(discordID)
-	}
-	data := struct {
-		Characters []dao.Character
-		Username   string
-	}{
-		Characters: userCharacters,
-		Username:   username,
-	}
-	templates.ExecuteTemplate(w, "index.html", data)
+	http.Redirect(w, r, frontendURL, http.StatusSeeOther)
 }
 
 func encounterListHandler(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +243,93 @@ func characterListHandler(w http.ResponseWriter, r *http.Request) {
 		CharacterJSON: string(characterJSON),
 	}
 	templates.ExecuteTemplate(w, "character-list.html", data)
+}
+
+func apiEncountersHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	discordID := getDiscordIDFromRequest(r)
+	var data []dao.Encounter
+	var err error
+	if discordID != "" {
+		data, err = encounterDAO.GetEncountersByOwnerDiscordID(discordID)
+	} else {
+		data, err = encounterDAO.GetAllEncounters()
+	}
+	if err != nil {
+		http.Error(w, "Failed to fetch encounters", http.StatusInternalServerError)
+		return
+	}
+	if data == nil {
+		data = []dao.Encounter{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
+func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	if encounterIDRaw := r.URL.Query().Get("encounter_id"); encounterIDRaw != "" {
+		encounterID, err := strconv.Atoi(encounterIDRaw)
+		if err != nil || encounterID <= 0 {
+			http.Error(w, "Invalid encounter id", http.StatusBadRequest)
+			return
+		}
+		selectedEncounterID = encounterID
+	}
+	loadCharactersFromDB(r)
+	if characters == nil {
+		characters = []dao.Character{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(characters)
+}
+
+func apiSelectEncounterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if req.ID <= 0 {
+		http.Error(w, "Invalid encounter id", http.StatusBadRequest)
+		return
+	}
+	selectedEncounterID = req.ID
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+func apiMeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	username := ""
+	discordID := ""
+	if cookie, err := r.Cookie("discord_user"); err == nil {
+		username = cookie.Value
+	}
+	if cookie, err := r.Cookie("discord_id"); err == nil {
+		discordID = cookie.Value
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"loggedIn":  username != "" && discordID != "",
+		"username":  username,
+		"discordID": discordID,
+	})
 }
 
 func nextCharacterHandler(w http.ResponseWriter, r *http.Request) {
@@ -457,7 +528,11 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	loadCharactersFromDB(r)
-	characterListHandler(w, r)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":    "success",
+		"character": char,
+	})
 }
 
 func selectEncounterHandler(w http.ResponseWriter, r *http.Request) {
@@ -706,7 +781,7 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, frontendURL, http.StatusSeeOther)
 }
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
@@ -722,5 +797,5 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 		Path:   "/",
 		MaxAge: -1,
 	})
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, frontendURL, http.StatusSeeOther)
 }

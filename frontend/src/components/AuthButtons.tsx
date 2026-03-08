@@ -1,27 +1,38 @@
 import React from "react";
 
-function getDiscordUsername(): string | null {
-	const cookie = document.cookie
-		.split("; ")
-		.find((row) => row.startsWith("discord_user="));
-	return cookie ? decodeURIComponent(cookie.split("=")[1]) : null;
-}
-
 const AuthButtons: React.FC = () => {
-	const username = getDiscordUsername();
-	const loggedIn = !!username;
+	const [username, setUsername] = React.useState<string>("");
+	const [loggedIn, setLoggedIn] = React.useState<boolean>(false);
+
+	React.useEffect(() => {
+		let mounted = true;
+		fetch("/api/me")
+			.then((response) => response.json())
+			.then((data) => {
+				if (!mounted) return;
+				setLoggedIn(Boolean(data.loggedIn));
+				setUsername(data.username || "");
+			})
+			.catch(() => {
+				if (!mounted) return;
+				setLoggedIn(false);
+				setUsername("");
+			});
+		return () => {
+			mounted = false;
+		};
+	}, []);
 
 	return (
 		<div style={{ marginBottom: "1rem" }}>
 			{loggedIn ? (
 				<>
 					<span style={{ marginRight: "1rem" }}>
-						Welcome, {username}!
+						Welcome, {username || "Adventurer"}!
 					</span>
 					<button
 						onClick={() => {
 							window.location.href = "/logout";
-							setTimeout(() => window.location.reload(), 500);
 						}}
 					>
 						Logout
