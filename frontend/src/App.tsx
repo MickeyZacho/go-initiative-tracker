@@ -1,11 +1,14 @@
 import { CharacterList } from "./components/CharacterList";
 import AuthButtons from "./components/AuthButtons";
 import CharactersPage from "./components/CharactersPage";
+import EncountersPage from "./components/EncountersPage";
 import { Button, Stack } from "@mui/material";
 import { useState } from "react";
 
 function App() {
-	const [view, setView] = useState<"combat" | "characters">("characters");
+	const [view, setView] = useState<"combat" | "characters" | "encounters">(
+		"characters",
+	);
 
 	return (
 		<div style={{ padding: "2rem" }}>
@@ -19,13 +22,21 @@ function App() {
 					Characters
 				</Button>
 				<Button
+					variant={view === "encounters" ? "contained" : "outlined"}
+					onClick={() => setView("encounters")}
+				>
+					Encounters
+				</Button>
+				<Button
 					variant={view === "combat" ? "contained" : "outlined"}
 					onClick={() => setView("combat")}
 				>
 					Combat
 				</Button>
 			</Stack>
-			{view === "characters" ? <CharactersPage /> : <CharacterList />}
+			{view === "characters" && <CharactersPage />}
+			{view === "encounters" && <EncountersPage />}
+			{view === "combat" && <CharacterList />}
 		</div>
 	);
 }

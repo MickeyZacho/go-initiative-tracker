@@ -7,6 +7,8 @@ import (
 
 type EncounterDAO interface {
 	GetAllEncounters() ([]Encounter, error)
+	CreateEncounter(encounter Encounter) (int, error)
+	DeleteEncounter(id int) error
 	AddCharacterToEncounter(encounterID, characterID int) error
 	RemoveCharacterFromEncounter(encounterID, characterID int) error
 	GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error)
@@ -43,6 +45,22 @@ func (dao *encounterDAOImpl) GetAllEncounters() ([]Encounter, error) {
 		encounters = append(encounters, e)
 	}
 	return encounters, nil
+}
+
+func (dao *encounterDAOImpl) CreateEncounter(encounter Encounter) (int, error) {
+	var newID int
+	err := dao.db.QueryRow(
+		"INSERT INTO encounters (name, owner_id, description) VALUES ($1, $2, $3) RETURNING id",
+		encounter.Name,
+		encounter.OwnerID,
+		encounter.Description,
+	).Scan(&newID)
+	return newID, err
+}
+
+func (dao *encounterDAOImpl) DeleteEncounter(id int) error {
+	_, err := dao.db.Exec("DELETE FROM encounters WHERE id = $1", id)
+	return err
 }
 
 func (dao *encounterDAOImpl) AddCharacterToEncounter(encounterID, characterID int) error {

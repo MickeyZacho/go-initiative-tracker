@@ -182,6 +182,8 @@ func main() {
 	http.Handle("/add-character-to-encounter", loggingMiddleware(http.HandlerFunc(addCharacterToEncounterHandler)))
 	http.Handle("/remove-character-from-encounter", loggingMiddleware(http.HandlerFunc(removeCharacterFromEncounterHandler)))
 	http.Handle("/api/encounters", loggingMiddleware(http.HandlerFunc(apiEncountersHandler)))
+	http.Handle("/api/encounters/save", loggingMiddleware(http.HandlerFunc(apiSaveEncounterHandler)))
+	http.Handle("/api/encounters/delete", loggingMiddleware(http.HandlerFunc(apiDeleteEncounterHandler)))
 	http.Handle("/api/characters", loggingMiddleware(http.HandlerFunc(apiCharactersHandler)))
 	http.Handle("/api/characters/library", loggingMiddleware(http.HandlerFunc(apiLibraryCharactersHandler)))
 	http.Handle("/api/characters/library/save", loggingMiddleware(http.HandlerFunc(apiSaveLibraryCharacterHandler)))
@@ -296,6 +298,60 @@ func apiEncountersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
+}
+
+func apiSaveEncounterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	var enc dao.Encounter
+	if err := json.NewDecoder(r.Body).Decode(&enc); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(enc.Name) == "" {
+		http.Error(w, "Encounter name is required", http.StatusBadRequest)
+		return
+	}
+	if enc.OwnerID == "" {
+		enc.OwnerID = getDiscordIDFromRequest(r)
+	}
+	newID, err := encounterDAO.CreateEncounter(enc)
+	if err != nil {
+		http.Error(w, "Failed to create encounter", http.StatusInternalServerError)
+		return
+	}
+	enc.ID = newID
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "encounter": enc})
+}
+
+func apiDeleteEncounterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if req.ID <= 0 {
+		http.Error(w, "Invalid encounter id", http.StatusBadRequest)
+		return
+	}
+	if err := encounterDAO.DeleteEncounter(req.ID); err != nil {
+		http.Error(w, "Failed to delete encounter", http.StatusInternalServerError)
+		return
+	}
+	if selectedEncounterID == req.ID {
+		selectedEncounterID = 0
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
 func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
