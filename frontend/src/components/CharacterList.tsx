@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { CharacterRow } from "./CharacterRow";
+import { parseJsonResponse } from "../lib/http";
+import { apiUrl } from "../lib/api";
 import {
 	Card,
 	CardContent,
@@ -43,18 +45,20 @@ export const CharacterList: React.FC = () => {
 		setIsLoading(true);
 		setError("");
 		try {
-			await fetch("/api/select-encounter", {
+			await fetch(apiUrl("/api/select-encounter"), {
 				method: "POST",
+				credentials: "include",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ id: encId }),
 			});
 			const response = await fetch(
-				`/api/characters?encounter_id=${encId}`,
+				apiUrl(`/api/characters?encounter_id=${encId}`),
+				{ credentials: "include" },
 			);
 			if (!response.ok) {
 				throw new Error("Failed to fetch characters");
 			}
-			const payload = await response.json();
+			const payload = await parseJsonResponse<unknown>(response);
 			const data: Character[] = Array.isArray(payload) ? payload : [];
 			setCharacters(data);
 		} catch (err) {
@@ -73,11 +77,13 @@ export const CharacterList: React.FC = () => {
 		setIsLoading(true);
 		setError("");
 		try {
-			const response = await fetch("/api/encounters");
+			const response = await fetch(apiUrl("/api/encounters"), {
+				credentials: "include",
+			});
 			if (!response.ok) {
 				throw new Error("Failed to fetch encounters");
 			}
-			const payload = await response.json();
+			const payload = await parseJsonResponse<unknown>(response);
 			const data: Encounter[] = Array.isArray(payload) ? payload : [];
 			setEncounters(data);
 			if (data.length > 0) {
@@ -130,8 +136,9 @@ export const CharacterList: React.FC = () => {
 
 	const saveCharacter = async (character: Character) => {
 		const idToSend = character.ID > 2147483647 ? 0 : character.ID;
-		const response = await fetch("/save-character", {
+		const response = await fetch(apiUrl("/save-character"), {
 			method: "POST",
+			credentials: "include",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				id: idToSend,
@@ -151,12 +158,19 @@ export const CharacterList: React.FC = () => {
 	};
 
 	const removeCharacter = async (characterID: number) => {
-		const response = await fetch("/remove-character-from-encounter", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ character_id: characterID }),
-		});
-		const data = await response.json();
+		const response = await fetch(
+			apiUrl("/remove-character-from-encounter"),
+			{
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ character_id: characterID }),
+			},
+		);
+		const data = await parseJsonResponse<{
+			status?: string;
+			message?: string;
+		}>(response);
 		if (!response.ok || data.status !== "success") {
 			throw new Error(data.message || "Failed to remove character");
 		}

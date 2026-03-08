@@ -31,6 +31,7 @@ var encounters []dao.Encounter
 var selectedEncounterID int
 var templates *template.Template
 var frontendURL string
+var allowedOrigins map[string]bool
 
 var discordEndpoint = oauth2.Endpoint{
 	AuthURL:  "https://discord.com/api/oauth2/authorize",
@@ -98,6 +99,23 @@ func loadCharactersFromDB(r *http.Request) {
 func loggingMiddleware(next http.Handler) http.Handler {
 	log.Printf("Logging middleware initialized")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin != "" && allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		}
+		if r.Method == http.MethodOptions {
+			if origin != "" && !allowedOrigins[origin] {
+				http.Error(w, "Origin not allowed", http.StatusForbidden)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
 		start := time.Now()
 		defer func() {
 			if err := recover(); err != nil {
@@ -126,6 +144,14 @@ func main() {
 	frontendURL = os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
 		frontendURL = "http://localhost:5173"
+	}
+	frontendURL = strings.TrimRight(frontendURL, "/")
+	allowedOrigins = map[string]bool{
+		frontendURL:             true,
+		"http://localhost:5173": true,
+		"http://127.0.0.1:5173": true,
+		"http://localhost:4173": true,
+		"http://127.0.0.1:4173": true,
 	}
 	discordRedirectURL := os.Getenv("DISCORD_REDIRECT_URL")
 	if discordRedirectURL == "" {
@@ -157,6 +183,9 @@ func main() {
 	http.Handle("/remove-character-from-encounter", loggingMiddleware(http.HandlerFunc(removeCharacterFromEncounterHandler)))
 	http.Handle("/api/encounters", loggingMiddleware(http.HandlerFunc(apiEncountersHandler)))
 	http.Handle("/api/characters", loggingMiddleware(http.HandlerFunc(apiCharactersHandler)))
+	http.Handle("/api/characters/library", loggingMiddleware(http.HandlerFunc(apiLibraryCharactersHandler)))
+	http.Handle("/api/characters/library/save", loggingMiddleware(http.HandlerFunc(apiSaveLibraryCharacterHandler)))
+	http.Handle("/api/characters/library/delete", loggingMiddleware(http.HandlerFunc(apiDeleteLibraryCharacterHandler)))
 	http.Handle("/api/select-encounter", loggingMiddleware(http.HandlerFunc(apiSelectEncounterHandler)))
 	http.Handle("/api/me", loggingMiddleware(http.HandlerFunc(apiMeHandler)))
 
@@ -288,6 +317,93 @@ func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(characters)
+}
+
+func apiLibraryCharactersHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	discordID := getDiscordIDFromRequest(r)
+	var data []dao.Character
+	var err error
+	if discordID != "" {
+		data, err = characterDAO.GetAllCharactersByOwner(discordID)
+	} else {
+		data, err = characterDAO.GetAllCharacters()
+	}
+	if err != nil {
+		http.Error(w, "Failed to fetch characters", http.StatusInternalServerError)
+		return
+	}
+	if data == nil {
+		data = []dao.Character{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
+func apiSaveLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	var char dao.Character
+	if err := json.NewDecoder(r.Body).Decode(&char); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(char.Name) == "" {
+		http.Error(w, "Character name is required", http.StatusBadRequest)
+		return
+	}
+	if char.MaxHP < 1 {
+		http.Error(w, "Invalid max HP value", http.StatusBadRequest)
+		return
+	}
+	if char.OwnerID == "" {
+		char.OwnerID = getDiscordIDFromRequest(r)
+	}
+	if char.ID == 0 {
+		newID, err := characterDAO.CreateCharacter(char)
+		if err != nil {
+			http.Error(w, "Failed to create character", http.StatusInternalServerError)
+			return
+		}
+		char.ID = newID
+	} else {
+		err := characterDAO.UpdateCharacter(char)
+		if err != nil {
+			http.Error(w, "Failed to update character", http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "character": char})
+}
+
+func apiDeleteLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if req.ID <= 0 {
+		http.Error(w, "Invalid character id", http.StatusBadRequest)
+		return
+	}
+	if err := characterDAO.DeleteCharacter(req.ID); err != nil {
+		http.Error(w, "Failed to delete character", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
 func apiSelectEncounterHandler(w http.ResponseWriter, r *http.Request) {

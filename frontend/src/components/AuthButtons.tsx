@@ -1,4 +1,6 @@
 import React from "react";
+import { parseJsonResponse } from "../lib/http";
+import { apiUrl } from "../lib/api";
 
 const AuthButtons: React.FC = () => {
 	const [username, setUsername] = React.useState<string>("");
@@ -6,8 +8,12 @@ const AuthButtons: React.FC = () => {
 
 	React.useEffect(() => {
 		let mounted = true;
-		fetch("/api/me")
-			.then((response) => response.json())
+		fetch(apiUrl("/api/me"), { credentials: "include" })
+			.then((response) =>
+				parseJsonResponse<{ loggedIn?: boolean; username?: string }>(
+					response,
+				),
+			)
 			.then((data) => {
 				if (!mounted) return;
 				setLoggedIn(Boolean(data.loggedIn));
@@ -32,7 +38,7 @@ const AuthButtons: React.FC = () => {
 					</span>
 					<button
 						onClick={() => {
-							window.location.href = "/logout";
+							window.location.href = apiUrl("/logout");
 						}}
 					>
 						Logout
@@ -40,7 +46,9 @@ const AuthButtons: React.FC = () => {
 				</>
 			) : (
 				<button
-					onClick={() => (window.location.href = "/login/discord")}
+					onClick={() =>
+						(window.location.href = apiUrl("/login/discord"))
+					}
 				>
 					Login with Discord
 				</button>
