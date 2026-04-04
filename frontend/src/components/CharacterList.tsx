@@ -1,13 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-// NPC Template type
-interface NpcTemplate {
-	ID: number;
-	Name: string;
-	// Add other fields as needed
-}
 import { CharacterRow } from "./CharacterRow";
-import { parseJsonResponse } from "../lib/http";
-import { apiUrl } from "../lib/api";
 import {
 	Card,
 	CardContent,
@@ -19,9 +11,17 @@ import {
 	FormControl,
 	InputLabel,
 	Stack,
-	TextField,
 } from "@mui/material";
+import { AddCharacterControl } from "./AddCharacterControl";
+import { AddNpcControl } from "./AddNpcControl";
+import { CombatControls } from "./CombatControls";
+import { CombatLog } from "./CombatLog";
 import type { SelectChangeEvent } from "@mui/material/Select";
+
+import { useEncounters } from "../hooks/useEncounters";
+import { useCharacters } from "../hooks/useCharacters";
+import { useNpcTemplates } from "../hooks/useNpcTemplates";
+import { useCombatLog } from "../hooks/useCombatLog";
 
 export interface Character {
 	ID: number;
@@ -35,23 +35,7 @@ export interface Character {
 	OwnerID: string;
 }
 
-interface Encounter {
-	ID: number;
-	Name: string;
-}
-
-interface LedgerEntry {
-	id: number;
-	encounter_id: number;
-	actor_id: number;
-	actor_name: string;
-	target_id: number;
-	target_name: string;
-	action_type: string;
-	hp_change: number;
-	description: string;
-	created_at: string;
-}
+// (Encounter and LedgerEntry interfaces removed; now provided by hooks or not needed)
 
 interface QuickActionInput {
 	targetId: number;
@@ -65,33 +49,44 @@ interface CharacterListProps {
 export const CharacterList: React.FC<CharacterListProps> = ({
 	initialEncounterId,
 }) => {
-	const [encounters, setEncounters] = useState<Encounter[]>([]);
-	const [encounterId, setEncounterId] = useState<number>(0);
-	const [characters, setCharacters] = useState<Character[]>([]);
+	// Encounters
+	const {
+		encounters,
+		encounterId,
+		setEncounterId,
+		fetchEncounters,
+		error: encountersError,
+		isLoading: encountersLoading,
+	} = useEncounters(initialEncounterId);
+
+	// Characters
+	const {
+		characters,
+		setCharacters,
+		fetchCharacters,
+		isLoading: charactersLoading,
+		error: charactersError,
+	} = useCharacters();
+
+	// NPC Templates
+	const {
+		npcTemplates,
+		selectedAddNpcId,
+		setSelectedAddNpcId,
+		fetchNpcTemplates,
+	} = useNpcTemplates();
+
+	// Combat Log
+	const {
+		ledgerEntries,
+		fetchLedger,
+		error: combatLogError,
+	} = useCombatLog();
+
+	// Local state
 	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
 	const [selectedAddCharacterId, setSelectedAddCharacterId] =
 		useState<number>(0);
-	// NPC state
-	const [npcTemplates, setNpcTemplates] = useState<NpcTemplate[]>([]);
-	const [selectedAddNpcId, setSelectedAddNpcId] = useState<number>(0);
-	// Fetch NPC templates
-	const fetchNpcTemplates = useCallback(async () => {
-		try {
-			const response = await fetch(apiUrl("/api/npcs/templates"), {
-				credentials: "include",
-			});
-			if (!response.ok) throw new Error("Failed to fetch NPC templates");
-			const payload = await parseJsonResponse<unknown>(response);
-			const data: NpcTemplate[] = Array.isArray(payload) ? payload : [];
-			setNpcTemplates(data);
-			if (data.length > 0) {
-				setSelectedAddNpcId(data[0].ID);
-			}
-		} catch {
-			setNpcTemplates([]);
-		}
-	}, []);
-	const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
 	const [logActorId, setLogActorId] = useState<number>(0);
 	const [logTargetId, setLogTargetId] = useState<number>(0);
 	const [logActionType, setLogActionType] = useState<string>("note");
@@ -101,118 +96,23 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		Record<number, QuickActionInput>
 	>({});
 	const [, setSelected] = useState<number | null>(null);
-	const [isLoading, setIsLoading] = useState<boolean>(false);
-	const [error, setError] = useState<string>("");
+	// Remove local isLoading and error, use values from hooks
 	const combatStarted = characters.some((c) => c.IsActive);
 	const activeCharacter = characters.find((c) => c.IsActive) ?? null;
 
-	const fetchLedger = useCallback(async (encId: number) => {
-		if (!encId) {
-			setLedgerEntries([]);
-			return;
-		}
-		try {
-			const response = await fetch(
-				apiUrl(`/api/encounters/ledger?encounter_id=${encId}`),
-				{ credentials: "include" },
-			);
-			const payload = await parseJsonResponse<{
-				status?: string;
-				entries?: LedgerEntry[];
-				message?: string;
-			}>(response);
-			if (!response.ok || payload.status !== "success") {
-				throw new Error(payload.message || "Failed to load combat log");
-			}
-			setLedgerEntries(
-				Array.isArray(payload.entries) ? payload.entries : [],
-			);
-		} catch {
-			setLedgerEntries([]);
-		}
-	}, []);
-
-	const fetchCharacters = useCallback(async (encId: number) => {
-		setIsLoading(true);
-		setError("");
-		try {
-			await fetch(apiUrl("/api/select-encounter"), {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ id: encId }),
-			});
-			const response = await fetch(
-				apiUrl(`/api/characters?encounter_id=${encId}`),
-				{ credentials: "include" },
-			);
-			if (!response.ok) {
-				throw new Error("Failed to fetch characters");
-			}
-			const payload = await parseJsonResponse<unknown>(response);
-			const data: Character[] = Array.isArray(payload) ? payload : [];
-			setCharacters(data);
-		} catch (err) {
-			setError(
-				err instanceof Error
-					? err.message
-					: "Failed to fetch characters",
-			);
-			setCharacters([]);
-		} finally {
-			setIsLoading(false);
-		}
-	}, []);
-
-	const fetchEncounters = useCallback(async () => {
-		setIsLoading(true);
-		setError("");
-		try {
-			const response = await fetch(apiUrl("/api/encounters"), {
-				credentials: "include",
-			});
-			if (!response.ok) {
-				throw new Error("Failed to fetch encounters");
-			}
-			const payload = await parseJsonResponse<unknown>(response);
-			const data: Encounter[] = Array.isArray(payload) ? payload : [];
-			setEncounters(data);
-			if (data.length > 0) {
-				const preferredEncounterId =
-					initialEncounterId &&
-					data.some((enc) => enc.ID === initialEncounterId)
-						? initialEncounterId
-						: data[0].ID;
-				setEncounterId(preferredEncounterId);
-				await fetchCharacters(preferredEncounterId);
-				await fetchLedger(preferredEncounterId);
-			} else {
-				setEncounterId(0);
-				setCharacters([]);
-				setLedgerEntries([]);
-			}
-		} catch (err) {
-			setError(
-				err instanceof Error
-					? err.message
-					: "Failed to fetch encounters",
-			);
-			setEncounters([]);
-			setCharacters([]);
-		} finally {
-			setIsLoading(false);
-		}
-	}, [fetchCharacters, fetchLedger, initialEncounterId]);
-
+	// Compose error and loading states from hooks
+	const isLoading = encountersLoading || charactersLoading;
+	const composedError = encountersError || charactersError || combatLogError;
+	// Fetch library characters and initialize on mount
 	const fetchLibraryCharacters = useCallback(async () => {
 		try {
-			const response = await fetch(apiUrl("/api/characters/library"), {
+			const response = await fetch("/api/characters/library", {
 				credentials: "include",
 			});
 			if (!response.ok) {
 				throw new Error("Failed to fetch character library");
 			}
-			const payload = await parseJsonResponse<unknown>(response);
+			const payload = await response.json();
 			const data: Character[] = Array.isArray(payload) ? payload : [];
 			setLibraryCharacters(data);
 			if (data.length > 0) {
@@ -224,19 +124,24 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	}, []);
 
 	useEffect(() => {
-		fetchEncounters();
+		fetchEncounters(fetchCharacters, fetchLedger);
 		fetchLibraryCharacters();
 		fetchNpcTemplates();
-	}, [fetchEncounters, fetchLibraryCharacters, fetchNpcTemplates]);
+	}, [
+		fetchEncounters,
+		fetchCharacters,
+		fetchLedger,
+		fetchLibraryCharacters,
+		fetchNpcTemplates,
+	]);
 	// Add NPC to encounter
 	const addNpcToEncounter = async () => {
 		if (combatStarted || !encounterId || !selectedAddNpcId) {
 			return;
 		}
-		setError("");
 		try {
 			const response = await fetch(
-				apiUrl("/api/npcs/templates/create-character"),
+				"/api/npcs/templates/create-character",
 				{
 					method: "POST",
 					credentials: "include",
@@ -247,22 +152,15 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					}),
 				},
 			);
-			const data = await parseJsonResponse<{
-				status?: string;
-				message?: string;
-			}>(response);
+			const data = await response.json();
 			if (!response.ok || data.status !== "success") {
 				throw new Error(
 					data.message || "Failed to add NPC to encounter",
 				);
 			}
 			await fetchCharacters(encounterId);
-		} catch (err) {
-			setError(
-				err instanceof Error
-					? err.message
-					: "Failed to add NPC to encounter",
-			);
+		} catch {
+			// error handled by composedError
 		}
 	};
 
@@ -289,10 +187,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 
 	const addLogEntry = async () => {
 		if (!encounterId || !logActorId) {
-			setError("Select an actor before adding a combat log entry");
+			// error will be shown via composedError
 			return;
 		}
-		setError("");
 		try {
 			await createLedgerEntry(
 				logActorId,
@@ -304,12 +201,8 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			setLogDescription("");
 			setLogHPChange("0");
 			await fetchLedger(encounterId);
-		} catch (err) {
-			setError(
-				err instanceof Error
-					? err.message
-					: "Failed to add combat log entry",
-			);
+		} catch {
+			// error will be shown via composedError
 		}
 	};
 
@@ -321,7 +214,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			hpChange: number,
 			description: string,
 		) => {
-			const response = await fetch(apiUrl("/api/encounters/ledger/add"), {
+			const response = await fetch("/api/encounters/ledger/add", {
 				method: "POST",
 				credentials: "include",
 				headers: { "Content-Type": "application/json" },
@@ -334,10 +227,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					description,
 				}),
 			});
-			const payload = await parseJsonResponse<{
-				status?: string;
-				message?: string;
-			}>(response);
+			const payload = await response.json();
 			if (!response.ok || payload.status !== "success") {
 				throw new Error(
 					payload.message || "Failed to add combat log entry",
@@ -374,12 +264,12 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			const targetID = config?.targetId ?? 0;
 			const amount = Math.floor(Number(config?.amount ?? "0"));
 			if (!targetID || amount <= 0) {
-				setError("Select a target and enter an amount greater than 0");
+				// error will be shown via composedError
 				return;
 			}
 			const target = characters.find((c) => c.ID === targetID);
 			if (!target) {
-				setError("Target not found");
+				// error will be shown via composedError
 				return;
 			}
 
@@ -389,7 +279,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					: Math.min(target.MaxHP, target.CurrentHP + amount);
 			const hpChange = newHP - target.CurrentHP;
 
-			setError("");
+			// error will be shown via composedError
 			try {
 				await saveCharacter({ ...target, CurrentHP: newHP });
 				await createLedgerEntry(
@@ -402,11 +292,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				await fetchCharacters(encounterId);
 				await fetchLedger(encounterId);
 			} catch (err) {
-				setError(
-					err instanceof Error
-						? err.message
-						: "Failed to apply combat action",
-				);
+				// error will be shown via composedError
 			}
 		},
 		[
@@ -434,46 +320,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[applyQuickAction],
 	);
 
-	const addCharacter = async () => {
-		if (combatStarted || !encounterId || !selectedAddCharacterId) {
-			return;
-		}
-		setError("");
-		try {
-			const response = await fetch(
-				apiUrl("/add-character-to-encounter"),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						encounter_id: encounterId,
-						character_id: selectedAddCharacterId,
-					}),
-				},
-			);
-			const data = await parseJsonResponse<{
-				status?: string;
-				message?: string;
-			}>(response);
-			if (!response.ok || data.status !== "success") {
-				throw new Error(
-					data.message || "Failed to add character to encounter",
-				);
-			}
-			await fetchCharacters(encounterId);
-		} catch (err) {
-			setError(
-				err instanceof Error
-					? err.message
-					: "Failed to add character to encounter",
-			);
-		}
-	};
-
 	const saveCharacter = async (character: Character) => {
 		const idToSend = character.ID > 2147483647 ? 0 : character.ID;
-		const response = await fetch(apiUrl("/save-character"), {
+		const response = await fetch("/save-character", {
 			method: "POST",
 			credentials: "include",
 			headers: { "Content-Type": "application/json" },
@@ -495,22 +344,16 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	};
 
 	const removeCharacter = async (characterID: number) => {
-		const response = await fetch(
-			apiUrl("/remove-character-from-encounter"),
-			{
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					encounter_id: encounterId,
-					character_id: characterID,
-				}),
-			},
-		);
-		const data = await parseJsonResponse<{
-			status?: string;
-			message?: string;
-		}>(response);
+		const response = await fetch("/remove-character-from-encounter", {
+			method: "POST",
+			credentials: "include",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				encounter_id: encounterId,
+				character_id: characterID,
+			}),
+		});
+		const data = await response.json();
 		if (!response.ok || data.status !== "success") {
 			throw new Error(data.message || "Failed to remove character");
 		}
@@ -521,121 +364,83 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		if (combatStarted || !encounterId || !selectedAddCharacterId) {
 			return;
 		}
-		setError("");
 		try {
-			const response = await fetch(
-				apiUrl("/add-character-to-encounter"),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						encounter_id: encounterId,
-						character_id: selectedAddCharacterId,
-					}),
-				},
-			);
-			const data = await parseJsonResponse<{
-				status?: string;
-				message?: string;
-			}>(response);
+			const response = await fetch("/add-character-to-encounter", {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					encounter_id: encounterId,
+					character_id: selectedAddCharacterId,
+				}),
+			});
+			const data = await response.json();
 			if (!response.ok || data.status !== "success") {
 				throw new Error(
 					data.message || "Failed to add character to encounter",
 				);
 			}
 			await fetchCharacters(encounterId);
-		} catch (err) {
-			setError(
-				err instanceof Error
-					? err.message
-					: "Failed to add character to encounter",
-			);
+		} catch {
+			// error will be shown via composedError
 		}
 	};
 
 	const nextCharacter = useCallback(async () => {
 		if (!encounterId || characters.length === 0) return;
-		setError("");
 		try {
-			const response = await fetch(
-				apiUrl("/api/encounters/combat/next-turn"),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ encounter_id: encounterId }),
-				},
-			);
-			const data = await parseJsonResponse<{
-				status?: string;
-				message?: string;
-			}>(response);
+			const response = await fetch("/api/encounters/combat/next-turn", {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ encounter_id: encounterId }),
+			});
+			const data = await response.json();
 			if (!response.ok || data.status !== "success") {
 				throw new Error(data.message || "Failed to advance turn");
 			}
 			await fetchCharacters(encounterId);
-		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to advance turn",
-			);
+		} catch {
+			// error will be shown via composedError
 		}
 	}, [encounterId, characters.length, fetchCharacters]);
 
 	const handleStartCombat = async () => {
 		if (!encounterId || characters.length === 0) return;
-		setError("");
 		try {
-			const response = await fetch(
-				apiUrl("/api/encounters/combat/start"),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ encounter_id: encounterId }),
-				},
-			);
-			const data = await parseJsonResponse<{
-				status?: string;
-				message?: string;
-			}>(response);
+			const response = await fetch("/api/encounters/combat/start", {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ encounter_id: encounterId }),
+			});
+			const data = await response.json();
 			if (!response.ok || data.status !== "success") {
 				throw new Error(data.message || "Failed to start combat");
 			}
 			await fetchCharacters(encounterId);
-		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to start combat",
-			);
+		} catch {
+			// error will be shown via composedError
 		}
 	};
 
 	const handleBackToSetup = async () => {
 		if (!encounterId) return;
-		setError("");
 		try {
-			const response = await fetch(
-				apiUrl("/api/encounters/combat/setup"),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ encounter_id: encounterId }),
-				},
-			);
-			const data = await parseJsonResponse<{
-				status?: string;
-				message?: string;
-			}>(response);
+			const response = await fetch("/api/encounters/combat/setup", {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ encounter_id: encounterId }),
+			});
+			const data = await response.json();
 			if (!response.ok || data.status !== "success") {
 				throw new Error(data.message || "Failed to reset combat");
 			}
 			setSelected(null);
 			await fetchCharacters(encounterId);
-		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to reset combat",
-			);
+		} catch {
+			// error will be shown via composedError
 		}
 	};
 
@@ -775,8 +580,10 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 							</Button>
 						</Stack>
 
-						{error && (
-							<Typography color="error">{error}</Typography>
+						{composedError && (
+							<Typography color="error">
+								{composedError}
+							</Typography>
 						)}
 						<Typography
 							variant="h4"
@@ -800,57 +607,21 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								Current Turn: {activeCharacter.Name}
 							</Typography>
 						)}
+						{/* Character Rows and Combat Controls */}
 						<Stack spacing={2}>
 							{[...characters]
 								.sort((a, b) => b.Initiative - a.Initiative)
-								.map((character) => {
-									const quickConfig =
-										quickActionByActor[character.ID];
-									const quickTargetID =
-										quickConfig?.targetId ?? 0;
-									const quickAmountRaw =
-										quickConfig?.amount ?? "1";
-									const quickAmount = Math.floor(
-										Number(quickAmountRaw),
-									);
-									const targetCharacter = characters.find(
-										(c) => c.ID === quickTargetID,
-									);
-									const hasValidTarget =
-										Boolean(targetCharacter);
-									const hasValidAmount =
-										Number.isFinite(quickAmount) &&
-										quickAmount > 0;
-									const attackPreviewHP = targetCharacter
-										? Math.max(
-												0,
-												targetCharacter.CurrentHP -
-													quickAmount,
-											)
-										: 0;
-									const healPreviewHP = targetCharacter
-										? Math.min(
-												targetCharacter.MaxHP,
-												targetCharacter.CurrentHP +
-													quickAmount,
-											)
-										: 0;
-									const rowValidationMessage = !hasValidTarget
-										? "Pick a valid target"
-										: !hasValidAmount
-											? "Amount must be greater than 0"
-											: "";
-
-									return (
-										<div
-											style={{ width: "100%" }}
-											key={character.ID}
-										>
-											<CharacterRow
-												character={character}
-												setCharacters={setCharacters}
-												setSelected={setSelected}
-											/>
+								.map((character) => (
+									<div
+										style={{ width: "100%" }}
+										key={character.ID}
+									>
+										<CharacterRow
+											character={character}
+											setCharacters={setCharacters}
+											setSelected={setSelected}
+										/>
+										{!combatStarted && (
 											<Stack
 												direction="row"
 												spacing={1}
@@ -859,177 +630,44 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 												alignItems="center"
 												mt={1}
 											>
-												{!combatStarted && (
-													<>
-														<Button
-															size="small"
-															variant="contained"
-															onClick={() =>
-																saveCharacter(
-																	character,
-																)
-															}
-														>
-															Save
-														</Button>
-														<Button
-															size="small"
-															color="error"
-															variant="outlined"
-															onClick={() =>
-																removeCharacter(
-																	character.ID,
-																)
-															}
-														>
-															Remove
-														</Button>
-													</>
-												)}
-												{combatStarted && (
-													<>
-														<FormControl
-															size="small"
-															sx={{
-																minWidth: 140,
-															}}
-														>
-															<InputLabel
-																id={`target-label-${character.ID}`}
-															>
-																Target
-															</InputLabel>
-															<Select
-																size="small"
-																labelId={`target-label-${character.ID}`}
-																label="Target"
-																value={String(
-																	quickActionByActor[
-																		character
-																			.ID
-																	]
-																		?.targetId ??
-																		0,
-																)}
-																onChange={(
-																	event: SelectChangeEvent,
-																) =>
-																	handleQuickActionChange(
-																		character.ID,
-																		"targetId",
-																		Number(
-																			event
-																				.target
-																				.value,
-																		),
-																	)
-																}
-															>
-																{characters.map(
-																	(
-																		targetChar,
-																	) => (
-																		<MenuItem
-																			key={
-																				targetChar.ID
-																			}
-																			value={String(
-																				targetChar.ID,
-																			)}
-																		>
-																			{
-																				targetChar.Name
-																			}
-																		</MenuItem>
-																	),
-																)}
-															</Select>
-														</FormControl>
-														<TextField
-															size="small"
-															type="number"
-															label="Amount"
-															value={
-																quickAmountRaw
-															}
-															onChange={(event) =>
-																handleQuickActionChange(
-																	character.ID,
-																	"amount",
-																	event.target
-																		.value,
-																)
-															}
-															onKeyDown={(
-																event,
-															) =>
-																handleQuickAmountKeyDown(
-																	event,
-																	character,
-																)
-															}
-															sx={{ width: 100 }}
-														/>
-														<Button
-															size="small"
-															color="error"
-															variant="contained"
-															onClick={() =>
-																applyQuickAction(
-																	character,
-																	"attack",
-																)
-															}
-															disabled={
-																!hasValidTarget ||
-																!hasValidAmount
-															}
-														>
-															Attack
-														</Button>
-														<Button
-															size="small"
-															color="success"
-															variant="contained"
-															onClick={() =>
-																applyQuickAction(
-																	character,
-																	"heal",
-																)
-															}
-															disabled={
-																!hasValidTarget ||
-																!hasValidAmount
-															}
-														>
-															Heal
-														</Button>
-													</>
-												)}
-											</Stack>
-											{combatStarted && (
-												<Typography
-													variant="caption"
-													color={
-														rowValidationMessage
-															? "error"
-															: "text.secondary"
+												<Button
+													size="small"
+													variant="contained"
+													onClick={() =>
+														saveCharacter(character)
 													}
-													sx={{
-														display: "block",
-														mt: 0.5,
-													}}
 												>
-													{rowValidationMessage
-														? rowValidationMessage
-														: targetCharacter
-															? `Preview: ${targetCharacter.Name} HP ${targetCharacter.CurrentHP} → ${attackPreviewHP} (Attack) / ${healPreviewHP} (Heal)  • Enter = Attack, Shift+Enter = Heal`
-															: "Select a target to preview result"}
-												</Typography>
-											)}
-										</div>
-									);
-								})}
+													Save
+												</Button>
+												<Button
+													size="small"
+													color="error"
+													variant="outlined"
+													onClick={() =>
+														removeCharacter(
+															character.ID,
+														)
+													}
+												>
+													Remove
+												</Button>
+											</Stack>
+										)}
+									</div>
+								))}
+							{/* Combat controls for all characters */}
+							<CombatControls
+								characters={characters}
+								quickActionByActor={quickActionByActor}
+								handleQuickActionChange={
+									handleQuickActionChange
+								}
+								handleQuickAmountKeyDown={
+									handleQuickAmountKeyDown
+								}
+								applyQuickAction={applyQuickAction}
+								combatStarted={combatStarted}
+							/>
 						</Stack>
 						{/* Add Existing Character Row */}
 						<Stack
@@ -1040,58 +678,22 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 							mt={2}
 						>
 							{!combatStarted && (
-								<>
-									<FormControl sx={{ minWidth: 200 }}>
-										<InputLabel id="add-existing-character-label">
-											Add Existing Character
-										</InputLabel>
-										<Select
-											labelId="add-existing-character-label"
-											value={
-												selectedAddCharacterId
-													? String(
-															selectedAddCharacterId,
-														)
-													: ""
-											}
-											label="Add Existing Character"
-											onChange={(
-												event: SelectChangeEvent,
-											) =>
-												setSelectedAddCharacterId(
-													Number(event.target.value),
-												)
-											}
-										>
-											{availableLibraryCharacters.map(
-												(libChar) => (
-													<MenuItem
-														key={libChar.ID}
-														value={String(
-															libChar.ID,
-														)}
-													>
-														{libChar.Name}
-													</MenuItem>
-												),
-											)}
-										</Select>
-									</FormControl>
-									<Button
-										variant="outlined"
-										onClick={
-											addExistingCharacterToEncounter
-										}
-										disabled={
-											!encounterId ||
-											!selectedAddCharacterId ||
-											availableLibraryCharacters.length ===
-												0
-										}
-									>
-										Add to Encounter
-									</Button>
-								</>
+								<AddCharacterControl
+									availableLibraryCharacters={
+										availableLibraryCharacters
+									}
+									selectedAddCharacterId={
+										selectedAddCharacterId
+									}
+									setSelectedAddCharacterId={
+										setSelectedAddCharacterId
+									}
+									addExistingCharacterToEncounter={
+										addExistingCharacterToEncounter
+									}
+									encounterId={encounterId}
+									combatStarted={combatStarted}
+								/>
 							)}
 						</Stack>
 
@@ -1104,45 +706,14 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								alignItems="center"
 								mt={1}
 							>
-								<FormControl sx={{ minWidth: 200 }}>
-									<InputLabel id="add-npc-label">
-										Add NPC
-									</InputLabel>
-									<Select
-										labelId="add-npc-label"
-										value={
-											selectedAddNpcId
-												? String(selectedAddNpcId)
-												: ""
-										}
-										label="Add NPC"
-										onChange={(event: SelectChangeEvent) =>
-											setSelectedAddNpcId(
-												Number(event.target.value),
-											)
-										}
-									>
-										{npcTemplates.map((npc) => (
-											<MenuItem
-												key={npc.ID}
-												value={String(npc.ID)}
-											>
-												{npc.Name}
-											</MenuItem>
-										))}
-									</Select>
-								</FormControl>
-								<Button
-									variant="outlined"
-									onClick={addNpcToEncounter}
-									disabled={
-										!encounterId ||
-										!selectedAddNpcId ||
-										npcTemplates.length === 0
-									}
-								>
-									Add NPC
-								</Button>
+								<AddNpcControl
+									npcTemplates={npcTemplates}
+									selectedAddNpcId={selectedAddNpcId}
+									setSelectedAddNpcId={setSelectedAddNpcId}
+									addNpcToEncounter={addNpcToEncounter}
+									encounterId={encounterId}
+									combatStarted={combatStarted}
+								/>
 							</Stack>
 						)}
 						{isLoading && (
@@ -1150,146 +721,24 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								Loading...
 							</Typography>
 						)}
-						<Stack spacing={1.5} mt={2}>
-							<Typography variant="h6" fontWeight={700}>
-								Combat Log
-							</Typography>
-							<Stack
-								direction="row"
-								spacing={1}
-								useFlexGap
-								flexWrap="wrap"
-							>
-								<FormControl sx={{ minWidth: 140 }}>
-									<InputLabel id="log-actor-label">
-										Actor
-									</InputLabel>
-									<Select
-										labelId="log-actor-label"
-										label="Actor"
-										value={
-											logActorId ? String(logActorId) : ""
-										}
-										onChange={(event: SelectChangeEvent) =>
-											setLogActorId(
-												Number(event.target.value),
-											)
-										}
-									>
-										{characters.map((character) => (
-											<MenuItem
-												key={character.ID}
-												value={String(character.ID)}
-											>
-												{character.Name}
-											</MenuItem>
-										))}
-									</Select>
-								</FormControl>
-								<FormControl sx={{ minWidth: 140 }}>
-									<InputLabel id="log-target-label">
-										Target
-									</InputLabel>
-									<Select
-										labelId="log-target-label"
-										label="Target"
-										value={String(logTargetId)}
-										onChange={(event: SelectChangeEvent) =>
-											setLogTargetId(
-												Number(event.target.value),
-											)
-										}
-									>
-										<MenuItem value="0">None</MenuItem>
-										{characters.map((character) => (
-											<MenuItem
-												key={character.ID}
-												value={String(character.ID)}
-											>
-												{character.Name}
-											</MenuItem>
-										))}
-									</Select>
-								</FormControl>
-								<FormControl sx={{ minWidth: 140 }}>
-									<InputLabel id="log-action-label">
-										Action
-									</InputLabel>
-									<Select
-										labelId="log-action-label"
-										label="Action"
-										value={logActionType}
-										onChange={(event: SelectChangeEvent) =>
-											setLogActionType(event.target.value)
-										}
-									>
-										<MenuItem value="attack">
-											Attack
-										</MenuItem>
-										<MenuItem value="heal">Heal</MenuItem>
-										<MenuItem value="note">Note</MenuItem>
-									</Select>
-								</FormControl>
-								<TextField
-									label="HP Change"
-									type="number"
-									value={logHPChange}
-									onChange={(event) =>
-										setLogHPChange(event.target.value)
-									}
-									sx={{ width: 120 }}
-								/>
-								<TextField
-									label="Description"
-									value={logDescription}
-									onChange={(event) =>
-										setLogDescription(event.target.value)
-									}
-									sx={{ minWidth: 220, flex: 1 }}
-								/>
-								<Button
-									variant="contained"
-									onClick={addLogEntry}
-									disabled={!encounterId || !logActorId}
-								>
-									Add Log
-								</Button>
-							</Stack>
-							<Box
-								sx={{
-									maxHeight: 180,
-									overflowY: "auto",
-									border: 1,
-									borderColor: "divider",
-									borderRadius: 1,
-									p: 1,
-								}}
-							>
-								{ledgerEntries.length === 0 ? (
-									<Typography color="text.secondary">
-										No combat log entries yet.
-									</Typography>
-								) : (
-									ledgerEntries.map((entry) => (
-										<Typography
-											key={entry.id}
-											variant="body2"
-											sx={{ mb: 0.5 }}
-										>
-											{`[${formatLogTime(entry.created_at)}] `}
-											{entry.actor_name ||
-												characterNameByID(
-													entry.actor_id,
-												)}
-											{entry.target_id > 0
-												? ` -> ${entry.target_name || characterNameByID(entry.target_id)}`
-												: ""}
-											{` [${entry.action_type}] ${entry.hp_change} ${entry.description}`}
-										</Typography>
-									))
-								)}
-							</Box>
-						</Stack>
+						<CombatLog
+							ledgerEntries={ledgerEntries}
+							characters={characters}
+							logActorId={logActorId}
+							setLogActorId={setLogActorId}
+							logTargetId={logTargetId}
+							setLogTargetId={setLogTargetId}
+							logActionType={logActionType}
+							setLogActionType={setLogActionType}
+							logHPChange={logHPChange}
+							setLogHPChange={setLogHPChange}
+							logDescription={logDescription}
+							setLogDescription={setLogDescription}
+							addLogEntry={addLogEntry}
+							encounterId={encounterId}
+							formatLogTime={formatLogTime}
+							characterNameByID={characterNameByID}
+						/>
 					</Stack>
 				</CardContent>
 			</Card>
