@@ -20,5 +20,8 @@ export default defineConfig({
 			"/logout": "http://localhost:8080",
 			"/auth/discord/callback": "http://localhost:8080",
 		},
+		watch: {
+			usePolling: true,
+		},
 	},
 });

@@ -22,6 +22,7 @@ import { useEncounters } from "../hooks/useEncounters";
 import { useCharacters } from "../hooks/useCharacters";
 import { useNpcTemplates } from "../hooks/useNpcTemplates";
 import { useCombatLog } from "../hooks/useCombatLog";
+import { apiUrl } from "../lib/api";
 
 export interface Character {
 	ID: number;
@@ -102,7 +103,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	// Fetch library characters and initialize on mount
 	const fetchLibraryCharacters = useCallback(async () => {
 		try {
-			const response = await fetch("/api/characters/library", {
+			const response = await fetch(apiUrl("/api/characters/library"), {
 				credentials: "include",
 			});
 			if (!response.ok) {
@@ -137,7 +138,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		}
 		try {
 			const response = await fetch(
-				"/api/npcs/templates/create-character",
+				apiUrl("/api/npcs/templates/create-character"),
 				{
 					method: "POST",
 					credentials: "include",
@@ -210,7 +211,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			hpChange: number,
 			description: string,
 		) => {
-			const response = await fetch("/api/encounters/ledger/add", {
+			const response = await fetch(apiUrl("/api/encounters/ledger/add"), {
 				method: "POST",
 				credentials: "include",
 				headers: { "Content-Type": "application/json" },
@@ -318,7 +319,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 
 	const saveCharacter = async (character: Character) => {
 		const idToSend = character.ID > 2147483647 ? 0 : character.ID;
-		const response = await fetch("/save-character", {
+		const response = await fetch(apiUrl("/save-character"), {
 			method: "POST",
 			credentials: "include",
 			headers: { "Content-Type": "application/json" },
@@ -340,15 +341,18 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	};
 
 	const removeCharacter = async (characterID: number) => {
-		const response = await fetch("/remove-character-from-encounter", {
-			method: "POST",
-			credentials: "include",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				encounter_id: encounterId,
-				character_id: characterID,
-			}),
-		});
+		const response = await fetch(
+			apiUrl("/remove-character-from-encounter"),
+			{
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					encounter_id: encounterId,
+					character_id: characterID,
+				}),
+			},
+		);
 		const data = await response.json();
 		if (!response.ok || data.status !== "success") {
 			throw new Error(data.message || "Failed to remove character");
@@ -361,15 +365,18 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			return;
 		}
 		try {
-			const response = await fetch("/add-character-to-encounter", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					encounter_id: encounterId,
-					character_id: selectedAddCharacterId,
-				}),
-			});
+			const response = await fetch(
+				apiUrl("/add-character-to-encounter"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						encounter_id: encounterId,
+						character_id: selectedAddCharacterId,
+					}),
+				},
+			);
 			const data = await response.json();
 			if (!response.ok || data.status !== "success") {
 				throw new Error(
@@ -385,12 +392,15 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const nextCharacter = useCallback(async () => {
 		if (!encounterId || characters.length === 0) return;
 		try {
-			const response = await fetch("/api/encounters/combat/next-turn", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ encounter_id: encounterId }),
-			});
+			const response = await fetch(
+				apiUrl("/api/encounters/combat/next-turn"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ encounter_id: encounterId }),
+				},
+			);
 			const data = await response.json();
 			if (!response.ok || data.status !== "success") {
 				throw new Error(data.message || "Failed to advance turn");
@@ -404,12 +414,15 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const handleStartCombat = async () => {
 		if (!encounterId || characters.length === 0) return;
 		try {
-			const response = await fetch("/api/encounters/combat/start", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ encounter_id: encounterId }),
-			});
+			const response = await fetch(
+				apiUrl("/api/encounters/combat/start"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ encounter_id: encounterId }),
+				},
+			);
 			const data = await response.json();
 			if (!response.ok || data.status !== "success") {
 				throw new Error(data.message || "Failed to start combat");
@@ -423,12 +436,15 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const handleBackToSetup = async () => {
 		if (!encounterId) return;
 		try {
-			const response = await fetch("/api/encounters/combat/setup", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ encounter_id: encounterId }),
-			});
+			const response = await fetch(
+				apiUrl("/api/encounters/combat/setup"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ encounter_id: encounterId }),
+				},
+			);
 			const data = await response.json();
 			if (!response.ok || data.status !== "success") {
 				throw new Error(data.message || "Failed to reset combat");

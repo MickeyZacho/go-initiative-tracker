@@ -29,6 +29,8 @@ services:
       - DB_USER=initiative_user
       - DB_PASSWORD=initiative_pass
       - DB_NAME=initiative_db
+      - DISCORD_CLIENT_ID=1126849523671650375
+      - DISCORD_CLIENT_SECRET=fRbAbkzojsnORJqQZGiWbp5ot7enY0WN
     depends_on:
       - db
 
@@ -41,6 +43,7 @@ services:
       - "5173:5173"
     volumes:
       - ./frontend:/app
+      - /app/node_modules
     environment:
       - VITE_API_BASE_URL=http://localhost:8080
     depends_on:
