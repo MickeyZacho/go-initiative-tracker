@@ -11,6 +11,7 @@ type EncounterDAO interface {
 	DeleteEncounter(id int) error
 	AddCharacterToEncounter(encounterID, characterID int) error
 	RemoveCharacterFromEncounter(encounterID, characterID int) error
+	GetByID(id int) (Encounter, error)
 	GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error)
 }
 type Encounter struct {
@@ -71,6 +72,12 @@ func (dao *encounterDAOImpl) AddCharacterToEncounter(encounterID, characterID in
 func (dao *encounterDAOImpl) RemoveCharacterFromEncounter(encounterID, characterID int) error {
 	_, err := dao.db.Exec("DELETE FROM encounter_characters WHERE encounter_id = $1 AND character_id = $2", encounterID, characterID)
 	return err
+}
+
+func (dao *encounterDAOImpl) GetByID(id int) (Encounter, error) {
+	var e Encounter
+	err := dao.db.QueryRow("SELECT id, name, COALESCE(owner_id, ''), COALESCE(description, '') FROM encounters WHERE id = $1", id).Scan(&e.ID, &e.Name, &e.OwnerID, &e.Description)
+	return e, err
 }
 
 // Get all encounters for a given Discord user

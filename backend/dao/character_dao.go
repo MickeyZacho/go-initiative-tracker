@@ -5,15 +5,16 @@ import (
 )
 
 type Character struct {
-	ID            int
-	Name          string
-	ArmorClass    int
-	ToHitModifier int
-	MaxHP         int
-	CurrentHP     int
-	Initiative    int
-	IsActive      bool
-	OwnerID       string
+	ID                int
+	Name              string
+	ArmorClass        int
+	ToHitModifier     int
+	MaxHP             int
+	CurrentHP         int
+	Initiative        int
+	IsActive          bool
+	OwnerID           string
+	MonsterTemplateID *int // Nullable foreign key to MonsterTemplate
 }
 
 type CharacterDAO interface {
@@ -36,7 +37,7 @@ func NewCharacterDAO(db *sql.DB) CharacterDAO {
 }
 
 func (dao *characterDAOImpl) GetAllCharacters() ([]Character, error) {
-	rows, err := dao.db.Query("SELECT id, name, armor_class, to_hit_modifier, max_hp, max_hp AS current_hp, 0 AS initiative, false AS is_active, COALESCE(owner_id, '') FROM characters")
+	rows, err := dao.db.Query("SELECT id, name, armor_class, to_hit_modifier, max_hp, max_hp AS current_hp, 0 AS initiative, false AS is_active, COALESCE(owner_id, ''), monster_template_id FROM characters")
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +46,7 @@ func (dao *characterDAOImpl) GetAllCharacters() ([]Character, error) {
 	var characters []Character
 	for rows.Next() {
 		var c Character
-		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID)
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID, &c.MonsterTemplateID)
 		if err != nil {
 			return nil, err
 		}
@@ -56,7 +57,7 @@ func (dao *characterDAOImpl) GetAllCharacters() ([]Character, error) {
 
 func (dao *characterDAOImpl) GetCharacterByID(id int) (Character, error) {
 	var c Character
-	err := dao.db.QueryRow("SELECT id, name, armor_class, to_hit_modifier, max_hp, max_hp AS current_hp, 0 AS initiative, false AS is_active, COALESCE(owner_id, '') FROM characters WHERE id = $1", id).Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID)
+	err := dao.db.QueryRow("SELECT id, name, armor_class, to_hit_modifier, max_hp, max_hp AS current_hp, 0 AS initiative, false AS is_active, COALESCE(owner_id, ''), monster_template_id FROM characters WHERE id = $1", id).Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID, &c.MonsterTemplateID)
 	if err != nil {
 		return c, err
 	}
@@ -65,7 +66,7 @@ func (dao *characterDAOImpl) GetCharacterByID(id int) (Character, error) {
 
 func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Character, error) {
 	rows, err := dao.db.Query(
-		"SELECT c.id, c.name, c.armor_class, c.to_hit_modifier, c.max_hp, COALESCE(ec.current_hp, c.max_hp), COALESCE(ec.initiative, 0), COALESCE(ec.is_active, false), COALESCE(c.owner_id, '') FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1",
+		"SELECT c.id, c.name, c.armor_class, c.to_hit_modifier, c.max_hp, COALESCE(ec.current_hp, c.max_hp), COALESCE(ec.initiative, 0), COALESCE(ec.is_active, false), COALESCE(c.owner_id, ''), c.monster_template_id FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1",
 		encounterID,
 	)
 	if err != nil {
@@ -75,7 +76,7 @@ func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Char
 	var characters []Character
 	for rows.Next() {
 		var c Character
-		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID)
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID, &c.MonsterTemplateID)
 		if err != nil {
 			return nil, err
 		}
