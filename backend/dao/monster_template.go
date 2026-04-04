@@ -158,6 +158,7 @@ func (dao *npcTemplateDAOImpl) AddCharacterToEncounterFromTemplate(templateID in
 		CurrentHP:     t.MaxHP,
 		Initiative:    0,
 		OwnerID:       encounter.OwnerID,
+		Type:          "npc",
 		NpcTemplateID: &t.ID,
 		// Add other fields as needed
 	}

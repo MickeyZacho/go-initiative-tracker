@@ -22,6 +22,8 @@ interface Character {
 	ToHitModifier?: number;
 	MaxHP: number;
 	OwnerID: string;
+	Type: string; // 'pc' or 'npc'
+	NpcTemplateID?: number; // for NPCs, reference to their template
 }
 
 const emptyCharacter: Character = {
@@ -31,6 +33,8 @@ const emptyCharacter: Character = {
 	ToHitModifier: 0,
 	MaxHP: 10,
 	OwnerID: "",
+	Type: "pc",
+	NpcTemplateID: undefined,
 };
 
 export default function CharactersPage() {
@@ -219,124 +223,282 @@ export default function CharactersPage() {
 						</TableRow>
 					</TableHead>
 					<TableBody>
-						{characters.map((character) => (
-							<TableRow key={character.ID}>
-								<TableCell>
-									<TextField
-										variant="standard"
-										value={character.Name}
-										onChange={(e) =>
-											setCharacters((prev) =>
-												prev.map((c) =>
-													c.ID === character.ID
-														? {
-																...c,
-																Name: e.target
-																	.value,
-															}
-														: c,
-												),
-											)
-										}
-									/>
-								</TableCell>
-								<TableCell>
-									<TextField
-										variant="standard"
-										type="number"
-										value={character.ArmorClass}
-										onChange={(e) =>
-											setCharacters((prev) =>
-												prev.map((c) =>
-													c.ID === character.ID
-														? {
-																...c,
-																ArmorClass:
-																	Number(
-																		e.target
-																			.value,
-																	),
-															}
-														: c,
-												),
-											)
-										}
-									/>
-								</TableCell>
-								<TableCell>
-									<TextField
-										variant="standard"
-										type="number"
-										value={character.ToHitModifier ?? 0}
-										onChange={(e) =>
-											setCharacters((prev) =>
-												prev.map((c) =>
-													c.ID === character.ID
-														? {
-																...c,
-																ToHitModifier:
-																	Number(
-																		e.target
-																			.value,
-																	),
-															}
-														: c,
-												),
-											)
-										}
-									/>
-								</TableCell>
-								<TableCell>
-									<TextField
-										variant="standard"
-										type="number"
-										value={character.MaxHP}
-										onChange={(e) =>
-											setCharacters((prev) =>
-												prev.map((c) =>
-													c.ID === character.ID
-														? {
-																...c,
-																MaxHP: Number(
-																	e.target
-																		.value,
-																),
-															}
-														: c,
-												),
-											)
-										}
-									/>
-								</TableCell>
-								<TableCell align="right">
-									<Stack
-										direction="row"
-										spacing={1}
-										justifyContent="flex-end"
-									>
-										<Button
-											size="small"
-											variant="contained"
-											onClick={() =>
-												handleUpdate(character)
-											}
-										>
-											Save
-										</Button>
-										<Button
-											size="small"
-											color="error"
-											variant="outlined"
-											onClick={() =>
-												handleDelete(character.ID)
-											}
-										>
-											Delete
-										</Button>
-									</Stack>
+						{/* PCs group */}
+						{characters.filter((c) => c.Type === "pc").length >
+							0 && (
+							<TableRow>
+								<TableCell
+									colSpan={5}
+									style={{
+										background: "#e3f2fd",
+										fontWeight: 700,
+									}}
+								>
+									Player Characters (PCs)
 								</TableCell>
 							</TableRow>
-						))}
+						)}
+						{characters
+							.filter((c) => c.Type === "pc")
+							.map((character) => (
+								<TableRow key={character.ID}>
+									<TableCell>
+										<TextField
+											variant="standard"
+											value={character.Name}
+											onChange={(e) =>
+												setCharacters((prev) =>
+													prev.map((c) =>
+														c.ID === character.ID
+															? {
+																	...c,
+																	Name: e
+																		.target
+																		.value,
+																}
+															: c,
+													),
+												)
+											}
+										/>
+									</TableCell>
+									<TableCell>
+										<TextField
+											variant="standard"
+											type="number"
+											value={character.ArmorClass}
+											onChange={(e) =>
+												setCharacters((prev) =>
+													prev.map((c) =>
+														c.ID === character.ID
+															? {
+																	...c,
+																	ArmorClass:
+																		Number(
+																			e
+																				.target
+																				.value,
+																		),
+																}
+															: c,
+													),
+												)
+											}
+										/>
+									</TableCell>
+									<TableCell>
+										<TextField
+											variant="standard"
+											type="number"
+											value={character.ToHitModifier ?? 0}
+											onChange={(e) =>
+												setCharacters((prev) =>
+													prev.map((c) =>
+														c.ID === character.ID
+															? {
+																	...c,
+																	ToHitModifier:
+																		Number(
+																			e
+																				.target
+																				.value,
+																		),
+																}
+															: c,
+													),
+												)
+											}
+										/>
+									</TableCell>
+									<TableCell>
+										<TextField
+											variant="standard"
+											type="number"
+											value={character.MaxHP}
+											onChange={(e) =>
+												setCharacters((prev) =>
+													prev.map((c) =>
+														c.ID === character.ID
+															? {
+																	...c,
+																	MaxHP: Number(
+																		e.target
+																			.value,
+																	),
+																}
+															: c,
+													),
+												)
+											}
+										/>
+									</TableCell>
+									<TableCell align="right">
+										<Stack
+											direction="row"
+											spacing={1}
+											justifyContent="flex-end"
+										>
+											<Button
+												size="small"
+												variant="contained"
+												onClick={() =>
+													handleUpdate(character)
+												}
+											>
+												Save
+											</Button>
+											<Button
+												size="small"
+												color="error"
+												variant="outlined"
+												onClick={() =>
+													handleDelete(character.ID)
+												}
+											>
+												Delete
+											</Button>
+										</Stack>
+									</TableCell>
+								</TableRow>
+							))}
+						{/* NPCs group */}
+						{characters.filter((c) => c.Type === "npc").length >
+							0 && (
+							<TableRow>
+								<TableCell
+									colSpan={5}
+									style={{
+										background: "#fce4ec",
+										fontWeight: 700,
+									}}
+								>
+									Non-Player Characters (NPCs)
+								</TableCell>
+							</TableRow>
+						)}
+						{characters
+							.filter((c) => c.Type === "npc")
+							.map((character) => (
+								<TableRow key={character.ID}>
+									<TableCell>
+										<TextField
+											variant="standard"
+											value={character.Name}
+											onChange={(e) =>
+												setCharacters((prev) =>
+													prev.map((c) =>
+														c.ID === character.ID
+															? {
+																	...c,
+																	Name: e
+																		.target
+																		.value,
+																}
+															: c,
+													),
+												)
+											}
+										/>
+									</TableCell>
+									<TableCell>
+										<TextField
+											variant="standard"
+											type="number"
+											value={character.ArmorClass}
+											onChange={(e) =>
+												setCharacters((prev) =>
+													prev.map((c) =>
+														c.ID === character.ID
+															? {
+																	...c,
+																	ArmorClass:
+																		Number(
+																			e
+																				.target
+																				.value,
+																		),
+																}
+															: c,
+													),
+												)
+											}
+										/>
+									</TableCell>
+									<TableCell>
+										<TextField
+											variant="standard"
+											type="number"
+											value={character.ToHitModifier ?? 0}
+											onChange={(e) =>
+												setCharacters((prev) =>
+													prev.map((c) =>
+														c.ID === character.ID
+															? {
+																	...c,
+																	ToHitModifier:
+																		Number(
+																			e
+																				.target
+																				.value,
+																		),
+																}
+															: c,
+													),
+												)
+											}
+										/>
+									</TableCell>
+									<TableCell>
+										<TextField
+											variant="standard"
+											type="number"
+											value={character.MaxHP}
+											onChange={(e) =>
+												setCharacters((prev) =>
+													prev.map((c) =>
+														c.ID === character.ID
+															? {
+																	...c,
+																	MaxHP: Number(
+																		e.target
+																			.value,
+																	),
+																}
+															: c,
+													),
+												)
+											}
+										/>
+									</TableCell>
+									<TableCell align="right">
+										<Stack
+											direction="row"
+											spacing={1}
+											justifyContent="flex-end"
+										>
+											<Button
+												size="small"
+												variant="contained"
+												onClick={() =>
+													handleUpdate(character)
+												}
+											>
+												Save
+											</Button>
+											<Button
+												size="small"
+												color="error"
+												variant="outlined"
+												onClick={() =>
+													handleDelete(character.ID)
+												}
+											>
+												Delete
+											</Button>
+										</Stack>
+									</TableCell>
+								</TableRow>
+							))}
 					</TableBody>
 				</Table>
 				{!loading && characters.length === 0 && (
