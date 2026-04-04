@@ -77,6 +77,12 @@ export const CombatControls: React.FC<CombatControlsProps> = ({
 								alignItems="center"
 								mt={1}
 							>
+								<Typography
+									variant="subtitle1"
+									sx={{ minWidth: 100, fontWeight: 600 }}
+								>
+									{character.Name}
+								</Typography>
 								<FormControl
 									size="small"
 									sx={{ minWidth: 140 }}
