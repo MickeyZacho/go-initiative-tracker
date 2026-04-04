@@ -19,6 +19,8 @@ exclude_file = ["*_test.go"]
 # Build delay in milliseconds
 delay = 200
 
+poll = true
+
 [log]
 # Log level (debug, info, warn, error, fatal, panic)
 level = "debug"

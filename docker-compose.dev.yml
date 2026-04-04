@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   db:
-    image: postgres:16
+    image: postgres:18
     restart: always
     environment:
       POSTGRES_DB: initiative_db
@@ -10,7 +10,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql
       - ./start.sql:/docker-entrypoint-initdb.d/init.sql
 
   backend:
