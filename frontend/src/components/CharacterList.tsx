@@ -1,4 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
+// NPC Template type
+interface NpcTemplate {
+	ID: number;
+	Name: string;
+	// Add other fields as needed
+}
 import { CharacterRow } from "./CharacterRow";
 import { parseJsonResponse } from "../lib/http";
 import { apiUrl } from "../lib/api";
@@ -65,6 +71,26 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
 	const [selectedAddCharacterId, setSelectedAddCharacterId] =
 		useState<number>(0);
+	// NPC state
+	const [npcTemplates, setNpcTemplates] = useState<NpcTemplate[]>([]);
+	const [selectedAddNpcId, setSelectedAddNpcId] = useState<number>(0);
+	// Fetch NPC templates
+	const fetchNpcTemplates = useCallback(async () => {
+		try {
+			const response = await fetch(apiUrl("/api/npcs/templates"), {
+				credentials: "include",
+			});
+			if (!response.ok) throw new Error("Failed to fetch NPC templates");
+			const payload = await parseJsonResponse<unknown>(response);
+			const data: NpcTemplate[] = Array.isArray(payload) ? payload : [];
+			setNpcTemplates(data);
+			if (data.length > 0) {
+				setSelectedAddNpcId(data[0].ID);
+			}
+		} catch {
+			setNpcTemplates([]);
+		}
+	}, []);
 	const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
 	const [logActorId, setLogActorId] = useState<number>(0);
 	const [logTargetId, setLogTargetId] = useState<number>(0);
@@ -200,7 +226,45 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	useEffect(() => {
 		fetchEncounters();
 		fetchLibraryCharacters();
-	}, [fetchEncounters, fetchLibraryCharacters]);
+		fetchNpcTemplates();
+	}, [fetchEncounters, fetchLibraryCharacters, fetchNpcTemplates]);
+	// Add NPC to encounter
+	const addNpcToEncounter = async () => {
+		if (combatStarted || !encounterId || !selectedAddNpcId) {
+			return;
+		}
+		setError("");
+		try {
+			const response = await fetch(
+				apiUrl("/api/npcs/templates/create-character"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						encounter_id: encounterId,
+						npc_template_id: selectedAddNpcId,
+					}),
+				},
+			);
+			const data = await parseJsonResponse<{
+				status?: string;
+				message?: string;
+			}>(response);
+			if (!response.ok || data.status !== "success") {
+				throw new Error(
+					data.message || "Failed to add NPC to encounter",
+				);
+			}
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setError(
+				err instanceof Error
+					? err.message
+					: "Failed to add NPC to encounter",
+			);
+		}
+	};
 
 	useEffect(() => {
 		const available = libraryCharacters.filter(
@@ -967,6 +1031,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 									);
 								})}
 						</Stack>
+						{/* Add Existing Character Row */}
 						<Stack
 							direction="row"
 							spacing={2}
@@ -976,7 +1041,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						>
 							{!combatStarted && (
 								<>
-									<FormControl sx={{ minWidth: 240 }}>
+									<FormControl sx={{ minWidth: 200 }}>
 										<InputLabel id="add-existing-character-label">
 											Add Existing Character
 										</InputLabel>
@@ -1028,39 +1093,58 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 									</Button>
 								</>
 							)}
-							<Button
-								variant="contained"
-								color="success"
-								onClick={addCharacter}
-								disabled={combatStarted}
-								sx={{
-									fontWeight: 600,
-									fontSize: "1rem",
-									px: 3,
-									py: 1,
-								}}
-							>
-								Add Character
-							</Button>
-							<Button
-								variant="contained"
-								color="primary"
-								onClick={nextCharacter}
-								disabled={
-									isLoading ||
-									!combatStarted ||
-									characters.length === 0
-								}
-								sx={{
-									fontWeight: 600,
-									fontSize: "1rem",
-									px: 3,
-									py: 1,
-								}}
-							>
-								Next Character
-							</Button>
 						</Stack>
+
+						{/* Add NPC Row (separate) */}
+						{!combatStarted && (
+							<Stack
+								direction="row"
+								spacing={2}
+								justifyContent="center"
+								alignItems="center"
+								mt={1}
+							>
+								<FormControl sx={{ minWidth: 200 }}>
+									<InputLabel id="add-npc-label">
+										Add NPC
+									</InputLabel>
+									<Select
+										labelId="add-npc-label"
+										value={
+											selectedAddNpcId
+												? String(selectedAddNpcId)
+												: ""
+										}
+										label="Add NPC"
+										onChange={(event: SelectChangeEvent) =>
+											setSelectedAddNpcId(
+												Number(event.target.value),
+											)
+										}
+									>
+										{npcTemplates.map((npc) => (
+											<MenuItem
+												key={npc.ID}
+												value={String(npc.ID)}
+											>
+												{npc.Name}
+											</MenuItem>
+										))}
+									</Select>
+								</FormControl>
+								<Button
+									variant="outlined"
+									onClick={addNpcToEncounter}
+									disabled={
+										!encounterId ||
+										!selectedAddNpcId ||
+										npcTemplates.length === 0
+									}
+								>
+									Add NPC
+								</Button>
+							</Stack>
+						)}
 						{isLoading && (
 							<Typography color="text.secondary">
 								Loading...

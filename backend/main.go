@@ -1138,7 +1138,7 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var req struct {
-		TemplateID  int `json:"template_id"`
+		TemplateID  int `json:"npc_template_id"`
 		EncounterID int `json:"encounter_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
