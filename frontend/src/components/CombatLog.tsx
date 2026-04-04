@@ -11,7 +11,8 @@ import {
 	Box,
 } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material/Select";
-import type { Character, LedgerEntry } from "./CharacterList";
+import type { Character } from "./CharacterList";
+import type { LedgerEntry } from "../hooks/useCombatLog";
 
 export interface CombatLogProps {
 	ledgerEntries: LedgerEntry[];
@@ -151,7 +152,7 @@ export const CombatLog: React.FC<CombatLogProps> = ({
 					<Typography key={entry.id} variant="body2" sx={{ mb: 0.5 }}>
 						{`[${formatLogTime(entry.created_at)}] `}
 						{entry.actor_name || characterNameByID(entry.actor_id)}
-						{entry.target_id > 0
+						{entry.target_id && entry.target_id > 0
 							? ` -> ${entry.target_name || characterNameByID(entry.target_id)}`
 							: ""}
 						{` [${entry.action_type}] ${entry.hp_change} ${entry.description}`}

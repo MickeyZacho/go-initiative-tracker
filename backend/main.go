@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joho/godotenv"
 	_ "github.com/lib/pq" // Import the PostgreSQL driver
 	"golang.org/x/oauth2"
 )
@@ -153,15 +152,17 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	// Load environment variables
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatalf("Error loading .env file: %v", err)
-	}
+	// _ = godotenv.Load() // Only load .env if present; ignore error if missing
 
-	user := os.Getenv("USER")
-	password := os.Getenv("PASSWORD")
-	dbname := os.Getenv("DBNAME")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
 	sslmode := os.Getenv("SSLMODE")
+	if sslmode == "" {
+		sslmode = "disable"
+	}
 	frontendURL = os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
 		frontendURL = "http://localhost:5173"
@@ -179,7 +180,10 @@ func main() {
 		discordRedirectURL = "http://localhost:8080/auth/discord/callback"
 	}
 
-	connStr := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=%s", user, password, dbname, sslmode)
+	connStr := fmt.Sprintf(
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		dbHost, dbPort, dbUser, dbPassword, dbName, sslmode,
+	)
 	var errDB error
 	db, errDB = sql.Open("postgres", connStr)
 	if errDB != nil {
@@ -194,7 +198,7 @@ func main() {
 		Endpoint:     discordEndpoint,
 	}
 
-	log.Printf("Connected to database %s as user %s", dbname, user)
+	log.Printf("Connected to database %s as user %s on host %s:%s", dbName, dbUser, dbHost, dbPort)
 
 	initializeApp(db)
 

@@ -1,0 +1,8 @@
+# Backend .dockerignore
+*.log
+tmp/
+*.db
+*.sqlite
+.idea/
+.vscode/
+.git/

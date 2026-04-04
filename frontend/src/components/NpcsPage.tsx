@@ -1,7 +1,6 @@
 // Renamed from MonstersPage.tsx
 import { useCallback, useEffect, useState } from "react";
 import {
-	Box,
 	Button,
 	Paper,
 	Stack,
@@ -56,10 +55,8 @@ export default function NpcsPage() {
 	const [npcs, setNpcs] = useState<NpcTemplate[]>([]);
 	const [draft, setDraft] = useState<NpcTemplate>(emptyNpc);
 	const [error, setError] = useState("");
-	const [loading, setLoading] = useState(false);
 
 	const loadNpcs = useCallback(async () => {
-		setLoading(true);
 		setError("");
 		try {
 			const response = await fetch(apiUrl("/api/npcs/templates"), {
@@ -75,8 +72,6 @@ export default function NpcsPage() {
 				err instanceof Error ? err.message : "Failed to load npcs",
 			);
 			setNpcs([]);
-		} finally {
-			setLoading(false);
 		}
 	}, []);
 

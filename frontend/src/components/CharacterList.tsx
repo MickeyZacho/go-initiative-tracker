@@ -77,11 +77,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	} = useNpcTemplates();
 
 	// Combat Log
-	const {
-		ledgerEntries,
-		fetchLedger,
-		error: combatLogError,
-	} = useCombatLog();
+	const { ledgerEntries, fetchLedger } = useCombatLog();
 
 	// Local state
 	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
@@ -102,7 +98,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 
 	// Compose error and loading states from hooks
 	const isLoading = encountersLoading || charactersLoading;
-	const composedError = encountersError || charactersError || combatLogError;
+	const composedError = encountersError || charactersError;
 	// Fetch library characters and initialize on mount
 	const fetchLibraryCharacters = useCallback(async () => {
 		try {

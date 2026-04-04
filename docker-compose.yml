@@ -1,0 +1,42 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: initiative_db
+      POSTGRES_USER: initiative_user
+      POSTGRES_PASSWORD: initiative_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./start.sql:/docker-entrypoint-initdb.d/init.sql
+
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/static:/app/static
+      - ./backend/templates:/app/templates
+      - ./backend/initiative-tracker-db.session.sql:/app/initiative-tracker-db.session.sql
+    environment:
+      - PORT=8080
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=initiative_user
+      - DB_PASSWORD=initiative_pass
+      - DB_NAME=initiative_db
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:

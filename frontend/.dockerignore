@@ -1,0 +1,7 @@
+# Frontend .dockerignore
+node_modules
+dist
+tmp/
+.idea/
+.vscode/
+.git/
