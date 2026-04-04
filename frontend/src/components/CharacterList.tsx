@@ -370,25 +370,41 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[applyQuickAction],
 	);
 
-	const addCharacter = () => {
-		if (combatStarted) {
+	const addCharacter = async () => {
+		if (combatStarted || !encounterId || !selectedAddCharacterId) {
 			return;
 		}
-		const newId = Date.now();
-		setCharacters((prev) => [
-			...prev,
-			{
-				ID: newId,
-				Name: "",
-				ArmorClass: 10,
-				ToHitModifier: 0,
-				MaxHP: 10,
-				CurrentHP: 10,
-				Initiative: 0,
-				IsActive: false,
-				OwnerID: "",
-			},
-		]);
+		setError("");
+		try {
+			const response = await fetch(
+				apiUrl("/add-character-to-encounter"),
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						encounter_id: encounterId,
+						character_id: selectedAddCharacterId,
+					}),
+				},
+			);
+			const data = await parseJsonResponse<{
+				status?: string;
+				message?: string;
+			}>(response);
+			if (!response.ok || data.status !== "success") {
+				throw new Error(
+					data.message || "Failed to add character to encounter",
+				);
+			}
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setError(
+				err instanceof Error
+					? err.message
+					: "Failed to add character to encounter",
+			);
+		}
 	};
 
 	const saveCharacter = async (character: Character) => {
@@ -647,28 +663,54 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			>
 				<CardContent>
 					<Stack spacing={3}>
-						{/* Encounter Switcher */}
-						<FormControl fullWidth variant="outlined">
-							<InputLabel id="encounter-label">
-								Encounter
-							</InputLabel>
-							<Select
-								labelId="encounter-label"
-								value={String(encounterId)}
-								label="Encounter"
-								onChange={handleEncounterChange}
-								sx={{ fontWeight: 500, color: "#1976d2" }}
+						{/* Encounter Switcher and Start/Back Button */}
+						<Stack direction="row" spacing={2} alignItems="center">
+							<FormControl
+								variant="outlined"
+								sx={{ minWidth: 220, flexGrow: 1 }}
 							>
-								{encounters.map((enc) => (
-									<MenuItem
-										key={enc.ID}
-										value={String(enc.ID)}
-									>
-										{enc.Name}
-									</MenuItem>
-								))}
-							</Select>
-						</FormControl>
+								<InputLabel id="encounter-label">
+									Encounter
+								</InputLabel>
+								<Select
+									labelId="encounter-label"
+									value={String(encounterId)}
+									label="Encounter"
+									onChange={handleEncounterChange}
+									sx={{ fontWeight: 500, color: "#1976d2" }}
+								>
+									{encounters.map((enc) => (
+										<MenuItem
+											key={enc.ID}
+											value={String(enc.ID)}
+										>
+											{enc.Name}
+										</MenuItem>
+									))}
+								</Select>
+							</FormControl>
+							<Button
+								variant={
+									combatStarted ? "outlined" : "contained"
+								}
+								color={combatStarted ? "inherit" : "warning"}
+								onClick={
+									combatStarted
+										? handleBackToSetup
+										: handleStartCombat
+								}
+								disabled={
+									!encounterId ||
+									(!combatStarted && characters.length === 0)
+								}
+								sx={{ whiteSpace: "nowrap", minWidth: 140 }}
+							>
+								{combatStarted
+									? "Back to Setup"
+									: "Start Combat"}
+							</Button>
+						</Stack>
+
 						{error && (
 							<Typography color="error">{error}</Typography>
 						)}
@@ -986,25 +1028,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 									</Button>
 								</>
 							)}
-							<Button
-								variant={
-									combatStarted ? "outlined" : "contained"
-								}
-								color={combatStarted ? "inherit" : "warning"}
-								onClick={
-									combatStarted
-										? handleBackToSetup
-										: handleStartCombat
-								}
-								disabled={
-									!encounterId ||
-									(!combatStarted && characters.length === 0)
-								}
-							>
-								{combatStarted
-									? "Back to Setup"
-									: "Start Combat"}
-							</Button>
 							<Button
 								variant="contained"
 								color="success"
