@@ -1,15 +1,14 @@
 
 
 DROP TABLE IF EXISTS encounter_characters;
-
 DROP TABLE IF EXISTS encounter_users;
-
 DROP TABLE IF EXISTS encounter_ledger;
 DROP TABLE IF EXISTS encounters;
 DROP TABLE IF EXISTS characters;
-DROP TABLE IF EXISTS monster_templates;
+DROP TABLE IF EXISTS npc_templates;
 -- Ability Scores Composite Type
-DROP TYPE IF EXISTS stat_block;
+-- Drop stat_block type only after all tables that use it are dropped
+DROP TYPE IF EXISTS stat_block CASCADE;
 CREATE TYPE stat_block AS (
 	strength     INTEGER,
 	dexterity    INTEGER,
@@ -19,11 +18,11 @@ CREATE TYPE stat_block AS (
 	charisma     INTEGER
 );
 
-CREATE TABLE monster_templates (
+CREATE TABLE npc_templates (
 	id SERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
 	description TEXT,
-	base_stats stat_block, -- Default stats for this monster/NPC type
+	base_stats stat_block, -- Default stats for this NPC type
 	armor_class INTEGER DEFAULT 10,
 	max_hp INTEGER DEFAULT 10
 );
@@ -37,7 +36,7 @@ CREATE TABLE characters (
 	armor_class INTEGER DEFAULT 10, -- AC for the character
 	to_hit_modifier INTEGER DEFAULT 0, -- Attack roll modifier
 	max_hp INTEGER DEFAULT 10, -- Maximum hit points
-	monster_template_id INTEGER REFERENCES monster_templates(id) ON DELETE SET NULL -- For NPCs/monsters
+	npc_template_id INTEGER REFERENCES npc_templates(id) ON DELETE SET NULL -- For NPCs
 );
   
 -- Encounters
@@ -79,12 +78,12 @@ CREATE TABLE encounter_users (
 -- Example Inserts
 
 
--- Monster Template: Goblin
-INSERT INTO monster_templates (name, description, base_stats, armor_class, max_hp)
+-- NPC Template: Goblin
+INSERT INTO npc_templates (name, description, base_stats, armor_class, max_hp)
 VALUES ('Goblin', 'Small, sneaky humanoid', ROW(8, 14, 10, 10, 8, 8)::stat_block, 14, 7);
 
--- Monster Template: Orc
-INSERT INTO monster_templates (name, description, base_stats, armor_class, max_hp)
+-- NPC Template: Orc
+INSERT INTO npc_templates (name, description, base_stats, armor_class, max_hp)
 VALUES ('Orc', 'Brutish warrior', ROW(16, 12, 16, 7, 11, 10)::stat_block, 13, 15);
 
 -- Encounter: Goblin Ambush
@@ -96,7 +95,7 @@ INSERT INTO characters (name, owner_id, type, class, stats, max_hp)
 VALUES ('Aragorn', 'user1', 'pc', 'Ranger', ROW(16, 14, 14, 12, 13, 12)::stat_block, 38);
 
 -- NPC: Goblin (from template)
-INSERT INTO characters (name, type, stats, max_hp, monster_template_id)
+INSERT INTO characters (name, type, stats, max_hp, npc_template_id)
 VALUES ('Goblin', 'npc', ROW(8, 14, 10, 10, 8, 8)::stat_block, 7, 1);
 
 INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp, is_active)

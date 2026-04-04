@@ -24,7 +24,7 @@ import (
 
 var db *sql.DB
 var characterDAO dao.CharacterDAO
-var monsterTemplateDAO dao.MonsterTemplateDAO
+var npcTemplateDAO dao.NpcTemplateDAO
 var encounterCharacterDAO dao.EncounterCharacterDAO
 var encounterLedgerDAO dao.EncounterLedgerDAO
 var characters []dao.Character
@@ -64,7 +64,7 @@ func initializeApp(db *sql.DB) {
 	encounterDAO = dao.NewEncounterDAO(db)
 	encounterCharacterDAO = dao.NewEncounterCharacterDAO(db)
 	encounterLedgerDAO = dao.NewEncounterLedgerDAO(db)
-	monsterTemplateDAO = dao.NewMonsterTemplateDAO(db)
+	npcTemplateDAO = dao.NewNpcTemplateDAO(db)
 	loadEncountersFromDB(nil)
 	loadCharactersFromDB(nil)
 }
@@ -216,11 +216,11 @@ func main() {
 	http.Handle("/api/encounters/combat/next-turn", loggingMiddleware(http.HandlerFunc(apiNextTurnHandler)))
 	http.Handle("/api/encounters/ledger", loggingMiddleware(http.HandlerFunc(apiEncounterLedgerHandler)))
 	http.Handle("/api/encounters/ledger/add", loggingMiddleware(http.HandlerFunc(apiAddEncounterLedgerHandler)))
-	// Monster Template API endpoints
-	http.Handle("/api/monsters/templates", loggingMiddleware(http.HandlerFunc(apiMonsterTemplatesHandler)))
-	http.Handle("/api/monsters/templates/save", loggingMiddleware(http.HandlerFunc(apiSaveMonsterTemplateHandler)))
-	http.Handle("/api/monsters/templates/delete", loggingMiddleware(http.HandlerFunc(apiDeleteMonsterTemplateHandler)))
-	http.Handle("/api/monsters/templates/create-character", loggingMiddleware(http.HandlerFunc(apiCreateCharacterFromTemplateHandler)))
+	// NPC Template API endpoints
+	http.Handle("/api/npcs/templates", loggingMiddleware(http.HandlerFunc(apiNpcTemplatesHandler)))
+	http.Handle("/api/npcs/templates/save", loggingMiddleware(http.HandlerFunc(apiSaveNpcTemplateHandler)))
+	http.Handle("/api/npcs/templates/delete", loggingMiddleware(http.HandlerFunc(apiDeleteNpcTemplateHandler)))
+	http.Handle("/api/npcs/templates/create-character", loggingMiddleware(http.HandlerFunc(apiCreateCharacterFromTemplateHandler)))
 
 	http.HandleFunc("/login/discord", discordLoginHandler)
 	http.HandleFunc("/auth/discord/callback", discordCallbackHandler)
@@ -1047,67 +1047,67 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
-func apiMonsterTemplatesHandler(w http.ResponseWriter, r *http.Request) {
+func apiNpcTemplatesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
-	templates, err := monsterTemplateDAO.GetAll()
+	templates, err := npcTemplateDAO.GetAll()
 	if err != nil {
 		fmt.Println(err)
-		http.Error(w, "Failed to fetch monster templates", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch npc templates", http.StatusInternalServerError)
 		return
 	}
 	if templates == nil {
-		templates = []dao.MonsterTemplate{}
+		templates = []dao.NpcTemplate{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(templates)
 }
 
-// POST /api/monsters/templates/save
-func apiSaveMonsterTemplateHandler(w http.ResponseWriter, r *http.Request) {
+// POST /api/npcs/templates/save
+func apiSaveNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
-	var mt dao.MonsterTemplate
-	if err := json.NewDecoder(r.Body).Decode(&mt); err != nil {
+	var nt dao.NpcTemplate
+	if err := json.NewDecoder(r.Body).Decode(&nt); err != nil {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
-	if strings.TrimSpace(mt.Name) == "" {
-		http.Error(w, "Monster name is required", http.StatusBadRequest)
+	if strings.TrimSpace(nt.Name) == "" {
+		http.Error(w, "NPC name is required", http.StatusBadRequest)
 		return
 	}
 
-	if mt.ID > 0 {
+	if nt.ID > 0 {
 		// Update
-		err := monsterTemplateDAO.Update(mt)
+		err := npcTemplateDAO.Update(nt)
 		if err != nil {
-			http.Error(w, "Failed to update monster template", http.StatusInternalServerError)
+			http.Error(w, "Failed to update npc template", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"status": "success", "monster": mt})
+		json.NewEncoder(w).Encode(map[string]any{"status": "success", "npc": nt})
 		return
 	}
 
 	// Create new template
-	newID, err := monsterTemplateDAO.Create(mt)
+	newID, err := npcTemplateDAO.Create(nt)
 	if err != nil {
-		fmt.Println(mt)
+		fmt.Println(nt)
 		fmt.Println(err)
-		http.Error(w, "Failed to create monster template", http.StatusInternalServerError)
+		http.Error(w, "Failed to create npc template", http.StatusInternalServerError)
 		return
 	}
-	mt.ID = newID
+	nt.ID = newID
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"status": "success", "monster": mt})
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "npc": nt})
 }
 
-// POST /api/monsters/templates/delete
-func apiDeleteMonsterTemplateHandler(w http.ResponseWriter, r *http.Request) {
+// POST /api/npcs/templates/delete
+func apiDeleteNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
@@ -1120,18 +1120,18 @@ func apiDeleteMonsterTemplateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.ID <= 0 {
-		http.Error(w, "Invalid monster template id", http.StatusBadRequest)
+		http.Error(w, "Invalid npc template id", http.StatusBadRequest)
 		return
 	}
-	if err := monsterTemplateDAO.Delete(req.ID); err != nil {
-		http.Error(w, "Failed to delete monster template", http.StatusInternalServerError)
+	if err := npcTemplateDAO.Delete(req.ID); err != nil {
+		http.Error(w, "Failed to delete npc template", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
-// POST /api/monsters/templates/create-character
+// POST /api/npcs/templates/create-character
 func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -1154,7 +1154,7 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	character, err := monsterTemplateDAO.AddCharacterToEncounterFromTemplate(req.TemplateID, req.EncounterID)
+	character, err := npcTemplateDAO.AddCharacterToEncounterFromTemplate(req.TemplateID, req.EncounterID)
 	if err != nil {
 		http.Error(w, "Failed to create character from template", http.StatusInternalServerError)
 		return

@@ -4,11 +4,11 @@ import CharactersPage from "./components/CharactersPage";
 import EncountersPage from "./components/EncountersPage";
 import { Button, Stack } from "@mui/material";
 import { useState } from "react";
-import MonstersPage from "./components/MonstersPage";
+import NpcsPage from "./components/NpcsPage";
 
 function App() {
 	const [view, setView] = useState<
-		"combat" | "characters" | "encounters" | "monsters"
+		"combat" | "characters" | "encounters" | "npcs"
 	>("characters");
 	const [selectedEncounterId, setSelectedEncounterId] = useState<
 		number | null
@@ -56,10 +56,10 @@ function App() {
 						Combat
 					</Button>
 					<Button
-						variant={view === "monsters" ? "contained" : "outlined"}
-						onClick={() => setView("monsters")}
+						variant={view === "npcs" ? "contained" : "outlined"}
+						onClick={() => setView("npcs")}
 					>
-						Monsters
+						NPCs
 					</Button>
 				</Stack>
 				{view === "characters" && <CharactersPage />}
@@ -69,7 +69,7 @@ function App() {
 				{view === "combat" && (
 					<CharacterList initialEncounterId={selectedEncounterId} />
 				)}
-				{view === "monsters" && <MonstersPage />}
+				{view === "npcs" && <NpcsPage />}
 			</div>
 		</div>
 	);

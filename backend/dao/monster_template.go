@@ -23,7 +23,7 @@ func (s StatBlock) String() string {
 		s.Strength, s.Dexterity, s.Constitution, s.Intelligence, s.Wisdom, s.Charisma)
 }
 
-type MonsterTemplate struct {
+type NpcTemplate struct {
 	ID          int
 	Name        string
 	Description string
@@ -32,32 +32,32 @@ type MonsterTemplate struct {
 	MaxHP       int
 }
 
-type MonsterTemplateDAO interface {
-	GetAll() ([]MonsterTemplate, error)
-	GetByID(id int) (MonsterTemplate, error)
-	Create(template MonsterTemplate) (int, error)
-	Update(template MonsterTemplate) error
+type NpcTemplateDAO interface {
+	GetAll() ([]NpcTemplate, error)
+	GetByID(id int) (NpcTemplate, error)
+	Create(template NpcTemplate) (int, error)
+	Update(template NpcTemplate) error
 	Delete(id int) error
 	AddCharacterToEncounterFromTemplate(templateID int, encounterID int) (Character, error)
 }
 
-type monsterTemplateDAOImpl struct {
+type npcTemplateDAOImpl struct {
 	db *sql.DB
 }
 
-func NewMonsterTemplateDAO(db *sql.DB) MonsterTemplateDAO {
-	return &monsterTemplateDAOImpl{db: db}
+func NewNpcTemplateDAO(db *sql.DB) NpcTemplateDAO {
+	return &npcTemplateDAOImpl{db: db}
 }
 
-func (dao *monsterTemplateDAOImpl) GetAll() ([]MonsterTemplate, error) {
-	rows, err := dao.db.Query(`SELECT id, name, description, base_stats, armor_class, max_hp FROM monster_templates`)
+func (dao *npcTemplateDAOImpl) GetAll() ([]NpcTemplate, error) {
+	rows, err := dao.db.Query(`SELECT id, name, description, base_stats, armor_class, max_hp FROM npc_templates`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var templates []MonsterTemplate
+	var templates []NpcTemplate
 	for rows.Next() {
-		var t MonsterTemplate
+		var t NpcTemplate
 		var statsStr string
 		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP); err != nil {
 			return nil, err
@@ -72,10 +72,10 @@ func (dao *monsterTemplateDAOImpl) GetAll() ([]MonsterTemplate, error) {
 	return templates, nil
 }
 
-func (dao *monsterTemplateDAOImpl) GetByID(id int) (MonsterTemplate, error) {
-	var t MonsterTemplate
+func (dao *npcTemplateDAOImpl) GetByID(id int) (NpcTemplate, error) {
+	var t NpcTemplate
 	var statsStr string
-	err := dao.db.QueryRow(`SELECT id, name, description, base_stats, armor_class, max_hp FROM monster_templates WHERE id = $1`, id).Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP)
+	err := dao.db.QueryRow(`SELECT id, name, description, base_stats, armor_class, max_hp FROM npc_templates WHERE id = $1`, id).Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP)
 	if err != nil {
 		return t, err
 	}
@@ -117,30 +117,30 @@ func parseStatBlock(s string) (StatBlock, error) {
 	}, nil
 }
 
-func (dao *monsterTemplateDAOImpl) Create(template MonsterTemplate) (int, error) {
+func (dao *npcTemplateDAOImpl) Create(template NpcTemplate) (int, error) {
 	var id int
-	log.Printf("Creating monster template with base stats: %+v", template.BaseStats)
+	log.Printf("Creating npc template with base stats: %+v", template.BaseStats)
 	err := dao.db.QueryRow(
-		`INSERT INTO monster_templates (name, description, base_stats, armor_class, max_hp) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		`INSERT INTO npc_templates (name, description, base_stats, armor_class, max_hp) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 		template.Name, template.Description, template.BaseStats.String(), template.ArmorClass, template.MaxHP,
 	).Scan(&id)
 	return id, err
 }
 
-func (dao *monsterTemplateDAOImpl) Update(template MonsterTemplate) error {
+func (dao *npcTemplateDAOImpl) Update(template NpcTemplate) error {
 	_, err := dao.db.Exec(
-		`UPDATE monster_templates SET name = $1, description = $2, base_stats = $3, armor_class = $4, max_hp = $5 WHERE id = $6`,
+		`UPDATE npc_templates SET name = $1, description = $2, base_stats = $3, armor_class = $4, max_hp = $5 WHERE id = $6`,
 		template.Name, template.Description, template.BaseStats.String(), template.ArmorClass, template.MaxHP, template.ID,
 	)
 	return err
 }
 
-func (dao *monsterTemplateDAOImpl) Delete(id int) error {
-	_, err := dao.db.Exec(`DELETE FROM monster_templates WHERE id = $1`, id)
+func (dao *npcTemplateDAOImpl) Delete(id int) error {
+	_, err := dao.db.Exec(`DELETE FROM npc_templates WHERE id = $1`, id)
 	return err
 }
 
-func (dao *monsterTemplateDAOImpl) AddCharacterToEncounterFromTemplate(templateID int, encounterID int) (Character, error) {
+func (dao *npcTemplateDAOImpl) AddCharacterToEncounterFromTemplate(templateID int, encounterID int) (Character, error) {
 	t, err := dao.GetByID(templateID)
 	if err != nil {
 		return Character{}, err
@@ -151,14 +151,14 @@ func (dao *monsterTemplateDAOImpl) AddCharacterToEncounterFromTemplate(templateI
 		return Character{}, err
 	}
 	character := Character{
-		Name:              t.Name,
-		ArmorClass:        t.ArmorClass,
-		ToHitModifier:     0,
-		MaxHP:             t.MaxHP,
-		CurrentHP:         t.MaxHP,
-		Initiative:        0,
-		OwnerID:           encounter.OwnerID,
-		MonsterTemplateID: &t.ID,
+		Name:          t.Name,
+		ArmorClass:    t.ArmorClass,
+		ToHitModifier: 0,
+		MaxHP:         t.MaxHP,
+		CurrentHP:     t.MaxHP,
+		Initiative:    0,
+		OwnerID:       encounter.OwnerID,
+		NpcTemplateID: &t.ID,
 		// Add other fields as needed
 	}
 	characterDAO := NewCharacterDAO(dao.db)
