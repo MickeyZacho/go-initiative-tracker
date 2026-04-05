@@ -12,7 +12,6 @@ import {
 	TextField,
 	Typography,
 } from "@mui/material";
-import { apiUrl } from "../lib/api";
 import { parseJsonResponse } from "../lib/http";
 
 interface Encounter {
@@ -39,7 +38,7 @@ export default function EncountersPage({
 		setLoading(true);
 		setError("");
 		try {
-			const response = await fetch(apiUrl("/api/encounters"), {
+			const response = await fetch("/api/encounters", {
 				credentials: "include",
 			});
 			if (!response.ok) {
@@ -72,7 +71,7 @@ export default function EncountersPage({
 			return;
 		}
 		try {
-			const response = await fetch(apiUrl("/api/encounters/save"), {
+			const response = await fetch("/api/encounters/save", {
 				method: "POST",
 				credentials: "include",
 				headers: { "Content-Type": "application/json" },
@@ -102,7 +101,7 @@ export default function EncountersPage({
 			return;
 		}
 		try {
-			const response = await fetch(apiUrl("/api/encounters/delete"), {
+			const response = await fetch("/api/encounters/delete", {
 				method: "POST",
 				credentials: "include",
 				headers: { "Content-Type": "application/json" },

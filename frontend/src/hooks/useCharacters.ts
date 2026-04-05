@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { apiUrl } from "../lib/api";
 import { parseJsonResponse } from "../lib/http";
 import type { Character } from "../components/CharacterList";
 
@@ -12,14 +11,14 @@ export function useCharacters() {
 		setIsLoading(true);
 		setError("");
 		try {
-			await fetch(apiUrl("/api/select-encounter"), {
+			await fetch("/api/select-encounter", {
 				method: "POST",
 				credentials: "include",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ id: encId }),
 			});
 			const response = await fetch(
-				apiUrl(`/api/characters?encounter_id=${encId}`),
+				`/api/characters?encounter_id=${encId}`,
 				{ credentials: "include" },
 			);
 			if (!response.ok) {

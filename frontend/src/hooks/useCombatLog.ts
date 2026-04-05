@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { apiUrl } from "../lib/api";
 import { parseJsonResponse } from "../lib/http";
 
 // Locally define LedgerEntry interface for combat log entries
@@ -26,7 +25,7 @@ export function useCombatLog() {
 		}
 		try {
 			const response = await fetch(
-				apiUrl(`/api/encounters/ledger?encounter_id=${encId}`),
+				`/api/encounters/ledger?encounter_id=${encId}`,
 				{ credentials: "include" },
 			);
 			const payload = await parseJsonResponse<{

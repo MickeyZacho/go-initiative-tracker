@@ -13,7 +13,6 @@ import {
 	Typography,
 } from "@mui/material";
 import { parseJsonResponse } from "../lib/http";
-import { apiUrl } from "../lib/api";
 
 interface Character {
 	ID: number;
@@ -47,7 +46,7 @@ export default function CharactersPage() {
 		setLoading(true);
 		setError("");
 		try {
-			const response = await fetch(apiUrl("/api/characters/library"), {
+			const response = await fetch("/api/characters/library", {
 				credentials: "include",
 			});
 			if (!response.ok) {
@@ -82,7 +81,7 @@ export default function CharactersPage() {
 			return;
 		}
 
-		const response = await fetch(apiUrl("/api/characters/library/save"), {
+		const response = await fetch("/api/characters/library/save", {
 			method: "POST",
 			credentials: "include",
 			headers: { "Content-Type": "application/json" },
@@ -127,15 +126,12 @@ export default function CharactersPage() {
 			return;
 		}
 		try {
-			const response = await fetch(
-				apiUrl("/api/characters/library/delete"),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ id }),
-				},
-			);
+			const response = await fetch("/api/characters/library/delete", {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ id }),
+			});
 			if (!response.ok) {
 				const message = await response.text();
 				throw new Error(message || "Failed to delete character");

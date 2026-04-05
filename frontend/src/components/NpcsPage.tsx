@@ -13,7 +13,6 @@ import {
 	Typography,
 } from "@mui/material";
 import { parseJsonResponse } from "../lib/http";
-import { apiUrl } from "../lib/api";
 
 interface StatBlock {
 	Strength: number;
@@ -59,7 +58,7 @@ export default function NpcsPage() {
 	const loadNpcs = useCallback(async () => {
 		setError("");
 		try {
-			const response = await fetch(apiUrl("/api/npcs/templates"), {
+			const response = await fetch("/api/npcs/templates", {
 				credentials: "include",
 			});
 			if (!response.ok) {
@@ -85,7 +84,7 @@ export default function NpcsPage() {
 			setError("NPC name is required");
 			return;
 		}
-		const response = await fetch(apiUrl("/api/npcs/templates/save"), {
+		const response = await fetch("/api/npcs/templates/save", {
 			method: "POST",
 			credentials: "include",
 			headers: { "Content-Type": "application/json" },
@@ -101,7 +100,7 @@ export default function NpcsPage() {
 		setError("");
 		try {
 			const response = await fetch(
-				apiUrl("/api/npcs/templates/create-character"),
+				"/api/npcs/templates/create-character",
 				{
 					method: "POST",
 					credentials: "include",
@@ -153,7 +152,7 @@ export default function NpcsPage() {
 			return;
 		}
 		try {
-			const response = await fetch(apiUrl("/api/npcs/templates/delete"), {
+			const response = await fetch("/api/npcs/templates/delete", {
 				method: "POST",
 				credentials: "include",
 				headers: { "Content-Type": "application/json" },

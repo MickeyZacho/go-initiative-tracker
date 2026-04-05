@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { apiUrl } from "../lib/api";
 import { parseJsonResponse } from "../lib/http";
 
 export interface Encounter {
@@ -21,7 +20,7 @@ export function useEncounters(initialEncounterId?: number | null) {
 			setIsLoading(true);
 			setError("");
 			try {
-				const response = await fetch(apiUrl("/api/encounters"), {
+				const response = await fetch("/api/encounters", {
 					credentials: "include",
 				});
 				if (!response.ok) {
