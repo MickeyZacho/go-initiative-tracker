@@ -13,12 +13,6 @@ export default defineConfig({
 	server: {
 		proxy: {
 			"/api": "http://localhost:8080",
-			"/save-character": "http://localhost:8080",
-			"/add-character-to-encounter": "http://localhost:8080",
-			"/remove-character-from-encounter": "http://localhost:8080",
-			"/login/discord": "http://localhost:8080",
-			"/logout": "http://localhost:8080",
-			"/auth/discord/callback": "http://localhost:8080",
 		},
 		watch: {
 			usePolling: true,

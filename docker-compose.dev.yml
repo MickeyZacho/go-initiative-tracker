@@ -6,9 +6,9 @@ services:
     environment:
       POSTGRES_DB: initiative_db
       POSTGRES_USER: initiative_user
-      POSTGRES_PASSWORD: initiative_pass
+      POSTGRES_PASSWORD: micktest
     ports:
-      - "5432:5432"
+      - "5431:5432"
     volumes:
       - db_data:/var/lib/postgresql
       - ./start.sql:/docker-entrypoint-initdb.d/init.sql
@@ -27,7 +27,7 @@ services:
       - DB_HOST=db
       - DB_PORT=5432
       - DB_USER=initiative_user
-      - DB_PASSWORD=initiative_pass
+      - DB_PASSWORD=micktest
       - DB_NAME=initiative_db
       - DISCORD_CLIENT_ID=1126849523671650375
       - DISCORD_CLIENT_SECRET=fRbAbkzojsnORJqQZGiWbp5ot7enY0WN
