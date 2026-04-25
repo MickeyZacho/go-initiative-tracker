@@ -6,9 +6,18 @@ DROP TABLE IF EXISTS encounter_ledger;
 DROP TABLE IF EXISTS encounters;
 DROP TABLE IF EXISTS characters;
 DROP TABLE IF EXISTS npc_templates;
+DROP TABLE IF EXISTS users;
 -- Ability Scores Composite Type
 -- Drop stat_block type only after all tables that use it are dropped
 DROP TYPE IF EXISTS stat_block CASCADE;
+CREATE TABLE users (
+	id SERIAL PRIMARY KEY,
+	discord_id TEXT UNIQUE NOT NULL,
+	username TEXT NOT NULL,
+	discriminator TEXT,
+	avatar TEXT
+);
+
 CREATE TYPE stat_block AS (
 	strength     INTEGER,
 	dexterity    INTEGER,
