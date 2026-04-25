@@ -6,3 +6,4 @@ backend/tmp/
 front/tracker/node_modules/
 dndcharacters
 *.session.sql
+.claude/*
