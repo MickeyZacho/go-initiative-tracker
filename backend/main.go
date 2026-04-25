@@ -525,17 +525,22 @@ func apiMeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	username := ""
 	discordID := ""
+	avatar := ""
 	if cookie, err := r.Cookie("discord_user"); err == nil {
 		username = cookie.Value
 	}
 	if cookie, err := r.Cookie("discord_id"); err == nil {
 		discordID = cookie.Value
 	}
+	if cookie, err := r.Cookie("discord_avatar"); err == nil {
+		avatar = cookie.Value
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"loggedIn":  username != "" && discordID != "",
 		"username":  username,
 		"discordID": discordID,
+		"avatar":    avatar,
 	})
 }
 
@@ -1282,6 +1287,11 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		Value: userInfo.ID,
 		Path:  "/",
 	})
+	http.SetCookie(w, &http.Cookie{
+		Name:  "discord_avatar",
+		Value: userInfo.Avatar,
+		Path:  "/",
+	})
 
 	// Save user to database
 	user := dao.User{
@@ -1308,6 +1318,12 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:   "discord_id",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:   "discord_avatar",
 		Value:  "",
 		Path:   "/",
 		MaxAge: -1,
