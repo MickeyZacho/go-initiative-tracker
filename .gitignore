@@ -5,3 +5,4 @@ node_modules/
 backend/tmp/
 front/tracker/node_modules/
 dndcharacters
+*.session.sql

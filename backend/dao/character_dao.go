@@ -25,6 +25,7 @@ type CharacterDAO interface {
 	CreateCharacter(character Character) (int, error)
 	UpdateCharacter(character Character) error
 	DeleteCharacter(id int) error
+	DeleteCharacterByOwner(id int, ownerID string) (bool, error)
 	GetAllCharactersByOwner(discordID string) ([]Character, error)
 	GetCharactersByEncounterIDAndOwner(encounterID int, discordID string) ([]Character, error)
 }
@@ -104,6 +105,15 @@ func (dao *characterDAOImpl) UpdateCharacter(character Character) error {
 func (dao *characterDAOImpl) DeleteCharacter(id int) error {
 	_, err := dao.db.Exec("DELETE FROM characters WHERE id = $1", id)
 	return err
+}
+
+func (dao *characterDAOImpl) DeleteCharacterByOwner(id int, ownerID string) (bool, error) {
+	result, err := dao.db.Exec("DELETE FROM characters WHERE id = $1 AND owner_id = $2", id, ownerID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows > 0, err
 }
 
 // Get all characters for a given Discord user

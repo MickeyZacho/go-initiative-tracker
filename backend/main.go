@@ -57,6 +57,7 @@ var discordEndpoint = oauth2.Endpoint{
 }
 
 var discordOAuthConfig *oauth2.Config
+var secureCookies bool
 
 func initializeApp(db *sql.DB) {
 	characterDAO = dao.NewCharacterDAO(db)
@@ -168,6 +169,7 @@ func main() {
 		frontendURL = "http://localhost:5173"
 	}
 	frontendURL = strings.TrimRight(frontendURL, "/")
+	secureCookies = os.Getenv("SECURE_COOKIES") == "true"
 	allowedOrigins = map[string]bool{
 		frontendURL:             true,
 		"http://localhost:5173": true,
@@ -378,8 +380,18 @@ func apiDeleteEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid encounter id", http.StatusBadRequest)
 		return
 	}
-	if err := encounterDAO.DeleteEncounter(req.ID); err != nil {
+	discordID := getDiscordIDFromRequest(r)
+	if discordID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	deleted, err := encounterDAO.DeleteEncounterByOwner(req.ID, discordID)
+	if err != nil {
 		http.Error(w, "Failed to delete encounter", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "Encounter not found or not owned by you", http.StatusForbidden)
 		return
 	}
 	if selectedEncounterID == req.ID {
@@ -489,8 +501,18 @@ func apiDeleteLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid character id", http.StatusBadRequest)
 		return
 	}
-	if err := characterDAO.DeleteCharacter(req.ID); err != nil {
+	discordID := getDiscordIDFromRequest(r)
+	if discordID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	deleted, err := characterDAO.DeleteCharacterByOwner(req.ID, discordID)
+	if err != nil {
 		http.Error(w, "Failed to delete character", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "Character not found or not owned by you", http.StatusForbidden)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1276,21 +1298,29 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to decode user info: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Store user info in a cookie (for demo; use secure session in production)
 	http.SetCookie(w, &http.Cookie{
-		Name:  "discord_user",
-		Value: userInfo.Username + "#" + userInfo.Discriminator,
-		Path:  "/",
+		Name:     "discord_user",
+		Value:    userInfo.Username + "#" + userInfo.Discriminator,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secureCookies,
+		SameSite: http.SameSiteLaxMode,
 	})
 	http.SetCookie(w, &http.Cookie{
-		Name:  "discord_id",
-		Value: userInfo.ID,
-		Path:  "/",
+		Name:     "discord_id",
+		Value:    userInfo.ID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secureCookies,
+		SameSite: http.SameSiteLaxMode,
 	})
 	http.SetCookie(w, &http.Cookie{
-		Name:  "discord_avatar",
-		Value: userInfo.Avatar,
-		Path:  "/",
+		Name:     "discord_avatar",
+		Value:    userInfo.Avatar,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secureCookies,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	// Save user to database
@@ -1311,22 +1341,31 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
-		Name:   "discord_user",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     "discord_user",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secureCookies,
+		SameSite: http.SameSiteLaxMode,
 	})
 	http.SetCookie(w, &http.Cookie{
-		Name:   "discord_id",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     "discord_id",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secureCookies,
+		SameSite: http.SameSiteLaxMode,
 	})
 	http.SetCookie(w, &http.Cookie{
-		Name:   "discord_avatar",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     "discord_avatar",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secureCookies,
+		SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, frontendURL, http.StatusSeeOther)
 }
