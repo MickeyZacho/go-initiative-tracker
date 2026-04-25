@@ -81,6 +81,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 
 	// Local state
 	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
+	const [actionError, setActionError] = useState<string>("");
 	const [selectedAddCharacterId, setSelectedAddCharacterId] =
 		useState<number>(0);
 	const [logActorId, setLogActorId] = useState<number>(0);
@@ -135,6 +136,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		if (combatStarted || !encounterId || !selectedAddNpcId) {
 			return;
 		}
+		setActionError("");
 		try {
 			const response = await fetch(
 				"/api/npcs/templates/create-character",
@@ -155,8 +157,8 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				);
 			}
 			await fetchCharacters(encounterId);
-		} catch {
-			// error handled by composedError
+		} catch (err) {
+			setActionError(err instanceof Error ? err.message : "Failed to add NPC");
 		}
 	};
 
@@ -183,9 +185,10 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 
 	const addLogEntry = async () => {
 		if (!encounterId || !logActorId) {
-			// error will be shown via composedError
+			setActionError("Select an encounter and actor before adding a log entry");
 			return;
 		}
+		setActionError("");
 		try {
 			await createLedgerEntry(
 				logActorId,
@@ -197,8 +200,8 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			setLogDescription("");
 			setLogHPChange("0");
 			await fetchLedger(encounterId);
-		} catch {
-			// error will be shown via composedError
+		} catch (err) {
+			setActionError(err instanceof Error ? err.message : "Failed to add log entry");
 		}
 	};
 
@@ -260,12 +263,12 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			const targetID = config?.targetId ?? 0;
 			const amount = Math.floor(Number(config?.amount ?? "0"));
 			if (!targetID || amount <= 0) {
-				// error will be shown via composedError
+				setActionError("Select a target and enter an amount greater than 0");
 				return;
 			}
 			const target = characters.find((c) => c.ID === targetID);
 			if (!target) {
-				// error will be shown via composedError
+				setActionError("Target character not found");
 				return;
 			}
 
@@ -275,7 +278,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					: Math.min(target.MaxHP, target.CurrentHP + amount);
 			const hpChange = newHP - target.CurrentHP;
 
-			// error will be shown via composedError
+			setActionError("");
 			try {
 				await saveCharacter({ ...target, CurrentHP: newHP });
 				await createLedgerEntry(
@@ -288,7 +291,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				await fetchCharacters(encounterId);
 				await fetchLedger(encounterId);
 			} catch (err) {
-				// error will be shown via composedError
+				setActionError(err instanceof Error ? err.message : "Action failed");
 			}
 		},
 		[
@@ -377,13 +380,14 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				);
 			}
 			await fetchCharacters(encounterId);
-		} catch {
-			// error will be shown via composedError
+		} catch (err) {
+			setActionError(err instanceof Error ? err.message : "Failed to add character");
 		}
 	};
 
 	const nextCharacter = useCallback(async () => {
 		if (!encounterId || characters.length === 0) return;
+		setActionError("");
 		try {
 			const response = await fetch("/api/encounters/combat/next-turn", {
 				method: "POST",
@@ -396,13 +400,14 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				throw new Error(data.message || "Failed to advance turn");
 			}
 			await fetchCharacters(encounterId);
-		} catch {
-			// error will be shown via composedError
+		} catch (err) {
+			setActionError(err instanceof Error ? err.message : "Failed to advance turn");
 		}
 	}, [encounterId, characters.length, fetchCharacters]);
 
 	const handleStartCombat = async () => {
 		if (!encounterId || characters.length === 0) return;
+		setActionError("");
 		try {
 			const response = await fetch("/api/encounters/combat/start", {
 				method: "POST",
@@ -415,13 +420,14 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				throw new Error(data.message || "Failed to start combat");
 			}
 			await fetchCharacters(encounterId);
-		} catch {
-			// error will be shown via composedError
+		} catch (err) {
+			setActionError(err instanceof Error ? err.message : "Failed to start combat");
 		}
 	};
 
 	const handleBackToSetup = async () => {
 		if (!encounterId) return;
+		setActionError("");
 		try {
 			const response = await fetch("/api/encounters/combat/setup", {
 				method: "POST",
@@ -435,8 +441,8 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			}
 			setSelected(null);
 			await fetchCharacters(encounterId);
-		} catch {
-			// error will be shown via composedError
+		} catch (err) {
+			setActionError(err instanceof Error ? err.message : "Failed to reset combat");
 		}
 	};
 
@@ -579,6 +585,11 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						{composedError && (
 							<Typography color="error">
 								{composedError}
+							</Typography>
+						)}
+						{actionError && (
+							<Typography color="error">
+								{actionError}
 							</Typography>
 						)}
 						<Typography

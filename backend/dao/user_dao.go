@@ -35,7 +35,7 @@ func (dao UserDAO) UpsertUser(user User) error {
 
 func (dao UserDAO) GetUserByDiscordID(discordID string) (User, error) {
 	var user User
-	row := dao.db.QueryRow(`SELECT id, discord_id, username, discriminator, avatar FROM users WHERE discord_id = $1`, discordID)
+	row := dao.db.QueryRow(`SELECT discord_id, username, discriminator, avatar FROM users WHERE discord_id = $1`, discordID)
 	err := row.Scan(&user.DiscordID, &user.Username, &user.Discriminator, &user.Avatar)
 	return user, err
 }

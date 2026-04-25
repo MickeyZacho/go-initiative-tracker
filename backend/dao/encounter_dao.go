@@ -2,7 +2,6 @@ package dao
 
 import (
 	"database/sql"
-	"fmt"
 )
 
 type EncounterDAO interface {
@@ -92,7 +91,6 @@ func (dao *encounterDAOImpl) GetByID(id int) (Encounter, error) {
 
 // Get all encounters for a given Discord user
 func (dao *encounterDAOImpl) GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error) {
-	fmt.Println("Fetching encounters for Discord ID:", discordID)
 	rows, err := dao.db.Query("SELECT id, name, COALESCE(owner_id, ''), COALESCE(description, '') FROM encounters WHERE owner_id = $1", discordID)
 	if err != nil {
 		return nil, err

@@ -57,9 +57,9 @@ CREATE TABLE encounters (
 );
 CREATE TABLE encounter_ledger (
 	id SERIAL PRIMARY KEY,
-	encounter_id INTEGER REFERENCES encounters(id),
-	actor_id INTEGER REFERENCES characters(id),   -- who performed the action
-	target_id INTEGER REFERENCES characters(id),  -- who received the action
+	encounter_id INTEGER REFERENCES encounters(id) ON DELETE CASCADE,
+	actor_id INTEGER REFERENCES characters(id) ON DELETE SET NULL,
+	target_id INTEGER REFERENCES characters(id) ON DELETE SET NULL,
 	action_type TEXT,
 	hp_change INTEGER,
 	description TEXT,
