@@ -13,6 +13,7 @@ interface CharacterRowProps {
 	setCharacters: React.Dispatch<React.SetStateAction<Character[]>>;
 	setSelected: (id: number) => void;
 	onSave: (character: Character) => void;
+	onRemove: () => void;
 }
 
 const EditableField: React.FC<{
@@ -84,11 +85,13 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	setCharacters,
 	setSelected,
 	onSave,
+	onRemove,
 }) => {
 	const [editing, setEditing] = React.useState<{
 		field: EditableFieldName | null;
 		value: string;
 	}>({ field: null, value: "" });
+	const [deleteHovered, setDeleteHovered] = React.useState(false);
 
 	const handleFieldClick = (
 		field: EditableFieldName,
@@ -353,6 +356,37 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					autoFocus={editing.field === "Initiative"}
 				/>
 			</div>
+			{/* Delete */}
+			<button
+				type="button"
+				onClick={(e) => { e.stopPropagation(); onRemove(); }}
+				onMouseEnter={() => setDeleteHovered(true)}
+				onMouseLeave={() => setDeleteHovered(false)}
+				style={{
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					width: 32,
+					height: 32,
+					borderRadius: "50%",
+					border: "none",
+					background: deleteHovered ? "rgba(211,47,47,0.1)" : "transparent",
+					color: deleteHovered ? "#d32f2f" : "#bdbdbd",
+					cursor: "pointer",
+					transition: "background 0.2s, color 0.2s",
+					padding: 0,
+					marginLeft: 8,
+					flexShrink: 0,
+				}}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+					<polyline points="3 6 5 6 21 6" />
+					<path d="M19 6l-1 14H6L5 6" />
+					<path d="M10 11v6" />
+					<path d="M14 11v6" />
+					<path d="M9 6V4h6v2" />
+				</svg>
+			</button>
 		</div>
 	);
 };

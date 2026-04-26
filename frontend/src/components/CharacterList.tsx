@@ -5,7 +5,6 @@ import {
 	CardContent,
 	Typography,
 	Box,
-	Button,
 	Select,
 	MenuItem,
 	FormControl,
@@ -550,33 +549,14 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 							{[...characters]
 								.sort((a, b) => b.Initiative - a.Initiative)
 								.map((character) => (
-									<div
-										style={{ width: "100%" }}
-										key={character.ID}
-									>
+									<div key={character.ID} style={{ width: "100%" }}>
 										<CharacterRow
 											character={character}
 											setCharacters={setCharacters}
 											setSelected={setSelected}
 											onSave={saveCharacter}
+											onRemove={() => removeCharacter(character.ID)}
 										/>
-										<Stack
-											direction="row"
-											spacing={1}
-											alignItems="center"
-											mt={0.5}
-										>
-											<Button
-												size="small"
-												color="error"
-												variant="outlined"
-												onClick={() =>
-													removeCharacter(character.ID)
-												}
-											>
-												Remove
-											</Button>
-										</Stack>
 									</div>
 								))}
 							<CombatControls
