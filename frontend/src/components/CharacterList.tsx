@@ -32,6 +32,7 @@ export interface Character {
 	Initiative: number;
 	IsActive: boolean;
 	OwnerID: string;
+	Type: string;
 }
 
 // (Encounter and LedgerEntry interfaces removed; now provided by hooks or not needed)
@@ -340,6 +341,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				initiative: Number(character.Initiative),
 				toHitModifier: Number(character.ToHitModifier ?? 0),
 				isActive: Boolean(character.IsActive),
+				type: character.Type,
 			}),
 		});
 		if (!response.ok) {
