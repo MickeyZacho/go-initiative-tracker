@@ -12,6 +12,7 @@ interface CharacterRowProps {
 	character: Character;
 	setCharacters: React.Dispatch<React.SetStateAction<Character[]>>;
 	setSelected: (id: number) => void;
+	onSave: (character: Character) => void;
 }
 
 const EditableField: React.FC<{
@@ -82,6 +83,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	character,
 	setCharacters,
 	setSelected,
+	onSave,
 }) => {
 	const [editing, setEditing] = React.useState<{
 		field: EditableFieldName | null;
@@ -105,12 +107,12 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 			newValue = Number(editing.value);
 			if (isNaN(newValue)) newValue = 0;
 		}
+		const updated = { ...character, [field]: newValue };
 		setCharacters((prev) =>
-			prev.map((c) =>
-				c.ID === character.ID ? { ...c, [field]: newValue } : c
-			)
+			prev.map((c) => (c.ID === character.ID ? updated : c))
 		);
 		setEditing({ field: null, value: "" });
+		onSave(updated);
 	};
 
 	const handleFieldKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

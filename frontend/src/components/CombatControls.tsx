@@ -25,7 +25,6 @@ export interface CombatControlsProps {
 		actor: Character,
 	) => void;
 	applyQuickAction: (actor: Character, actionType: "attack" | "heal") => void;
-	combatStarted: boolean;
 }
 
 export const CombatControls: React.FC<CombatControlsProps> = ({
@@ -34,9 +33,8 @@ export const CombatControls: React.FC<CombatControlsProps> = ({
 	handleQuickActionChange,
 	handleQuickAmountKeyDown,
 	applyQuickAction,
-	combatStarted,
 }) => {
-	if (!combatStarted) return null;
+	if (characters.length === 0) return null;
 	return (
 		<Stack spacing={2}>
 			{[...characters]

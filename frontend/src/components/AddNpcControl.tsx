@@ -14,7 +14,6 @@ export interface AddNpcControlProps {
 	setSelectedAddNpcId: (id: number) => void;
 	addNpcToEncounter: () => void;
 	encounterId: number;
-	combatStarted: boolean;
 }
 
 export const AddNpcControl: React.FC<AddNpcControlProps> = ({
@@ -23,7 +22,6 @@ export const AddNpcControl: React.FC<AddNpcControlProps> = ({
 	setSelectedAddNpcId,
 	addNpcToEncounter,
 	encounterId,
-	combatStarted,
 }) => {
 	return (
 		<>
@@ -50,8 +48,7 @@ export const AddNpcControl: React.FC<AddNpcControlProps> = ({
 				disabled={
 					!encounterId ||
 					!selectedAddNpcId ||
-					npcTemplates.length === 0 ||
-					combatStarted
+					npcTemplates.length === 0
 				}
 			>
 				Add NPC

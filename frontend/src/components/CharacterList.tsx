@@ -93,9 +93,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		Record<number, QuickActionInput>
 	>({});
 	const [, setSelected] = useState<number | null>(null);
-	const [combatStarted, setCombatStarted] = useState<boolean>(false);
-	// Remove local isLoading and error, use values from hooks
-	const activeCharacter = characters.find((c) => c.IsActive) ?? null;
 
 	// Compose error and loading states from hooks
 	const isLoading = encountersLoading || charactersLoading;
@@ -133,7 +130,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	]);
 	// Add NPC to encounter
 	const addNpcToEncounter = async () => {
-		if (combatStarted || !encounterId || !selectedAddNpcId) {
+		if (!encounterId || !selectedAddNpcId) {
 			return;
 		}
 		setActionError("");
@@ -370,7 +367,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	};
 
 	const addExistingCharacterToEncounter = async () => {
-		if (combatStarted || !encounterId || !selectedAddCharacterId) {
+		if (!encounterId || !selectedAddCharacterId) {
 			return;
 		}
 		try {
@@ -418,53 +415,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			);
 		}
 	}, [encounterId, characters.length, fetchCharacters]);
-
-	const handleStartCombat = async () => {
-		if (!encounterId || characters.length === 0) return;
-		setActionError("");
-		try {
-			const response = await fetch("/api/encounters/combat/start", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ encounter_id: encounterId }),
-			});
-			const data = await response.json();
-			if (!response.ok || data.status !== "success") {
-				throw new Error(data.message || "Failed to start combat");
-			}
-			await fetchCharacters(encounterId);
-			setCombatStarted(true);
-		} catch (err) {
-			setActionError(
-				err instanceof Error ? err.message : "Failed to start combat",
-			);
-		}
-	};
-
-	const handleBackToSetup = async () => {
-		if (!encounterId) return;
-		setActionError("");
-		try {
-			const response = await fetch("/api/encounters/combat/setup", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ encounter_id: encounterId }),
-			});
-			const data = await response.json();
-			if (!response.ok || data.status !== "success") {
-				throw new Error(data.message || "Failed to reset combat");
-			}
-			setSelected(null);
-			await fetchCharacters(encounterId);
-			setCombatStarted(false);
-		} catch (err) {
-			setActionError(
-				err instanceof Error ? err.message : "Failed to reset combat",
-			);
-		}
-	};
 
 	const availableLibraryCharacters = libraryCharacters.filter(
 		(libChar) => !characters.some((encChar) => encChar.ID === libChar.ID),
@@ -526,7 +476,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	// Spacebar triggers nextCharacter
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
-			if (!combatStarted) return;
 			if (
 				e.code === "Space" &&
 				!(
@@ -540,7 +489,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		};
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [nextCharacter, characters, encounterId, combatStarted]);
+	}, [nextCharacter, characters, encounterId]);
 
 	return (
 		<Box display="flex" justifyContent="center" alignItems="center">
@@ -554,53 +503,31 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			>
 				<CardContent>
 					<Stack spacing={3}>
-						{/* Encounter Switcher and Start/Back Button */}
-						<Stack direction="row" spacing={2} alignItems="center">
-							<FormControl
-								variant="outlined"
-								sx={{ minWidth: 220, flexGrow: 1 }}
+						{/* Encounter Switcher */}
+						<FormControl
+							variant="outlined"
+							sx={{ minWidth: 220 }}
+						>
+							<InputLabel id="encounter-label">
+								Encounter
+							</InputLabel>
+							<Select
+								labelId="encounter-label"
+								value={String(encounterId)}
+								label="Encounter"
+								onChange={handleEncounterChange}
+								sx={{ fontWeight: 500, color: "#1976d2" }}
 							>
-								<InputLabel id="encounter-label">
-									Encounter
-								</InputLabel>
-								<Select
-									labelId="encounter-label"
-									value={String(encounterId)}
-									label="Encounter"
-									onChange={handleEncounterChange}
-									sx={{ fontWeight: 500, color: "#1976d2" }}
-								>
-									{encounters.map((enc) => (
-										<MenuItem
-											key={enc.ID}
-											value={String(enc.ID)}
-										>
-											{enc.Name}
-										</MenuItem>
-									))}
-								</Select>
-							</FormControl>
-							<Button
-								variant={
-									combatStarted ? "outlined" : "contained"
-								}
-								color={combatStarted ? "inherit" : "warning"}
-								onClick={
-									combatStarted
-										? handleBackToSetup
-										: handleStartCombat
-								}
-								disabled={
-									!encounterId ||
-									(!combatStarted && characters.length === 0)
-								}
-								sx={{ whiteSpace: "nowrap", minWidth: 140 }}
-							>
-								{combatStarted
-									? "Back to Setup"
-									: "Start Combat"}
-							</Button>
-						</Stack>
+								{encounters.map((enc) => (
+									<MenuItem
+										key={enc.ID}
+										value={String(enc.ID)}
+									>
+										{enc.Name}
+									</MenuItem>
+								))}
+							</Select>
+						</FormControl>
 
 						{composedError && (
 							<Typography color="error">
@@ -618,21 +545,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						>
 							Characters
 						</Typography>
-						<Typography
-							color={
-								combatStarted
-									? "success.main"
-									: "text.secondary"
-							}
-						>
-							Status: {combatStarted ? "In Combat" : "Setup"}
-						</Typography>
-						{combatStarted && activeCharacter && (
-							<Typography color="primary" fontWeight={600}>
-								Current Turn: {activeCharacter.Name}
-							</Typography>
-						)}
-						{/* Character Rows and Combat Controls */}
+						{/* Character Rows */}
 						<Stack spacing={2}>
 							{[...characters]
 								.sort((a, b) => b.Initiative - a.Initiative)
@@ -645,56 +558,36 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 											character={character}
 											setCharacters={setCharacters}
 											setSelected={setSelected}
+											onSave={saveCharacter}
 										/>
-										{!combatStarted && (
-											<Stack
-												direction="row"
-												spacing={1}
-												useFlexGap
-												flexWrap="wrap"
-												alignItems="center"
-												mt={1}
+										<Stack
+											direction="row"
+											spacing={1}
+											alignItems="center"
+											mt={0.5}
+										>
+											<Button
+												size="small"
+												color="error"
+												variant="outlined"
+												onClick={() =>
+													removeCharacter(character.ID)
+												}
 											>
-												<Button
-													size="small"
-													variant="contained"
-													onClick={() =>
-														saveCharacter(character)
-													}
-												>
-													Save
-												</Button>
-												<Button
-													size="small"
-													color="error"
-													variant="outlined"
-													onClick={() =>
-														removeCharacter(
-															character.ID,
-														)
-													}
-												>
-													Remove
-												</Button>
-											</Stack>
-										)}
+												Remove
+											</Button>
+										</Stack>
 									</div>
 								))}
-							{/* Combat controls for all characters */}
 							<CombatControls
 								characters={characters}
 								quickActionByActor={quickActionByActor}
-								handleQuickActionChange={
-									handleQuickActionChange
-								}
-								handleQuickAmountKeyDown={
-									handleQuickAmountKeyDown
-								}
+								handleQuickActionChange={handleQuickActionChange}
+								handleQuickAmountKeyDown={handleQuickAmountKeyDown}
 								applyQuickAction={applyQuickAction}
-								combatStarted={combatStarted}
 							/>
 						</Stack>
-						{/* Add Existing Character Row */}
+						{/* Add Existing Character */}
 						<Stack
 							direction="row"
 							spacing={2}
@@ -702,45 +595,30 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 							alignItems="center"
 							mt={2}
 						>
-							{!combatStarted && (
-								<AddCharacterControl
-									availableLibraryCharacters={
-										availableLibraryCharacters
-									}
-									selectedAddCharacterId={
-										selectedAddCharacterId
-									}
-									setSelectedAddCharacterId={
-										setSelectedAddCharacterId
-									}
-									addExistingCharacterToEncounter={
-										addExistingCharacterToEncounter
-									}
-									encounterId={encounterId}
-									combatStarted={combatStarted}
-								/>
-							)}
+							<AddCharacterControl
+								availableLibraryCharacters={availableLibraryCharacters}
+								selectedAddCharacterId={selectedAddCharacterId}
+								setSelectedAddCharacterId={setSelectedAddCharacterId}
+								addExistingCharacterToEncounter={addExistingCharacterToEncounter}
+								encounterId={encounterId}
+							/>
 						</Stack>
-
-						{/* Add NPC Row (separate) */}
-						{!combatStarted && (
-							<Stack
-								direction="row"
-								spacing={2}
-								justifyContent="center"
-								alignItems="center"
-								mt={1}
-							>
-								<AddNpcControl
-									npcTemplates={npcTemplates}
-									selectedAddNpcId={selectedAddNpcId}
-									setSelectedAddNpcId={setSelectedAddNpcId}
-									addNpcToEncounter={addNpcToEncounter}
-									encounterId={encounterId}
-									combatStarted={combatStarted}
-								/>
-							</Stack>
-						)}
+						{/* Add NPC */}
+						<Stack
+							direction="row"
+							spacing={2}
+							justifyContent="center"
+							alignItems="center"
+							mt={1}
+						>
+							<AddNpcControl
+								npcTemplates={npcTemplates}
+								selectedAddNpcId={selectedAddNpcId}
+								setSelectedAddNpcId={setSelectedAddNpcId}
+								addNpcToEncounter={addNpcToEncounter}
+								encounterId={encounterId}
+							/>
+						</Stack>
 						{isLoading && (
 							<Typography color="text.secondary">
 								Loading...

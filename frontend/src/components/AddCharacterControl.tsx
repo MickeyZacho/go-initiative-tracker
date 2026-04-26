@@ -14,7 +14,6 @@ export interface AddCharacterControlProps {
 	setSelectedAddCharacterId: (id: number) => void;
 	addExistingCharacterToEncounter: () => void;
 	encounterId: number;
-	combatStarted: boolean;
 }
 
 export const AddCharacterControl: React.FC<AddCharacterControlProps> = ({
@@ -23,7 +22,6 @@ export const AddCharacterControl: React.FC<AddCharacterControlProps> = ({
 	setSelectedAddCharacterId,
 	addExistingCharacterToEncounter,
 	encounterId,
-	combatStarted,
 }) => {
 	return (
 		<>
@@ -56,8 +54,7 @@ export const AddCharacterControl: React.FC<AddCharacterControlProps> = ({
 				disabled={
 					!encounterId ||
 					!selectedAddCharacterId ||
-					availableLibraryCharacters.length === 0 ||
-					combatStarted
+					availableLibraryCharacters.length === 0
 				}
 			>
 				Add to Encounter
