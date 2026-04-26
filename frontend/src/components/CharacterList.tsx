@@ -93,8 +93,8 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		Record<number, QuickActionInput>
 	>({});
 	const [, setSelected] = useState<number | null>(null);
+	const [combatStarted, setCombatStarted] = useState<boolean>(false);
 	// Remove local isLoading and error, use values from hooks
-	const combatStarted = characters.some((c) => c.IsActive);
 	const activeCharacter = characters.find((c) => c.IsActive) ?? null;
 
 	// Compose error and loading states from hooks
@@ -158,7 +158,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			}
 			await fetchCharacters(encounterId);
 		} catch (err) {
-			setActionError(err instanceof Error ? err.message : "Failed to add NPC");
+			setActionError(
+				err instanceof Error ? err.message : "Failed to add NPC",
+			);
 		}
 	};
 
@@ -185,7 +187,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 
 	const addLogEntry = async () => {
 		if (!encounterId || !logActorId) {
-			setActionError("Select an encounter and actor before adding a log entry");
+			setActionError(
+				"Select an encounter and actor before adding a log entry",
+			);
 			return;
 		}
 		setActionError("");
@@ -201,7 +205,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			setLogHPChange("0");
 			await fetchLedger(encounterId);
 		} catch (err) {
-			setActionError(err instanceof Error ? err.message : "Failed to add log entry");
+			setActionError(
+				err instanceof Error ? err.message : "Failed to add log entry",
+			);
 		}
 	};
 
@@ -263,7 +269,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			const targetID = config?.targetId ?? 0;
 			const amount = Math.floor(Number(config?.amount ?? "0"));
 			if (!targetID || amount <= 0) {
-				setActionError("Select a target and enter an amount greater than 0");
+				setActionError(
+					"Select a target and enter an amount greater than 0",
+				);
 				return;
 			}
 			const target = characters.find((c) => c.ID === targetID);
@@ -291,7 +299,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				await fetchCharacters(encounterId);
 				await fetchLedger(encounterId);
 			} catch (err) {
-				setActionError(err instanceof Error ? err.message : "Action failed");
+				setActionError(
+					err instanceof Error ? err.message : "Action failed",
+				);
 			}
 		},
 		[
@@ -381,7 +391,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			}
 			await fetchCharacters(encounterId);
 		} catch (err) {
-			setActionError(err instanceof Error ? err.message : "Failed to add character");
+			setActionError(
+				err instanceof Error ? err.message : "Failed to add character",
+			);
 		}
 	};
 
@@ -401,7 +413,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			}
 			await fetchCharacters(encounterId);
 		} catch (err) {
-			setActionError(err instanceof Error ? err.message : "Failed to advance turn");
+			setActionError(
+				err instanceof Error ? err.message : "Failed to advance turn",
+			);
 		}
 	}, [encounterId, characters.length, fetchCharacters]);
 
@@ -420,8 +434,11 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				throw new Error(data.message || "Failed to start combat");
 			}
 			await fetchCharacters(encounterId);
+			setCombatStarted(true);
 		} catch (err) {
-			setActionError(err instanceof Error ? err.message : "Failed to start combat");
+			setActionError(
+				err instanceof Error ? err.message : "Failed to start combat",
+			);
 		}
 	};
 
@@ -441,8 +458,11 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			}
 			setSelected(null);
 			await fetchCharacters(encounterId);
+			setCombatStarted(false);
 		} catch (err) {
-			setActionError(err instanceof Error ? err.message : "Failed to reset combat");
+			setActionError(
+				err instanceof Error ? err.message : "Failed to reset combat",
+			);
 		}
 	};
 
@@ -588,9 +608,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 							</Typography>
 						)}
 						{actionError && (
-							<Typography color="error">
-								{actionError}
-							</Typography>
+							<Typography color="error">{actionError}</Typography>
 						)}
 						<Typography
 							variant="h4"
