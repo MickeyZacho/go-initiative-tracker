@@ -142,13 +142,22 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				display: "flex",
 				alignItems: "center",
 				borderRadius: 8,
-				border:
-					"2px solid " + (character.IsActive ? "#1976d2" : "#e0e0e0"),
-				background: character.IsActive ? "#f0f7ff" : "#fff",
+				borderTop: "1px solid " + (character.IsActive ? "#1976d2" : "#e0e0e0"),
+				borderRight: "1px solid " + (character.IsActive ? "#1976d2" : "#e0e0e0"),
+				borderBottom: "1px solid " + (character.IsActive ? "#1976d2" : "#e0e0e0"),
+				borderLeft: character.CurrentHP === 0
+					? "5px solid #9e9e9e"
+					: character.IsActive
+						? "5px solid #1565c0"
+						: "5px solid #90caf9",
+				background: character.CurrentHP === 0
+					? "#f0f0f0"
+					: character.IsActive ? "#f0f7ff" : "#fff",
 				boxShadow: character.IsActive
 					? "0 2px 8px rgba(25,118,210,0.08)"
 					: "none",
-				transition: "background 0.2s, border-color 0.2s",
+				filter: character.CurrentHP === 0 ? "grayscale(1)" : "none",
+				transition: "background 0.2s, border-color 0.2s, filter 0.2s",
 				cursor: "pointer",
 				padding: "0.75rem 1rem",
 				minHeight: 56,
@@ -169,6 +178,26 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				>
 					Name
 				</label>
+				<div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+				{character.CurrentHP === 0 && (
+					<span
+						style={{
+							display: "inline-flex",
+							alignItems: "center",
+							justifyContent: "center",
+							width: 22,
+							height: 22,
+							borderRadius: 4,
+							background: "#616161",
+							color: "#e0e0e0",
+							fontWeight: 700,
+							fontSize: "0.85rem",
+							flexShrink: 0,
+						}}
+					>
+						✕
+					</span>
+				)}
 				<EditableField
 					value={
 						editing.field === "Name"
@@ -192,6 +221,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					}}
 					autoFocus={editing.field === "Name"}
 				/>
+				</div>
 			</div>
 			{/* Armor Class */}
 			<div style={{ flex: 1, textAlign: "center" }}>
