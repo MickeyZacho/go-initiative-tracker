@@ -11,14 +11,8 @@ export function useCharacters() {
 		setIsLoading(true);
 		setError("");
 		try {
-			// Tell the backend which encounter is selected (fire-and-forget),
-			// then load that encounter's characters.
-			await fetch("/api/select-encounter", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ id: encId }),
-			});
+			// The encounter is passed explicitly per request; the backend holds
+			// no selected-encounter state.
 			const data = await apiGetArray<Character>(
 				`/characters?encounter_id=${encId}`,
 			);

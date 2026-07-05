@@ -13,9 +13,9 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
-// mock is the shared sqlmock bound to the package-level db. It is only consumed
-// by initializeApp during TestMain; individual handler tests that return before
-// touching the database do not interact with it.
+// mock is the shared sqlmock bound to the package-level db. initializeApp only
+// wires up the DAOs now (no bootstrap queries), so tests that need query
+// expectations set them on their own mock connection.
 var mock sqlmock.Sqlmock
 
 func TestMain(m *testing.M) {
@@ -26,18 +26,8 @@ func TestMain(m *testing.M) {
 	}
 	defer db.Close()
 
-	// initializeApp loads encounters then characters. With no request (and so no
-	// Discord cookie) it calls GetAllEncounters followed by GetAllCharacters.
-	// Both queries begin with "SELECT id, name"; returning empty result sets
-	// keeps selectedEncounterID at 0 and avoids cross-test state.
-	mock.ExpectQuery("SELECT id, name").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "owner_id", "description"}))
-	mock.ExpectQuery("SELECT id, name").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "armor_class", "to_hit_modifier", "max_hp",
-			"current_hp", "initiative", "is_active", "owner_id", "type", "npc_template_id",
-		}))
-
+	// initializeApp no longer loads any server-side state at startup; it just
+	// constructs the DAOs against db, so there are no queries to expect here.
 	initializeApp(db)
 
 	os.Exit(m.Run())

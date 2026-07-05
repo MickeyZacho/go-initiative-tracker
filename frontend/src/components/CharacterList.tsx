@@ -249,6 +249,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					toHitModifier: Number(character.ToHitModifier ?? 0),
 					isActive: Boolean(character.IsActive),
 					type: character.Type,
+					encounter_id: encounterId,
 				},
 				"Failed to save character",
 			);

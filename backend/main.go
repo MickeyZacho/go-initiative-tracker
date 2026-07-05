@@ -24,10 +24,7 @@ var characterDAO dao.CharacterDAO
 var npcTemplateDAO dao.NpcTemplateDAO
 var encounterCharacterDAO dao.EncounterCharacterDAO
 var encounterLedgerDAO dao.EncounterLedgerDAO
-var characters []dao.Character
 var encounterDAO dao.EncounterDAO
-var encounters []dao.Encounter
-var selectedEncounterID int
 var frontendURL string
 var allowedOrigins map[string]bool
 
@@ -62,56 +59,24 @@ func initializeApp(db *sql.DB) {
 	encounterCharacterDAO = dao.NewEncounterCharacterDAO(db)
 	encounterLedgerDAO = dao.NewEncounterLedgerDAO(db)
 	npcTemplateDAO = dao.NewNpcTemplateDAO(db)
-	loadEncountersFromDB(nil)
-	loadCharactersFromDB(nil)
 }
 
-func loadEncountersFromDB(r *http.Request) {
-	var err error
-	discordID := ""
-	if r != nil {
-		if cookie, errCookie := r.Cookie("discord_id"); errCookie == nil {
-			discordID = cookie.Value
+// fetchCharacters loads characters for the given request, scoped to encounterID
+// when it is > 0 and to the signed-in Discord user when a cookie is present.
+// It holds no server-side state, so concurrent requests never see each other's
+// selection.
+func fetchCharacters(r *http.Request, encounterID int) ([]dao.Character, error) {
+	discordID := getDiscordIDFromRequest(r)
+	if encounterID > 0 {
+		if discordID != "" {
+			return characterDAO.GetCharactersByEncounterIDAndOwner(encounterID, discordID)
 		}
+		return characterDAO.GetCharactersByEncounterID(encounterID)
 	}
 	if discordID != "" {
-		// Only load encounters for this user
-		encounters, err = encounterDAO.GetEncountersByOwnerDiscordID(discordID)
-	} else {
-		encounters, err = encounterDAO.GetAllEncounters()
+		return characterDAO.GetAllCharactersByOwner(discordID)
 	}
-	if err != nil {
-		log.Fatalf("Error in loadEncountersFromDB: %v", err)
-	}
-	if len(encounters) > 0 {
-		selectedEncounterID = encounters[0].ID
-	}
-}
-
-func loadCharactersFromDB(r *http.Request) {
-	var err error
-	discordID := ""
-	if r != nil {
-		if cookie, errCookie := r.Cookie("discord_id"); errCookie == nil {
-			discordID = cookie.Value
-		}
-	}
-	if selectedEncounterID > 0 {
-		if discordID != "" {
-			characters, err = characterDAO.GetCharactersByEncounterIDAndOwner(selectedEncounterID, discordID)
-		} else {
-			characters, err = characterDAO.GetCharactersByEncounterID(selectedEncounterID)
-		}
-	} else {
-		if discordID != "" {
-			characters, err = characterDAO.GetAllCharactersByOwner(discordID)
-		} else {
-			characters, err = characterDAO.GetAllCharacters()
-		}
-	}
-	if err != nil {
-		log.Fatalf("Error in loadCharactersFromDB: %v", err)
-	}
+	return characterDAO.GetAllCharacters()
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
@@ -216,7 +181,6 @@ func main() {
 	http.Handle("/characters/library", loggingMiddleware(http.HandlerFunc(apiLibraryCharactersHandler)))
 	http.Handle("/characters/library/save", loggingMiddleware(http.HandlerFunc(apiSaveLibraryCharacterHandler)))
 	http.Handle("/characters/library/delete", loggingMiddleware(http.HandlerFunc(apiDeleteLibraryCharacterHandler)))
-	http.Handle("/select-encounter", loggingMiddleware(http.HandlerFunc(apiSelectEncounterHandler)))
 	http.Handle("/me", loggingMiddleware(http.HandlerFunc(apiMeHandler)))
 	http.Handle("/encounters/combat/start", loggingMiddleware(http.HandlerFunc(apiStartCombatHandler)))
 	http.Handle("/encounters/combat/setup", loggingMiddleware(http.HandlerFunc(apiResetCombatHandler)))
@@ -335,9 +299,6 @@ func apiDeleteEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Encounter not found or not owned by you", http.StatusForbidden)
 		return
 	}
-	if selectedEncounterID == req.ID {
-		selectedEncounterID = 0
-	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
@@ -347,15 +308,20 @@ func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
+	encounterID := 0
 	if encounterIDRaw := r.URL.Query().Get("encounter_id"); encounterIDRaw != "" {
-		encounterID, err := strconv.Atoi(encounterIDRaw)
-		if err != nil || encounterID <= 0 {
+		id, err := strconv.Atoi(encounterIDRaw)
+		if err != nil || id <= 0 {
 			http.Error(w, "Invalid encounter id", http.StatusBadRequest)
 			return
 		}
-		selectedEncounterID = encounterID
+		encounterID = id
 	}
-	loadCharactersFromDB(r)
+	characters, err := fetchCharacters(r, encounterID)
+	if err != nil {
+		http.Error(w, "Failed to fetch characters", http.StatusInternalServerError)
+		return
+	}
 	if characters == nil {
 		characters = []dao.Character{}
 	}
@@ -456,27 +422,6 @@ func apiDeleteLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Character not found or not owned by you", http.StatusForbidden)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
-}
-
-func apiSelectEncounterHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		ID int `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
-		return
-	}
-	if req.ID <= 0 {
-		http.Error(w, "Invalid encounter id", http.StatusBadRequest)
-		return
-	}
-	selectedEncounterID = req.ID
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
@@ -690,12 +635,16 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var char dao.Character
-	err := json.NewDecoder(r.Body).Decode(&char)
+	var payload struct {
+		dao.Character
+		EncounterID int `json:"encounter_id"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	char := payload.Character
 
 	if char.MaxHP < 1 {
 		http.Error(w, "Invalid max HP value", http.StatusBadRequest)
@@ -720,15 +669,8 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		char.ID = newID
-		characters = append(characters, char)
 	} else {
 		// Update existing character
-		for i, c := range characters {
-			if c.ID == char.ID {
-				characters[i] = char
-				break
-			}
-		}
 		err := characterDAO.UpdateCharacter(char)
 		if err != nil {
 			log.Printf("Error updating character: %v", err)
@@ -737,9 +679,9 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if selectedEncounterID > 0 {
+	if payload.EncounterID > 0 {
 		encChar := dao.EncounterCharacter{
-			EncounterID: selectedEncounterID,
+			EncounterID: payload.EncounterID,
 			CharacterID: char.ID,
 			Initiative:  char.Initiative,
 			CurrentHP:   char.CurrentHP,
@@ -753,7 +695,6 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	loadCharactersFromDB(r)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"status":    "success",
@@ -794,11 +735,8 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	encounterID := req.EncounterID
 	if encounterID <= 0 {
-		encounterID = selectedEncounterID
-	}
-	if encounterID <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "No encounter selected"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "encounter_id is required"})
 		return
 	}
 	err := encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID)
@@ -956,11 +894,8 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 	}
 	encounterID := req.EncounterID
 	if encounterID <= 0 {
-		encounterID = selectedEncounterID
-	}
-	if encounterID <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "No encounter selected"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "encounter_id is required"})
 		return
 	}
 	err := encounterDAO.RemoveCharacterFromEncounter(encounterID, req.CharacterID)
