@@ -10,13 +10,13 @@ import (
 
 func apiNpcTemplatesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	templates, err := npcTemplateDAO.GetAll()
 	if err != nil {
 		fmt.Println(err)
-		http.Error(w, "Failed to fetch npc templates", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch npc templates")
 		return
 	}
 	if templates == nil {
@@ -29,16 +29,16 @@ func apiNpcTemplatesHandler(w http.ResponseWriter, r *http.Request) {
 // POST /api/npcs/templates/save
 func apiSaveNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	var nt dao.NpcTemplate
 	if err := json.NewDecoder(r.Body).Decode(&nt); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if strings.TrimSpace(nt.Name) == "" {
-		http.Error(w, "NPC name is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "NPC name is required")
 		return
 	}
 
@@ -50,11 +50,11 @@ func apiSaveNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 		// Update, but only if the caller owns the template.
 		updated, err := npcTemplateDAO.UpdateByOwner(nt, discordID)
 		if err != nil {
-			http.Error(w, "Failed to update npc template", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to update npc template")
 			return
 		}
 		if !updated {
-			http.Error(w, "NPC template not found or not owned by you", http.StatusForbidden)
+			writeJSONError(w, http.StatusForbidden, "NPC template not found or not owned by you")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -67,7 +67,7 @@ func apiSaveNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Println(nt)
 		fmt.Println(err)
-		http.Error(w, "Failed to create npc template", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to create npc template")
 		return
 	}
 	nt.ID = newID
@@ -78,27 +78,27 @@ func apiSaveNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 // POST /api/npcs/templates/delete
 func apiDeleteNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	var req struct {
 		ID int `json:"id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if req.ID <= 0 {
-		http.Error(w, "Invalid npc template id", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid npc template id")
 		return
 	}
 	deleted, err := npcTemplateDAO.DeleteByOwner(req.ID, getDiscordIDFromRequest(r))
 	if err != nil {
-		http.Error(w, "Failed to delete npc template", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to delete npc template")
 		return
 	}
 	if !deleted {
-		http.Error(w, "NPC template not found or not owned by you", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "NPC template not found or not owned by you")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -108,7 +108,7 @@ func apiDeleteNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 // POST /api/npcs/templates/create-character
 func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	var req struct {
@@ -116,15 +116,15 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		EncounterID int `json:"encounter_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if req.TemplateID <= 0 {
-		http.Error(w, "Invalid template id", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid template id")
 		return
 	}
 	if req.EncounterID <= 0 {
-		http.Error(w, "No encounter selected", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "No encounter selected")
 		return
 	}
 	if !requireEncounterOwner(w, r, req.EncounterID) {
@@ -133,7 +133,7 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 
 	character, err := npcTemplateDAO.AddCharacterToEncounterFromTemplate(req.TemplateID, req.EncounterID)
 	if err != nil {
-		http.Error(w, "Failed to create character from template", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to create character from template")
 		return
 	}
 	// Optionally, insert the character into the characters table here

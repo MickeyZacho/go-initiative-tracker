@@ -23,15 +23,13 @@ func encounterIDFromRequest(r *http.Request) (int, error) {
 func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 
 	encounterID, err := encounterIDFromRequest(r)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if !requireEncounterOwner(w, r, encounterID) {
@@ -41,12 +39,10 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 	activeCharacterID, err := encounterCharacterDAO.StartCombat(encounterID)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "no characters") {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Encounter has no characters"})
+			writeJSONError(w, http.StatusBadRequest, "Encounter has no characters")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to start combat"})
+		writeJSONError(w, http.StatusInternalServerError, "Failed to start combat")
 		return
 	}
 
@@ -56,15 +52,13 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 
 	encounterID, err := encounterIDFromRequest(r)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if !requireEncounterOwner(w, r, encounterID) {
@@ -72,8 +66,7 @@ func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := encounterCharacterDAO.ResetCombat(encounterID); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to reset combat"})
+		writeJSONError(w, http.StatusInternalServerError, "Failed to reset combat")
 		return
 	}
 
@@ -83,15 +76,13 @@ func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 func apiNextTurnHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 
 	encounterID, err := encounterIDFromRequest(r)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if !requireEncounterOwner(w, r, encounterID) {
@@ -101,12 +92,10 @@ func apiNextTurnHandler(w http.ResponseWriter, r *http.Request) {
 	activeCharacterID, err := encounterCharacterDAO.AdvanceTurn(encounterID)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "no characters") {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Encounter has no characters"})
+			writeJSONError(w, http.StatusBadRequest, "Encounter has no characters")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to advance turn"})
+		writeJSONError(w, http.StatusInternalServerError, "Failed to advance turn")
 		return
 	}
 

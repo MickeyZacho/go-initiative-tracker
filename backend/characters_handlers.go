@@ -29,21 +29,21 @@ func fetchCharacters(r *http.Request, encounterID int) ([]dao.Character, error) 
 
 func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	encounterID := 0
 	if encounterIDRaw := r.URL.Query().Get("encounter_id"); encounterIDRaw != "" {
 		id, err := strconv.Atoi(encounterIDRaw)
 		if err != nil || id <= 0 {
-			http.Error(w, "Invalid encounter id", http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "Invalid encounter id")
 			return
 		}
 		encounterID = id
 	}
 	characters, err := fetchCharacters(r, encounterID)
 	if err != nil {
-		http.Error(w, "Failed to fetch characters", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch characters")
 		return
 	}
 	if characters == nil {
@@ -55,7 +55,7 @@ func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 
 func apiLibraryCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	discordID := getDiscordIDFromRequest(r)
@@ -67,7 +67,7 @@ func apiLibraryCharactersHandler(w http.ResponseWriter, r *http.Request) {
 		data, err = characterDAO.GetAllCharacters()
 	}
 	if err != nil {
-		http.Error(w, "Failed to fetch characters", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch characters")
 		return
 	}
 	if data == nil {
@@ -79,20 +79,20 @@ func apiLibraryCharactersHandler(w http.ResponseWriter, r *http.Request) {
 
 func apiSaveLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	var char dao.Character
 	if err := json.NewDecoder(r.Body).Decode(&char); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if strings.TrimSpace(char.Name) == "" {
-		http.Error(w, "Character name is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Character name is required")
 		return
 	}
 	if char.MaxHP < 1 {
-		http.Error(w, "Invalid max HP value", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid max HP value")
 		return
 	}
 	// Ownership is always the authenticated caller; never trust an owner_id
@@ -102,18 +102,18 @@ func apiSaveLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	if char.ID == 0 {
 		newID, err := characterDAO.CreateCharacter(char)
 		if err != nil {
-			http.Error(w, "Failed to create character", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to create character")
 			return
 		}
 		char.ID = newID
 	} else {
 		updated, err := characterDAO.UpdateCharacterByOwner(char, discordID)
 		if err != nil {
-			http.Error(w, "Failed to update character", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to update character")
 			return
 		}
 		if !updated {
-			http.Error(w, "Character not found or not owned by you", http.StatusForbidden)
+			writeJSONError(w, http.StatusForbidden, "Character not found or not owned by you")
 			return
 		}
 	}
@@ -123,32 +123,32 @@ func apiSaveLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 
 func apiDeleteLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	var req struct {
 		ID int `json:"id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if req.ID <= 0 {
-		http.Error(w, "Invalid character id", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid character id")
 		return
 	}
 	discordID := getDiscordIDFromRequest(r)
 	if discordID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	deleted, err := characterDAO.DeleteCharacterByOwner(req.ID, discordID)
 	if err != nil {
-		http.Error(w, "Failed to delete character", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to delete character")
 		return
 	}
 	if !deleted {
-		http.Error(w, "Character not found or not owned by you", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "Character not found or not owned by you")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -158,7 +158,7 @@ func apiDeleteLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Saving character...")
 	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 
@@ -168,13 +168,13 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	char := payload.Character
 
 	if char.MaxHP < 1 {
-		http.Error(w, "Invalid max HP value", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Invalid max HP value")
 		return
 	}
 	if char.CurrentHP < 0 {
@@ -193,7 +193,7 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		newID, err := characterDAO.CreateCharacter(char)
 		if err != nil {
 			log.Printf("Error creating character: %v", err)
-			http.Error(w, "Failed to create character", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to create character")
 			return
 		}
 		char.ID = newID
@@ -202,11 +202,11 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		updated, err := characterDAO.UpdateCharacterByOwner(char, discordID)
 		if err != nil {
 			log.Printf("Error updating character: %v", err)
-			http.Error(w, "Failed to update character", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to update character")
 			return
 		}
 		if !updated {
-			http.Error(w, "Character not found or not owned by you", http.StatusForbidden)
+			writeJSONError(w, http.StatusForbidden, "Character not found or not owned by you")
 			return
 		}
 	}
@@ -222,7 +222,7 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		err = encounterCharacterDAO.Upsert(encChar)
 		if err != nil {
 			log.Printf("Error upserting encounter character: %v", err)
-			http.Error(w, "Failed to save encounter values", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to save encounter values")
 			return
 		}
 	}
@@ -238,8 +238,7 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	var req struct {
@@ -247,19 +246,16 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		CharacterID int `json:"character_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if req.CharacterID <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid character id"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid character id")
 		return
 	}
 	encounterID := req.EncounterID
 	if encounterID <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "encounter_id is required"})
+		writeJSONError(w, http.StatusBadRequest, "encounter_id is required")
 		return
 	}
 	if !requireEncounterOwner(w, r, encounterID) {
@@ -268,12 +264,10 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	err := encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Character is already in this encounter"})
+			writeJSONError(w, http.StatusConflict, "Character is already in this encounter")
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to add character to encounter"})
+		writeJSONError(w, http.StatusInternalServerError, "Failed to add character to encounter")
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
@@ -283,8 +277,7 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request method"})
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	var req struct {
@@ -292,19 +285,16 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 		CharacterID int `json:"character_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	if req.CharacterID <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid character id"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid character id")
 		return
 	}
 	encounterID := req.EncounterID
 	if encounterID <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "encounter_id is required"})
+		writeJSONError(w, http.StatusBadRequest, "encounter_id is required")
 		return
 	}
 	if !requireEncounterOwner(w, r, encounterID) {
@@ -312,8 +302,7 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 	}
 	err := encounterDAO.RemoveCharacterFromEncounter(encounterID, req.CharacterID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Failed to remove character from encounter"})
+		writeJSONError(w, http.StatusInternalServerError, "Failed to remove character from encounter")
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
