@@ -28,6 +28,7 @@ func TestMain(m *testing.M) {
 
 	// initializeApp no longer loads any server-side state at startup; it just
 	// constructs the DAOs against db, so there are no queries to expect here.
+	initSessionSecret()
 	initializeApp(db)
 
 	os.Exit(m.Run())

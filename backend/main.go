@@ -114,6 +114,7 @@ func main() {
 	}
 	frontendURL = strings.TrimRight(frontendURL, "/")
 	secureCookies = os.Getenv("SECURE_COOKIES") == "true"
+	initSessionSecret()
 	allowedOrigins = map[string]bool{
 		frontendURL:             true,
 		"http://localhost:5173": true,
@@ -185,10 +186,17 @@ func main() {
 }
 
 func getDiscordIDFromRequest(r *http.Request) string {
-	if cookie, err := r.Cookie("discord_id"); err == nil {
-		return cookie.Value
+	cookie, err := r.Cookie("discord_id")
+	if err != nil {
+		return ""
 	}
-	return ""
+	// The cookie is HMAC-signed at login; a missing or forged signature is
+	// treated as logged-out so a caller can never spoof another user's id.
+	id, ok := verifyValue(cookie.Value)
+	if !ok {
+		return ""
+	}
+	return id
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {

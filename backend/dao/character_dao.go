@@ -23,7 +23,7 @@ type CharacterDAO interface {
 	GetCharacterByID(id int) (Character, error)
 	GetCharactersByEncounterID(encounterID int) ([]Character, error)
 	CreateCharacter(character Character) (int, error)
-	UpdateCharacter(character Character) error
+	UpdateCharacterByOwner(character Character, ownerID string) (bool, error)
 	DeleteCharacter(id int) error
 	DeleteCharacterByOwner(id int, ownerID string) (bool, error)
 	GetAllCharactersByOwner(discordID string) ([]Character, error)
@@ -99,13 +99,21 @@ func (dao *characterDAOImpl) CreateCharacter(character Character) (int, error) {
 	return newID, err
 }
 
-func (dao *characterDAOImpl) UpdateCharacter(character Character) error {
+// UpdateCharacterByOwner updates a character only when it belongs to ownerID.
+// owner_id is intentionally not in the SET clause, so a caller can never
+// reassign a character to a different owner. Returns false when no row matched
+// (wrong id or not owned by the caller).
+func (dao *characterDAOImpl) UpdateCharacterByOwner(character Character, ownerID string) (bool, error) {
 	if character.Type == "" {
 		character.Type = "pc"
 	}
-	_, err := dao.db.Exec("UPDATE characters SET name = $1, armor_class = $2, to_hit_modifier = $3, max_hp = $4, owner_id = $5, type = $6 WHERE id = $7",
-		character.Name, character.ArmorClass, character.ToHitModifier, character.MaxHP, character.OwnerID, character.Type, character.ID)
-	return err
+	result, err := dao.db.Exec("UPDATE characters SET name = $1, armor_class = $2, to_hit_modifier = $3, max_hp = $4, type = $5 WHERE id = $6 AND owner_id = $7",
+		character.Name, character.ArmorClass, character.ToHitModifier, character.MaxHP, character.Type, character.ID, ownerID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows > 0, err
 }
 
 func (dao *characterDAOImpl) DeleteCharacter(id int) error {

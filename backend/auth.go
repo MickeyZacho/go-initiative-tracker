@@ -17,13 +17,10 @@ func apiMeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := ""
-	discordID := ""
 	avatar := ""
+	discordID := getDiscordIDFromRequest(r)
 	if cookie, err := r.Cookie("discord_user"); err == nil {
 		username = cookie.Value
-	}
-	if cookie, err := r.Cookie("discord_id"); err == nil {
-		discordID = cookie.Value
 	}
 	if cookie, err := r.Cookie("discord_avatar"); err == nil {
 		avatar = cookie.Value
@@ -58,7 +55,6 @@ func discordLoginHandler(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 	})
 	url := discordOAuthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline)
-	log.Printf("Redirecting to Discord OAuth URL: %s", url)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
@@ -66,7 +62,6 @@ func discordLoginHandler(w http.ResponseWriter, r *http.Request) {
 func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
-	log.Printf("[OAUTH DEBUG] code: %s, state: %s", code, state)
 	if code == "" {
 		http.Error(w, "No code in request", http.StatusBadRequest)
 		return
@@ -74,7 +69,7 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	// Validate state
 	cookie, err := r.Cookie("oauth_state")
 	if err != nil || cookie.Value != state {
-		log.Printf("[OAUTH DEBUG] Invalid state. Cookie: %v, Query: %v", cookie, state)
+		log.Printf("OAuth callback rejected: invalid state parameter")
 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
 		return
 	}
@@ -85,10 +80,9 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		Path:   "/",
 		MaxAge: -1,
 	})
-	log.Printf("[OAUTH DEBUG] Exchanging token with redirect_uri: %s", discordOAuthConfig.RedirectURL)
 	token, err := discordOAuthConfig.Exchange(r.Context(), code)
 	if err != nil {
-		log.Printf("[OAUTH DEBUG] Token exchange error: %v", err)
+		log.Printf("OAuth token exchange failed: %v", err)
 		http.Error(w, "Failed to exchange token: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -119,7 +113,7 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     "discord_id",
-		Value:    userInfo.ID,
+		Value:    signValue(userInfo.ID),
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   secureCookies,

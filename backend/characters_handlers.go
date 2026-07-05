@@ -95,9 +95,10 @@ func apiSaveLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid max HP value", http.StatusBadRequest)
 		return
 	}
-	if char.OwnerID == "" {
-		char.OwnerID = getDiscordIDFromRequest(r)
-	}
+	// Ownership is always the authenticated caller; never trust an owner_id
+	// supplied in the request body.
+	discordID := getDiscordIDFromRequest(r)
+	char.OwnerID = discordID
 	if char.ID == 0 {
 		newID, err := characterDAO.CreateCharacter(char)
 		if err != nil {
@@ -106,9 +107,13 @@ func apiSaveLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		char.ID = newID
 	} else {
-		err := characterDAO.UpdateCharacter(char)
+		updated, err := characterDAO.UpdateCharacterByOwner(char, discordID)
 		if err != nil {
 			http.Error(w, "Failed to update character", http.StatusInternalServerError)
+			return
+		}
+		if !updated {
+			http.Error(w, "Character not found or not owned by you", http.StatusForbidden)
 			return
 		}
 	}
@@ -178,9 +183,10 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	if char.CurrentHP > char.MaxHP {
 		char.CurrentHP = char.MaxHP
 	}
-	if char.OwnerID == "" {
-		char.OwnerID = getDiscordIDFromRequest(r)
-	}
+	// Ownership is always the authenticated caller; never trust an owner_id
+	// supplied in the request body.
+	discordID := getDiscordIDFromRequest(r)
+	char.OwnerID = discordID
 
 	if char.ID == 0 {
 		// New character, insert into DB
@@ -192,11 +198,15 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		char.ID = newID
 	} else {
-		// Update existing character
-		err := characterDAO.UpdateCharacter(char)
+		// Update existing character, but only if the caller owns it.
+		updated, err := characterDAO.UpdateCharacterByOwner(char, discordID)
 		if err != nil {
 			log.Printf("Error updating character: %v", err)
 			http.Error(w, "Failed to update character", http.StatusInternalServerError)
+			return
+		}
+		if !updated {
+			http.Error(w, "Character not found or not owned by you", http.StatusForbidden)
 			return
 		}
 	}
