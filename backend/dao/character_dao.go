@@ -88,6 +88,9 @@ func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Char
 }
 
 func (dao *characterDAOImpl) CreateCharacter(character Character) (int, error) {
+	if character.Type == "" {
+		character.Type = "pc"
+	}
 	var newID int
 	err := dao.db.QueryRow(
 		"INSERT INTO characters (name, armor_class, to_hit_modifier, max_hp, owner_id, type) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
@@ -97,6 +100,9 @@ func (dao *characterDAOImpl) CreateCharacter(character Character) (int, error) {
 }
 
 func (dao *characterDAOImpl) UpdateCharacter(character Character) error {
+	if character.Type == "" {
+		character.Type = "pc"
+	}
 	_, err := dao.db.Exec("UPDATE characters SET name = $1, armor_class = $2, to_hit_modifier = $3, max_hp = $4, owner_id = $5, type = $6 WHERE id = $7",
 		character.Name, character.ArmorClass, character.ToHitModifier, character.MaxHP, character.OwnerID, character.Type, character.ID)
 	return err
