@@ -29,6 +29,9 @@ services:
       - DB_USER=initiative_user
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=initiative_db
+      # Stable secret so logins survive air hot-reloads in dev. Override via a
+      # real SESSION_SECRET in the environment; never use this value in prod.
+      - SESSION_SECRET=${SESSION_SECRET:-dev-insecure-session-secret}
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
       - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
     depends_on:

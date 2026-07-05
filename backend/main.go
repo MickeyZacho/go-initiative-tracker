@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"go-initiative-tracker/dao"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -136,6 +140,12 @@ func main() {
 	if errDB != nil {
 		log.Fatalf("Error opening database connection: %v", errDB)
 	}
+	// sql.Open does not actually connect; verify the database is reachable at
+	// startup (with a short retry, since depends_on does not wait for readiness)
+	// so we fail fast instead of on the first request.
+	if err := waitForDB(db, 15, 2*time.Second); err != nil {
+		log.Fatalf("Database not reachable: %v", err)
+	}
 
 	discordOAuthConfig = &oauth2.Config{
 		ClientID:     os.Getenv("DISCORD_CLIENT_ID"),
@@ -181,8 +191,54 @@ func main() {
 		port = "8080"
 	}
 	addr := ":" + port
-	log.Printf("Server starting on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+
+	// Explicit timeouts guard against slow-client (Slowloris-style) stalls that
+	// the zero-value http.Server leaves wide open. WriteTimeout is generous
+	// because the OAuth callback makes outbound calls to Discord.
+	srv := &http.Server{
+		Addr:              addr,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Printf("Server starting on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	stop()
+	log.Printf("Shutdown signal received; draining connections...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Graceful shutdown failed: %v", err)
+	}
+	log.Printf("Server stopped")
+}
+
+// waitForDB pings the database up to attempts times, sleeping delay between
+// tries, so startup survives the database coming up a moment after the app.
+func waitForDB(db *sql.DB, attempts int, delay time.Duration) error {
+	var err error
+	for i := range attempts {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err = db.PingContext(ctx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		log.Printf("Database not ready (attempt %d/%d): %v", i+1, attempts, err)
+		time.Sleep(delay)
+	}
+	return err
 }
 
 func getDiscordIDFromRequest(r *http.Request) string {
