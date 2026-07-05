@@ -3,21 +3,36 @@ import AuthButtons from "./components/AuthButtons";
 import CharactersPage from "./components/CharactersPage";
 import EncountersPage from "./components/EncountersPage";
 import { Button, Stack } from "@mui/material";
-import { useState } from "react";
+import {
+	Navigate,
+	Route,
+	Routes,
+	useLocation,
+	useNavigate,
+	useParams,
+} from "react-router-dom";
 import NpcsPage from "./components/NpcsPage";
 
-function App() {
-	const [view, setView] = useState<
-		"combat" | "characters" | "encounters" | "npcs"
-	>("characters");
-	const [selectedEncounterId, setSelectedEncounterId] = useState<
-		number | null
-	>(null);
+const NAV_ITEMS = [
+	{ label: "Characters", path: "/characters" },
+	{ label: "Encounters", path: "/encounters" },
+	{ label: "Combat", path: "/combat" },
+	{ label: "NPCs", path: "/npcs" },
+] as const;
 
-	const handleOpenEncounter = (encounterId: number) => {
-		setSelectedEncounterId(encounterId);
-		setView("combat");
-	};
+// Reads the encounter id from the /combat/:encounterId route so the combat
+// view can preselect it; /combat with no id falls back to the default.
+function CombatRoute() {
+	const { encounterId } = useParams();
+	const parsed = encounterId ? Number(encounterId) : null;
+	const initialEncounterId =
+		parsed !== null && Number.isFinite(parsed) ? parsed : null;
+	return <CharacterList initialEncounterId={initialEncounterId} />;
+}
+
+function App() {
+	const navigate = useNavigate();
+	const location = useLocation();
 
 	return (
 		<div
@@ -33,43 +48,47 @@ function App() {
 				<AuthButtons />
 				<h1>Initiative Tracker</h1>
 				<Stack direction="row" spacing={1} mb={2}>
-					<Button
-						variant={
-							view === "characters" ? "contained" : "outlined"
-						}
-						onClick={() => setView("characters")}
-					>
-						Characters
-					</Button>
-					<Button
-						variant={
-							view === "encounters" ? "contained" : "outlined"
-						}
-						onClick={() => setView("encounters")}
-					>
-						Encounters
-					</Button>
-					<Button
-						variant={view === "combat" ? "contained" : "outlined"}
-						onClick={() => setView("combat")}
-					>
-						Combat
-					</Button>
-					<Button
-						variant={view === "npcs" ? "contained" : "outlined"}
-						onClick={() => setView("npcs")}
-					>
-						NPCs
-					</Button>
+					{NAV_ITEMS.map((item) => (
+						<Button
+							key={item.path}
+							variant={
+								location.pathname.startsWith(item.path)
+									? "contained"
+									: "outlined"
+							}
+							onClick={() => navigate(item.path)}
+						>
+							{item.label}
+						</Button>
+					))}
 				</Stack>
-				{view === "characters" && <CharactersPage />}
-				{view === "encounters" && (
-					<EncountersPage onOpenEncounter={handleOpenEncounter} />
-				)}
-				{view === "combat" && (
-					<CharacterList initialEncounterId={selectedEncounterId} />
-				)}
-				{view === "npcs" && <NpcsPage />}
+				<Routes>
+					<Route
+						path="/"
+						element={<Navigate to="/characters" replace />}
+					/>
+					<Route path="/characters" element={<CharactersPage />} />
+					<Route
+						path="/encounters"
+						element={
+							<EncountersPage
+								onOpenEncounter={(id) =>
+									navigate(`/combat/${id}`)
+								}
+							/>
+						}
+					/>
+					<Route path="/combat" element={<CombatRoute />} />
+					<Route
+						path="/combat/:encounterId"
+						element={<CombatRoute />}
+					/>
+					<Route path="/npcs" element={<NpcsPage />} />
+					<Route
+						path="*"
+						element={<Navigate to="/characters" replace />}
+					/>
+				</Routes>
 			</div>
 		</div>
 	);
