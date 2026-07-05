@@ -108,6 +108,9 @@ func apiEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid encounter id"})
 		return
 	}
+	if !requireEncounterOwner(w, r, encounterID) {
+		return
+	}
 
 	entries, err := encounterLedgerDAO.ListByEncounterID(encounterID, 50)
 	if err != nil {

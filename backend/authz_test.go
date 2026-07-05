@@ -104,6 +104,26 @@ func TestStartCombatAllowsOwner(t *testing.T) {
 	}
 }
 
+func TestEncounterLedgerReadRejectsNonOwner(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+
+	// Reading another user's combat log must be denied, not just mutating it.
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+
+	req := httptest.NewRequest(http.MethodGet, "/encounters/ledger?encounter_id=1", nil)
+	rr := httptest.NewRecorder()
+	apiEncounterLedgerHandler(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	if err := m.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 func TestAddCharacterToEncounterRejectsNonOwner(t *testing.T) {
 	m, restore := newEncounterMock(t)
 	defer restore()
