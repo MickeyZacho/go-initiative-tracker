@@ -34,6 +34,9 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
 		return
 	}
+	if !requireEncounterOwner(w, r, encounterID) {
+		return
+	}
 
 	activeCharacterID, err := encounterCharacterDAO.StartCombat(encounterID)
 	if err != nil {
@@ -64,6 +67,9 @@ func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
 		return
 	}
+	if !requireEncounterOwner(w, r, encounterID) {
+		return
+	}
 
 	if err := encounterCharacterDAO.ResetCombat(encounterID); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -86,6 +92,9 @@ func apiNextTurnHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Invalid request payload"})
+		return
+	}
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 

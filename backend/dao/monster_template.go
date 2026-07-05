@@ -30,14 +30,15 @@ type NpcTemplate struct {
 	BaseStats   StatBlock
 	ArmorClass  int
 	MaxHP       int
+	OwnerID     string
 }
 
 type NpcTemplateDAO interface {
 	GetAll() ([]NpcTemplate, error)
 	GetByID(id int) (NpcTemplate, error)
 	Create(template NpcTemplate) (int, error)
-	Update(template NpcTemplate) error
-	Delete(id int) error
+	UpdateByOwner(template NpcTemplate, ownerID string) (bool, error)
+	DeleteByOwner(id int, ownerID string) (bool, error)
 	AddCharacterToEncounterFromTemplate(templateID int, encounterID int) (Character, error)
 }
 
@@ -50,7 +51,7 @@ func NewNpcTemplateDAO(db *sql.DB) NpcTemplateDAO {
 }
 
 func (dao *npcTemplateDAOImpl) GetAll() ([]NpcTemplate, error) {
-	rows, err := dao.db.Query(`SELECT id, name, description, base_stats, armor_class, max_hp FROM npc_templates`)
+	rows, err := dao.db.Query(`SELECT id, name, description, base_stats, armor_class, max_hp, COALESCE(owner_id, '') FROM npc_templates`)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +60,7 @@ func (dao *npcTemplateDAOImpl) GetAll() ([]NpcTemplate, error) {
 	for rows.Next() {
 		var t NpcTemplate
 		var statsStr string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP, &t.OwnerID); err != nil {
 			return nil, err
 		}
 		stats, err := parseStatBlock(statsStr)
@@ -75,7 +76,7 @@ func (dao *npcTemplateDAOImpl) GetAll() ([]NpcTemplate, error) {
 func (dao *npcTemplateDAOImpl) GetByID(id int) (NpcTemplate, error) {
 	var t NpcTemplate
 	var statsStr string
-	err := dao.db.QueryRow(`SELECT id, name, description, base_stats, armor_class, max_hp FROM npc_templates WHERE id = $1`, id).Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP)
+	err := dao.db.QueryRow(`SELECT id, name, description, base_stats, armor_class, max_hp, COALESCE(owner_id, '') FROM npc_templates WHERE id = $1`, id).Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP, &t.OwnerID)
 	if err != nil {
 		return t, err
 	}
@@ -121,23 +122,35 @@ func (dao *npcTemplateDAOImpl) Create(template NpcTemplate) (int, error) {
 	var id int
 	log.Printf("Creating npc template with base stats: %+v", template.BaseStats)
 	err := dao.db.QueryRow(
-		`INSERT INTO npc_templates (name, description, base_stats, armor_class, max_hp) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		template.Name, template.Description, template.BaseStats.String(), template.ArmorClass, template.MaxHP,
+		`INSERT INTO npc_templates (name, description, base_stats, armor_class, max_hp, owner_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		template.Name, template.Description, template.BaseStats.String(), template.ArmorClass, template.MaxHP, template.OwnerID,
 	).Scan(&id)
 	return id, err
 }
 
-func (dao *npcTemplateDAOImpl) Update(template NpcTemplate) error {
-	_, err := dao.db.Exec(
-		`UPDATE npc_templates SET name = $1, description = $2, base_stats = $3, armor_class = $4, max_hp = $5 WHERE id = $6`,
-		template.Name, template.Description, template.BaseStats.String(), template.ArmorClass, template.MaxHP, template.ID,
+// UpdateByOwner updates a template only when it belongs to ownerID; owner_id is
+// not in the SET clause so ownership can never be reassigned. Returns false when
+// no row matched (wrong id or not owned by the caller). Shared seed templates
+// have a NULL owner and so are read-only to signed-in users.
+func (dao *npcTemplateDAOImpl) UpdateByOwner(template NpcTemplate, ownerID string) (bool, error) {
+	result, err := dao.db.Exec(
+		`UPDATE npc_templates SET name = $1, description = $2, base_stats = $3, armor_class = $4, max_hp = $5 WHERE id = $6 AND COALESCE(owner_id, '') = $7`,
+		template.Name, template.Description, template.BaseStats.String(), template.ArmorClass, template.MaxHP, template.ID, ownerID,
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows > 0, err
 }
 
-func (dao *npcTemplateDAOImpl) Delete(id int) error {
-	_, err := dao.db.Exec(`DELETE FROM npc_templates WHERE id = $1`, id)
-	return err
+func (dao *npcTemplateDAOImpl) DeleteByOwner(id int, ownerID string) (bool, error) {
+	result, err := dao.db.Exec(`DELETE FROM npc_templates WHERE id = $1 AND COALESCE(owner_id, '') = $2`, id, ownerID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows > 0, err
 }
 
 func (dao *npcTemplateDAOImpl) AddCharacterToEncounterFromTemplate(templateID int, encounterID int) (Character, error) {

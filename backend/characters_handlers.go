@@ -262,6 +262,9 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "encounter_id is required"})
 		return
 	}
+	if !requireEncounterOwner(w, r, encounterID) {
+		return
+	}
 	err := encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
@@ -302,6 +305,9 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 	if encounterID <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "encounter_id is required"})
+		return
+	}
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 	err := encounterDAO.RemoveCharacterFromEncounter(encounterID, req.CharacterID)

@@ -150,6 +150,9 @@ func apiAddEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Actor is required"})
 		return
 	}
+	if !requireEncounterOwner(w, r, req.EncounterID) {
+		return
+	}
 	actionType := strings.TrimSpace(req.ActionType)
 	if actionType == "" {
 		actionType = "note"

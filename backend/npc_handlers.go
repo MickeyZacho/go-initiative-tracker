@@ -42,11 +42,19 @@ func apiSaveNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ownership is always the authenticated caller; never trust a body value.
+	discordID := getDiscordIDFromRequest(r)
+	nt.OwnerID = discordID
+
 	if nt.ID > 0 {
-		// Update
-		err := npcTemplateDAO.Update(nt)
+		// Update, but only if the caller owns the template.
+		updated, err := npcTemplateDAO.UpdateByOwner(nt, discordID)
 		if err != nil {
 			http.Error(w, "Failed to update npc template", http.StatusInternalServerError)
+			return
+		}
+		if !updated {
+			http.Error(w, "NPC template not found or not owned by you", http.StatusForbidden)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -84,8 +92,13 @@ func apiDeleteNpcTemplateHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid npc template id", http.StatusBadRequest)
 		return
 	}
-	if err := npcTemplateDAO.Delete(req.ID); err != nil {
+	deleted, err := npcTemplateDAO.DeleteByOwner(req.ID, getDiscordIDFromRequest(r))
+	if err != nil {
 		http.Error(w, "Failed to delete npc template", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "NPC template not found or not owned by you", http.StatusForbidden)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -112,6 +125,9 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 	}
 	if req.EncounterID <= 0 {
 		http.Error(w, "No encounter selected", http.StatusBadRequest)
+		return
+	}
+	if !requireEncounterOwner(w, r, req.EncounterID) {
 		return
 	}
 
