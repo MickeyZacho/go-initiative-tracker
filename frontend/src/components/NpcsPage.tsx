@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
 	Button,
+	MenuItem,
 	Paper,
 	Stack,
 	Table,
@@ -32,6 +33,11 @@ interface NpcTemplate {
 	MaxHP: number;
 }
 
+interface EncounterOption {
+	ID: number;
+	Name: string;
+}
+
 const emptyStatBlock: StatBlock = {
 	Strength: 10,
 	Dexterity: 10,
@@ -54,6 +60,9 @@ export default function NpcsPage() {
 	const [npcs, setNpcs] = useState<NpcTemplate[]>([]);
 	const [draft, setDraft] = useState<NpcTemplate>(emptyNpc);
 	const [error, setError] = useState("");
+	const [notice, setNotice] = useState("");
+	const [encounters, setEncounters] = useState<EncounterOption[]>([]);
+	const [targetEncounterId, setTargetEncounterId] = useState<number>(0);
 
 	const loadNpcs = useCallback(async () => {
 		setError("");
@@ -67,9 +76,24 @@ export default function NpcsPage() {
 		}
 	}, []);
 
+	const loadEncounters = useCallback(async () => {
+		try {
+			const data = await apiGetArray<EncounterOption>("/encounters");
+			setEncounters(data);
+			// Default the target to the first encounter so "Create Character"
+			// works without an extra click when one exists.
+			setTargetEncounterId((current) =>
+				current > 0 ? current : (data[0]?.ID ?? 0),
+			);
+		} catch {
+			setEncounters([]);
+		}
+	}, []);
+
 	useEffect(() => {
 		loadNpcs();
-	}, [loadNpcs]);
+		loadEncounters();
+	}, [loadNpcs, loadEncounters]);
 
 	const saveNpc = async (npc: NpcTemplate) => {
 		setError("");
@@ -80,15 +104,27 @@ export default function NpcsPage() {
 		await apiPost("/npcs/templates/save", npc, "Failed to save npc template");
 	};
 
-	const createCharacterFromTemplate = async (templateId: number) => {
+	const createCharacterFromTemplate = async (template: NpcTemplate) => {
 		setError("");
+		setNotice("");
+		if (targetEncounterId <= 0) {
+			setError("Select a target encounter first");
+			return;
+		}
 		try {
+			// The backend expects npc_template_id + encounter_id (both > 0).
 			await apiPost(
 				"/npcs/templates/create-character",
-				{ template_id: templateId },
+				{
+					npc_template_id: template.ID,
+					encounter_id: targetEncounterId,
+				},
 				"Failed to create character from template",
 			);
-			// Optionally, handle the created character here
+			const encounterName =
+				encounters.find((e) => e.ID === targetEncounterId)?.Name ??
+				"the encounter";
+			setNotice(`Added ${template.Name} to ${encounterName}.`);
 		} catch (err) {
 			setError(
 				err instanceof Error
@@ -145,6 +181,7 @@ export default function NpcsPage() {
 				NPC Templates
 			</Typography>
 			{error && <Typography color="error">{error}</Typography>}
+			{notice && <Typography color="success.main">{notice}</Typography>}
 			<Paper sx={{ p: 2 }}>
 				<Stack
 					direction="row"
@@ -219,6 +256,31 @@ export default function NpcsPage() {
 					</Button>
 				</Stack>
 			</Paper>
+			<Paper sx={{ p: 2 }}>
+				<Stack direction="row" spacing={2} alignItems="center">
+					<TextField
+						select
+						label="Add to encounter"
+						value={encounters.length ? targetEncounterId : ""}
+						onChange={(e) =>
+							setTargetEncounterId(Number(e.target.value))
+						}
+						disabled={encounters.length === 0}
+						helperText={
+							encounters.length === 0
+								? "Create an encounter first"
+								: "Target for “Create Character”"
+						}
+						sx={{ minWidth: 220 }}
+					>
+						{encounters.map((encounter) => (
+							<MenuItem key={encounter.ID} value={encounter.ID}>
+								{encounter.Name}
+							</MenuItem>
+						))}
+					</TextField>
+				</Stack>
+			</Paper>
 			<Paper sx={{ p: 1 }}>
 				<Table size="small">
 					<TableHead>
@@ -269,8 +331,9 @@ export default function NpcsPage() {
 									</Button>
 									<Button
 										size="small"
+										disabled={targetEncounterId <= 0}
 										onClick={() =>
-											createCharacterFromTemplate(npc.ID)
+											createCharacterFromTemplate(npc)
 										}
 									>
 										Create Character
