@@ -17,10 +17,6 @@ services:
     build: ./backend
     ports:
       - "8080:8080"
-    volumes:
-      - ./backend/static:/app/static
-      - ./backend/templates:/app/templates
-      - ./backend/initiative-tracker-db.session.sql:/app/initiative-tracker-db.session.sql
     environment:
       - PORT=8080
       - DB_HOST=db

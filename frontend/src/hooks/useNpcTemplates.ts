@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { parseJsonResponse } from "../lib/http";
+import { apiGetArray } from "../lib/http";
 
 export interface NpcTemplate {
 	ID: number;
@@ -12,12 +12,7 @@ export function useNpcTemplates() {
 
 	const fetchNpcTemplates = useCallback(async () => {
 		try {
-			const response = await fetch("/api/npcs/templates", {
-				credentials: "include",
-			});
-			if (!response.ok) throw new Error("Failed to fetch NPC templates");
-			const payload = await parseJsonResponse<unknown>(response);
-			const data: NpcTemplate[] = Array.isArray(payload) ? payload : [];
+			const data = await apiGetArray<NpcTemplate>("/npcs/templates");
 			setNpcTemplates(data);
 			if (data.length > 0) {
 				setSelectedAddNpcId(data[0].ID);

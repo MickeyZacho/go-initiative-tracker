@@ -13,10 +13,12 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
+// mock is the shared sqlmock bound to the package-level db. It is only consumed
+// by initializeApp during TestMain; individual handler tests that return before
+// touching the database do not interact with it.
 var mock sqlmock.Sqlmock
 
 func TestMain(m *testing.M) {
-	// Create a mock database
 	var err error
 	db, mock, err = sqlmock.New()
 	if err != nil {
@@ -24,169 +26,173 @@ func TestMain(m *testing.M) {
 	}
 	defer db.Close()
 
-	// Mock the query executed in loadCharactersFromDB
-	mock.ExpectQuery("SELECT id, name, armor_class, max_hp, current_hp, initiative FROM characters").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "armor_class", "max_hp", "current_hp", "initiative"}).
-			AddRow(1, "Test Character", 15, 100, 90, 10))
+	// initializeApp loads encounters then characters. With no request (and so no
+	// Discord cookie) it calls GetAllEncounters followed by GetAllCharacters.
+	// Both queries begin with "SELECT id, name"; returning empty result sets
+	// keeps selectedEncounterID at 0 and avoids cross-test state.
+	mock.ExpectQuery("SELECT id, name").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "owner_id", "description"}))
+	mock.ExpectQuery("SELECT id, name").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "armor_class", "to_hit_modifier", "max_hp",
+			"current_hp", "initiative", "is_active", "owner_id", "type", "npc_template_id",
+		}))
 
-	// Initialize the app with the mock database
 	initializeApp(db)
 
-	// Run tests
 	os.Exit(m.Run())
 }
 
-func TestIndexHandler(t *testing.T) {
-	req, err := http.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func TestIndexHandlerRedirects(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(indexHandler)
 
-	handler.ServeHTTP(rr, req)
+	indexHandler(rr, req)
 
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
-	}
-
-	expected := "Initiative Tracker" // Check for a string in the response
-	if !bytes.Contains(rr.Body.Bytes(), []byte(expected)) {
-		t.Errorf("handler returned unexpected body: got %v want %v", rr.Body.String(), expected)
+	if rr.Code != http.StatusSeeOther {
+		t.Errorf("indexHandler status = %d, want %d", rr.Code, http.StatusSeeOther)
 	}
 }
 
-func TestSaveCharacterHandler(t *testing.T) {
-	character := map[string]interface{}{
-		"id":         1,
-		"name":       "Test Character",
-		"armorClass": 15,
-		"maxHP":      100,
-		"currentHP":  90,
-		"initiative": 10,
-	}
-	body, _ := json.Marshal(character)
+func TestApiMeHandlerLoggedOut(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	rr := httptest.NewRecorder()
 
-	mock.ExpectExec("UPDATE characters SET name = \\$1, armor_class = \\$2, max_hp = \\$3, current_hp = \\$4, initiative = \\$5 WHERE id = \\$6").
-		WithArgs("Test Character", 15, 100, 90, 10, 1).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	apiMeHandler(rr, req)
 
-	req, err := http.NewRequest("POST", "/save-character", bytes.NewBuffer(body))
-	if err != nil {
-		t.Fatal(err)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("apiMeHandler status = %d, want %d", rr.Code, http.StatusOK)
 	}
+	var body struct {
+		LoggedIn bool `json:"loggedIn"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body.LoggedIn {
+		t.Errorf("expected loggedIn=false when no cookies are present")
+	}
+}
+
+func TestApiMeHandlerWrongMethod(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/me", nil)
+	rr := httptest.NewRecorder()
+
+	apiMeHandler(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("apiMeHandler status = %d, want %d", rr.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestSaveCharacterHandlerInvalidJSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/save-character", bytes.NewBufferString("not json"))
 	req.Header.Set("Content-Type", "application/json")
-
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(saveCharacterHandler)
 
-	handler.ServeHTTP(rr, req)
+	saveCharacterHandler(rr, req)
 
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("saveCharacterHandler status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 
-func TestSaveCharacterHandler_InvalidInput(t *testing.T) {
-	req, err := http.NewRequest("POST", "/save-character", bytes.NewBuffer([]byte("invalid json")))
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestSaveCharacterHandlerRejectsInvalidMaxHP(t *testing.T) {
+	body, _ := json.Marshal(map[string]any{"name": "No HP", "maxHP": 0})
+	req := httptest.NewRequest(http.MethodPost, "/save-character", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
-
-	mock.ExpectExec("UPDATE characters SET name = \\$1, armor_class = \\$2, max_hp = \\$3, current_hp = \\$4, initiative = \\$5 WHERE id = \\$6").
-		WithArgs("Test Character", 15, 100, 90, 10, 1).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(saveCharacterHandler)
 
-	handler.ServeHTTP(rr, req)
+	saveCharacterHandler(rr, req)
 
-	if status := rr.Code; status != http.StatusBadRequest {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("saveCharacterHandler status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 
-func TestSelectCharacterHandler(t *testing.T) {
-	selectRequest := map[string]int{"id": 1}
-	body, _ := json.Marshal(selectRequest)
-
-	req, err := http.NewRequest("POST", "/select-character", bytes.NewBuffer(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestApiSaveEncounterHandlerRequiresName(t *testing.T) {
+	body, _ := json.Marshal(map[string]any{"Name": "   "})
+	req := httptest.NewRequest(http.MethodPost, "/encounters/save", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
-
-	mock.ExpectExec("UPDATE characters SET is_active = \\$1 WHERE id = \\$2").
-		WithArgs(true, 1).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(selectCharacterHandler)
 
-	handler.ServeHTTP(rr, req)
+	apiSaveEncounterHandler(rr, req)
 
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("apiSaveEncounterHandler status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 
-func TestSortCharactersHandler(t *testing.T) {
-	req, err := http.NewRequest("POST", "/sort", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func TestApiAddEncounterLedgerHandlerRequiresActor(t *testing.T) {
+	body, _ := json.Marshal(map[string]any{"encounter_id": 1, "actor_id": 0})
+	req := httptest.NewRequest(http.MethodPost, "/encounters/ledger/add", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(sortCharactersHandler)
 
-	handler.ServeHTTP(rr, req)
+	apiAddEncounterLedgerHandler(rr, req)
 
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("apiAddEncounterLedgerHandler status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestApiStartCombatHandlerWrongMethod(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/encounters/combat/start", nil)
+	rr := httptest.NewRecorder()
+
+	apiStartCombatHandler(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("apiStartCombatHandler status = %d, want %d", rr.Code, http.StatusMethodNotAllowed)
 	}
 }
 
 func TestGetAllCharacters(t *testing.T) {
-	db, mock, err := sqlmock.New()
+	mockDB, mockConn, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("failed to open mock database: %v", err)
 	}
-	defer db.Close()
+	defer mockDB.Close()
 
-	rows := sqlmock.NewRows([]string{"id", "name", "armor_class", "max_hp", "current_hp", "initiative"}).
-		AddRow(1, "Test Character", 15, 100, 90, 10)
-	mock.ExpectQuery("SELECT id, name, armor_class, max_hp, current_hp, initiative FROM characters").
-		WillReturnRows(rows)
+	rows := sqlmock.NewRows([]string{
+		"id", "name", "armor_class", "to_hit_modifier", "max_hp",
+		"current_hp", "initiative", "is_active", "owner_id", "type", "npc_template_id",
+	}).AddRow(1, "Test Character", 15, 2, 100, 100, 0, false, "owner1", "pc", nil)
+	mockConn.ExpectQuery("SELECT id, name").WillReturnRows(rows)
 
-	dao := dao.NewCharacterDAO(db)
-	characters, err := dao.GetAllCharacters()
+	characterDAO := dao.NewCharacterDAO(mockDB)
+	characters, err := characterDAO.GetAllCharacters()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if len(characters) != 1 || characters[0].Name != "Test Character" {
 		t.Errorf("unexpected result: %+v", characters)
 	}
+	if err := mockConn.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
 }
 
-func TestToLower(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"Hello", "hello"},
-		{"WORLD", "world"},
-		{"GoLang", "golang"},
-		{"123abcDEF", "123abcdef"},
-		{"", ""},
+func TestGetAllEncounters(t *testing.T) {
+	mockDB, mockConn, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
 	}
-	for _, test := range tests {
-		result := toLower(test.input)
-		if result != test.expected {
-			t.Errorf("toLower(%q) = %q, want %q", test.input, result, test.expected)
-		}
+	defer mockDB.Close()
+
+	rows := sqlmock.NewRows([]string{"id", "name", "owner_id", "description"}).
+		AddRow(1, "Goblin Ambush", "dm1", "A group of goblins attack the party.")
+	mockConn.ExpectQuery("SELECT id, name").WillReturnRows(rows)
+
+	encounterDAO := dao.NewEncounterDAO(mockDB)
+	encounters, err := encounterDAO.GetAllEncounters()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(encounters) != 1 || encounters[0].Name != "Goblin Ambush" {
+		t.Errorf("unexpected result: %+v", encounters)
+	}
+	if err := mockConn.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }

@@ -1,22 +1,20 @@
 package main
 
 import (
-	"cmp"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"go-initiative-tracker/dao"
-	"html/template"
 	"log"
 	"net/http"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq" // Import the PostgreSQL driver
 	"golang.org/x/oauth2"
 )
@@ -30,7 +28,6 @@ var characters []dao.Character
 var encounterDAO dao.EncounterDAO
 var encounters []dao.Encounter
 var selectedEncounterID int
-var templates *template.Template
 var frontendURL string
 var allowedOrigins map[string]bool
 
@@ -152,8 +149,12 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	// Load environment variables
-	// _ = godotenv.Load() // Only load .env if present; ignore error if missing
+	// Load variables from a local .env file if present. Existing environment
+	// variables (e.g. those set by docker-compose) take precedence, so this is
+	// purely a convenience for local development.
+	if err := godotenv.Load(); err != nil {
+		log.Printf("No .env file loaded (%v); relying on environment variables", err)
+	}
 
 	dbHost := os.Getenv("DB_HOST")
 	dbPort := os.Getenv("DB_PORT")
@@ -232,8 +233,13 @@ func main() {
 	http.HandleFunc("/auth/discord/callback", discordCallbackHandler)
 	http.HandleFunc("/logout", logoutHandler)
 
-	log.Println("Server starting on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := ":" + port
+	log.Printf("Server starting on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
 func getDiscordIDFromRequest(r *http.Request) string {
@@ -246,71 +252,6 @@ func getDiscordIDFromRequest(r *http.Request) string {
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, frontendURL, http.StatusSeeOther)
-}
-
-func encounterListHandler(w http.ResponseWriter, r *http.Request) {
-	discordID := getDiscordIDFromRequest(r)
-	log.Printf("Discord ID from request: %s", discordID)
-	userEncounters := []dao.Encounter{}
-	if discordID != "" {
-		userEncounters, _ = encounterDAO.GetEncountersByOwnerDiscordID(discordID)
-	}
-	type EncounterView struct {
-		ID         int
-		Name       string
-		IsSelected bool
-	}
-	var viewData []EncounterView
-	for _, e := range userEncounters {
-		viewData = append(viewData, EncounterView{
-			ID:         e.ID,
-			Name:       e.Name,
-			IsSelected: e.ID == selectedEncounterID,
-		})
-	}
-	templates.ExecuteTemplate(w, "encounter-list.html", viewData)
-}
-
-func characterListHandler(w http.ResponseWriter, r *http.Request) {
-	discordID := getDiscordIDFromRequest(r)
-	var userCharacters []dao.Character
-	if discordID != "" {
-		if selectedEncounterID > 0 {
-			userCharacters, _ = characterDAO.GetCharactersByEncounterIDAndOwner(selectedEncounterID, discordID)
-		} else {
-			userCharacters, _ = characterDAO.GetAllCharactersByOwner(discordID)
-		}
-	}
-	type EditCharacterView struct {
-		ID         int
-		Name       string
-		ArmorClass int
-		MaxHP      int
-		Initiative int
-		IsActive   bool
-		OwnerID    string
-		EditMode   bool
-	}
-	var tmplData []EditCharacterView
-	for _, c := range userCharacters {
-		tmplData = append(tmplData, EditCharacterView{
-			ID:         c.ID,
-			Name:       c.Name,
-			ArmorClass: c.ArmorClass,
-			MaxHP:      c.MaxHP,
-			Initiative: c.Initiative,
-			IsActive:   c.IsActive,
-			OwnerID:    c.OwnerID,
-			EditMode:   false,
-		})
-	}
-	characterJSON, _ := json.Marshal(characters) // characters is your slice
-	data := struct {
-		CharacterJSON string
-	}{
-		CharacterJSON: string(characterJSON),
-	}
-	templates.ExecuteTemplate(w, "character-list.html", data)
 }
 
 func apiEncountersHandler(w http.ResponseWriter, r *http.Request) {
@@ -742,131 +683,6 @@ func apiAddEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "entry": entry})
 }
 
-func nextCharacterHandler(w http.ResponseWriter, r *http.Request) {
-	// Find the currently active character
-	selectedCharacter := -1
-	for i := range characters {
-		if characters[i].IsActive {
-			selectedCharacter = i
-			break
-		}
-	}
-	// If no character is currently active, select the first character
-	if selectedCharacter == -1 {
-		characters[0].IsActive = true
-		selectedCharacter = 0
-	} else {
-		// Otherwise, find the next character
-		characters[selectedCharacter].IsActive = false
-		selectedCharacter++
-		selectedCharacter %= len(characters)
-		characters[selectedCharacter].IsActive = true
-	}
-
-	characterListHandler(w, r)
-}
-
-func selectCharacterHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var selectRequest struct {
-		ID int `json:"id"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&selectRequest); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	for i := range characters {
-		characters[i].IsActive = characters[i].ID == selectRequest.ID
-	}
-
-	characterListHandler(w, r)
-}
-
-func sortCharactersHandler(w http.ResponseWriter, r *http.Request) {
-	slices.SortFunc(characters, func(a, b dao.Character) int {
-		return cmp.Compare(b.Initiative, a.Initiative)
-	})
-
-	characterListHandler(w, r)
-}
-
-func reorderCharactersHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var reorderRequest struct {
-		OldIndex int `json:"oldIndex"`
-		NewIndex int `json:"newIndex"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&reorderRequest); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if reorderRequest.OldIndex < reorderRequest.NewIndex {
-		low := reorderRequest.OldIndex
-		high := reorderRequest.NewIndex
-		for i := low; i < high; i++ {
-			characters[i], characters[i+1] = characters[i+1], characters[i]
-		}
-	} else {
-		low := reorderRequest.NewIndex
-		high := reorderRequest.OldIndex
-		for i := high; i > low; i-- {
-			characters[i], characters[i-1] = characters[i-1], characters[i]
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
-}
-
-func addCharacterHandler(w http.ResponseWriter, r *http.Request) {
-	// Render a blank character in edit mode, do not persist to DB yet
-	type EditCharacterView struct {
-		ID         int
-		Name       string
-		ArmorClass int
-		MaxHP      int
-		Initiative int
-		IsActive   bool
-		OwnerID    string
-		EditMode   bool
-	}
-	// Copy existing characters
-	var tmplData []EditCharacterView
-	for _, c := range characters {
-		tmplData = append(tmplData, EditCharacterView{
-			ID:         c.ID,
-			Name:       c.Name,
-			ArmorClass: c.ArmorClass,
-			MaxHP:      c.MaxHP,
-			Initiative: c.Initiative,
-			IsActive:   c.IsActive,
-			OwnerID:    c.OwnerID,
-			EditMode:   false,
-		})
-	}
-	discordId := getDiscordIDFromRequest(r)
-	// Add the new character in edit mode
-	newChar := EditCharacterView{
-		ID:       -1, // 0 or -1 to indicate new/unsaved
-		OwnerID:  discordId,
-		EditMode: true,
-	}
-	tmplData = append(tmplData, newChar)
-	templates.ExecuteTemplate(w, "character-list.html", tmplData)
-}
-
 func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Saving character...")
 	if r.Method != http.MethodPost {
@@ -943,85 +759,6 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		"status":    "success",
 		"character": char,
 	})
-}
-
-func selectEncounterHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
-		return
-	}
-	var selectRequest struct {
-		ID int `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&selectRequest); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
-		return
-	}
-	if selectRequest.ID <= 0 {
-		http.Error(w, "Invalid encounter id", http.StatusBadRequest)
-		return
-	}
-	selectedEncounterID = selectRequest.ID
-	loadCharactersFromDB(r)
-	characterListHandler(w, r) // This will now render the full character list
-}
-
-// Add this handler to search for characters not in the current encounter
-func searchCharactersHandler(w http.ResponseWriter, r *http.Request) {
-	search := r.URL.Query().Get("q")
-	allChars, err := characterDAO.GetAllCharacters()
-	if err != nil {
-		http.Error(w, "Failed to fetch characters", http.StatusInternalServerError)
-		return
-	}
-	// Get IDs of characters already in the encounter
-	encounterChars, err := characterDAO.GetCharactersByEncounterID(selectedEncounterID)
-	if err != nil {
-		http.Error(w, "Failed to fetch encounter characters", http.StatusInternalServerError)
-		return
-	}
-	encounterCharIDs := make(map[int]bool)
-	for _, c := range encounterChars {
-		encounterCharIDs[c.ID] = true
-	}
-	// Filter out characters already in the encounter and by fuzzy, case-insensitive search
-	var filtered []dao.Character
-	for _, c := range allChars {
-		if !encounterCharIDs[c.ID] && fuzzyMatchFold(c.Name, search) {
-			filtered = append(filtered, c)
-			if len(filtered) >= 10 {
-				break
-			}
-		}
-	}
-	// Render as a simple HTML list with Add buttons
-	w.Header().Set("Content-Type", "text/html")
-	for _, c := range filtered {
-		fmt.Fprintf(w, `<div>%s <button onclick="addCharacterToEncounter(%d)">Add</button></div>`, template.HTMLEscapeString(c.Name), c.ID)
-	}
-}
-
-// Fuzzy, case-insensitive substring match (all chars of substr in order in s)
-func fuzzyMatchFold(s, substr string) bool {
-	s, substr = escapeAndLower(s), escapeAndLower(substr)
-	if substr == "" {
-		return true
-	}
-	si, subi := 0, 0
-	for si < len(s) && subi < len(substr) {
-		if s[si] == substr[subi] {
-			subi++
-		}
-		si++
-	}
-	return subi == len(substr)
-}
-
-func escape(s string) string {
-	return string([]rune(template.HTMLEscapeString(s)))
-}
-func escapeAndLower(s string) string {
-	return strings.ToLower(escape(s))
 }
 
 func generateState() string {

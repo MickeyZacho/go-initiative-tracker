@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { parseJsonResponse } from "../lib/http";
+import { apiGetArray } from "../lib/http";
 
 export interface Encounter {
 	ID: number;
@@ -20,14 +20,7 @@ export function useEncounters(initialEncounterId?: number | null) {
 			setIsLoading(true);
 			setError("");
 			try {
-				const response = await fetch("/api/encounters", {
-					credentials: "include",
-				});
-				if (!response.ok) {
-					throw new Error("Failed to fetch encounters");
-				}
-				const payload = await parseJsonResponse<unknown>(response);
-				const data: Encounter[] = Array.isArray(payload) ? payload : [];
+				const data = await apiGetArray<Encounter>("/encounters");
 				setEncounters(data);
 				if (data.length > 0) {
 					const preferredEncounterId =

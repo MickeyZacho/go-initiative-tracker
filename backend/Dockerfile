@@ -11,8 +11,5 @@ RUN go build -o server ./main.go
 FROM alpine:latest
 WORKDIR /app
 COPY --from=builder /app/server ./server
-COPY --from=builder /app/static ./static
-# COPY --from=builder /app/templates ./templates
-COPY --from=builder /app/initiative-tracker-db.session.sql ./initiative-tracker-db.session.sql
 EXPOSE 8080
 CMD ["./server"]

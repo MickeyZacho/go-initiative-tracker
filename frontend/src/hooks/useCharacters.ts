@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { parseJsonResponse } from "../lib/http";
+import { apiGetArray } from "../lib/http";
 import type { Character } from "../components/CharacterList";
 
 export function useCharacters() {
@@ -11,21 +11,17 @@ export function useCharacters() {
 		setIsLoading(true);
 		setError("");
 		try {
+			// Tell the backend which encounter is selected (fire-and-forget),
+			// then load that encounter's characters.
 			await fetch("/api/select-encounter", {
 				method: "POST",
 				credentials: "include",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ id: encId }),
 			});
-			const response = await fetch(
-				`/api/characters?encounter_id=${encId}`,
-				{ credentials: "include" },
+			const data = await apiGetArray<Character>(
+				`/characters?encounter_id=${encId}`,
 			);
-			if (!response.ok) {
-				throw new Error("Failed to fetch characters");
-			}
-			const payload = await parseJsonResponse<unknown>(response);
-			const data: Character[] = Array.isArray(payload) ? payload : [];
 			setCharacters(data);
 		} catch (err) {
 			setError(

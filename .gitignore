@@ -3,7 +3,7 @@
 *.log
 node_modules/
 backend/tmp/
-front/tracker/node_modules/
+frontend/dist/
 dndcharacters
 *.session.sql
 .claude/*

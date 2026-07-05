@@ -21,6 +21,7 @@ import { useEncounters } from "../hooks/useEncounters";
 import { useCharacters } from "../hooks/useCharacters";
 import { useNpcTemplates } from "../hooks/useNpcTemplates";
 import { useCombatLog } from "../hooks/useCombatLog";
+import { apiGetArray, apiPost } from "../lib/http";
 
 export interface Character {
 	ID: number;
@@ -100,14 +101,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	// Fetch library characters and initialize on mount
 	const fetchLibraryCharacters = useCallback(async () => {
 		try {
-			const response = await fetch("/api/characters/library", {
-				credentials: "include",
-			});
-			if (!response.ok) {
-				throw new Error("Failed to fetch character library");
-			}
-			const payload = await response.json();
-			const data: Character[] = Array.isArray(payload) ? payload : [];
+			const data = await apiGetArray<Character>("/characters/library");
 			setLibraryCharacters(data);
 			if (data.length > 0) {
 				setSelectedAddCharacterId(data[0].ID);
@@ -135,24 +129,14 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		}
 		setActionError("");
 		try {
-			const response = await fetch(
-				"/api/npcs/templates/create-character",
+			await apiPost(
+				"/npcs/templates/create-character",
 				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						encounter_id: encounterId,
-						npc_template_id: selectedAddNpcId,
-					}),
+					encounter_id: encounterId,
+					npc_template_id: selectedAddNpcId,
 				},
+				"Failed to add NPC to encounter",
 			);
-			const data = await response.json();
-			if (!response.ok || data.status !== "success") {
-				throw new Error(
-					data.message || "Failed to add NPC to encounter",
-				);
-			}
 			await fetchCharacters(encounterId);
 		} catch (err) {
 			setActionError(
@@ -216,25 +200,18 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			hpChange: number,
 			description: string,
 		) => {
-			const response = await fetch("/api/encounters/ledger/add", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
+			await apiPost(
+				"/encounters/ledger/add",
+				{
 					encounter_id: encounterId,
 					actor_id: actorID,
 					target_id: targetID,
 					action_type: actionType,
 					hp_change: hpChange,
 					description,
-				}),
-			});
-			const payload = await response.json();
-			if (!response.ok || payload.status !== "success") {
-				throw new Error(
-					payload.message || "Failed to add combat log entry",
-				);
-			}
+				},
+				"Failed to add combat log entry",
+			);
 		},
 		[encounterId],
 	);
@@ -255,6 +232,29 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			}));
 		},
 		[],
+	);
+
+	const saveCharacter = useCallback(
+		async (character: Character) => {
+			const idToSend = character.ID > 2147483647 ? 0 : character.ID;
+			await apiPost(
+				"/save-character",
+				{
+					id: idToSend,
+					name: character.Name,
+					armorClass: Number(character.ArmorClass),
+					maxHP: Number(character.MaxHP),
+					currentHP: Number(character.CurrentHP),
+					initiative: Number(character.Initiative),
+					toHitModifier: Number(character.ToHitModifier ?? 0),
+					isActive: Boolean(character.IsActive),
+					type: character.Type,
+				},
+				"Failed to save character",
+			);
+			await fetchCharacters(encounterId);
+		},
+		[encounterId, fetchCharacters],
 	);
 
 	const applyQuickAction = useCallback(
@@ -308,6 +308,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			fetchCharacters,
 			fetchLedger,
 			quickActionByActor,
+			saveCharacter,
 		],
 	);
 
@@ -326,44 +327,15 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[applyQuickAction],
 	);
 
-	const saveCharacter = async (character: Character) => {
-		const idToSend = character.ID > 2147483647 ? 0 : character.ID;
-		const response = await fetch("/api/save-character", {
-			method: "POST",
-			credentials: "include",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				id: idToSend,
-				name: character.Name,
-				armorClass: Number(character.ArmorClass),
-				maxHP: Number(character.MaxHP),
-				currentHP: Number(character.CurrentHP),
-				initiative: Number(character.Initiative),
-				toHitModifier: Number(character.ToHitModifier ?? 0),
-				isActive: Boolean(character.IsActive),
-				type: character.Type,
-			}),
-		});
-		if (!response.ok) {
-			throw new Error("Failed to save character");
-		}
-		await fetchCharacters(encounterId);
-	};
-
 	const removeCharacter = async (characterID: number) => {
-		const response = await fetch("/api/remove-character-from-encounter", {
-			method: "POST",
-			credentials: "include",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
+		await apiPost(
+			"/remove-character-from-encounter",
+			{
 				encounter_id: encounterId,
 				character_id: characterID,
-			}),
-		});
-		const data = await response.json();
-		if (!response.ok || data.status !== "success") {
-			throw new Error(data.message || "Failed to remove character");
-		}
+			},
+			"Failed to remove character",
+		);
 		await fetchCharacters(encounterId);
 	};
 
@@ -372,21 +344,14 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			return;
 		}
 		try {
-			const response = await fetch("/api/add-character-to-encounter", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
+			await apiPost(
+				"/add-character-to-encounter",
+				{
 					encounter_id: encounterId,
 					character_id: selectedAddCharacterId,
-				}),
-			});
-			const data = await response.json();
-			if (!response.ok || data.status !== "success") {
-				throw new Error(
-					data.message || "Failed to add character to encounter",
-				);
-			}
+				},
+				"Failed to add character to encounter",
+			);
 			await fetchCharacters(encounterId);
 		} catch (err) {
 			setActionError(
@@ -399,16 +364,11 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		if (!encounterId || characters.length === 0) return;
 		setActionError("");
 		try {
-			const response = await fetch("/api/encounters/combat/next-turn", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ encounter_id: encounterId }),
-			});
-			const data = await response.json();
-			if (!response.ok || data.status !== "success") {
-				throw new Error(data.message || "Failed to advance turn");
-			}
+			await apiPost(
+				"/encounters/combat/next-turn",
+				{ encounter_id: encounterId },
+				"Failed to advance turn",
+			);
 			await fetchCharacters(encounterId);
 		} catch (err) {
 			setActionError(

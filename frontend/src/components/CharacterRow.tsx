@@ -389,6 +389,8 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 			{/* Delete */}
 			<button
 				type="button"
+				aria-label={`Remove ${character.Name || "character"}`}
+				title="Remove from encounter"
 				onClick={(e) => { e.stopPropagation(); onRemove(); }}
 				onMouseEnter={() => setDeleteHovered(true)}
 				onMouseLeave={() => setDeleteHovered(false)}
@@ -409,7 +411,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					flexShrink: 0,
 				}}
 			>
-				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+				<svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
 					<polyline points="3 6 5 6 21 6" />
 					<path d="M19 6l-1 14H6L5 6" />
 					<path d="M10 11v6" />

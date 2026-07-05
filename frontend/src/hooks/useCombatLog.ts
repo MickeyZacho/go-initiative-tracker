@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { parseJsonResponse } from "../lib/http";
+import { apiGet } from "../lib/http";
 
 // Locally define LedgerEntry interface for combat log entries
 export interface LedgerEntry {
@@ -24,16 +24,12 @@ export function useCombatLog() {
 			return;
 		}
 		try {
-			const response = await fetch(
-				`/api/encounters/ledger?encounter_id=${encId}`,
-				{ credentials: "include" },
-			);
-			const payload = await parseJsonResponse<{
+			const payload = await apiGet<{
 				status?: string;
 				entries?: LedgerEntry[];
 				message?: string;
-			}>(response);
-			if (!response.ok || payload.status !== "success") {
+			}>(`/encounters/ledger?encounter_id=${encId}`);
+			if (payload.status !== "success") {
 				throw new Error(payload.message || "Failed to load combat log");
 			}
 			setLedgerEntries(
