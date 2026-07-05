@@ -6,7 +6,8 @@ services:
     environment:
       POSTGRES_DB: initiative_db
       POSTGRES_USER: initiative_user
-      POSTGRES_PASSWORD: initiative_pass
+      # Required — set in a .env file next to this compose file (or the shell).
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD to a strong value}
     ports:
       - "5432:5432"
     volumes:
@@ -15,6 +16,7 @@ services:
 
   backend:
     build: ./backend
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
@@ -22,13 +24,25 @@ services:
       - DB_HOST=db
       - DB_PORT=5432
       - DB_USER=initiative_user
-      - DB_PASSWORD=initiative_pass
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD to a strong value}
       - DB_NAME=initiative_db
+      # Required in production: a long, stable random value (e.g. `openssl rand
+      # -hex 32`). Without it the app mints an ephemeral secret and logs every
+      # user out on each restart.
+      - SESSION_SECRET=${SESSION_SECRET:?set SESSION_SECRET to a long random value}
+      # HTTPS deployment: mark auth cookies Secure.
+      - SECURE_COOKIES=true
+      # Public URL of the frontend; used for redirects and CORS.
+      - FRONTEND_URL=${FRONTEND_URL:?set FRONTEND_URL to the public frontend URL}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
+      - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:-}
+      - DISCORD_REDIRECT_URL=${DISCORD_REDIRECT_URL:-}
     depends_on:
       - db
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     ports:
       - "3000:80"
     depends_on:
