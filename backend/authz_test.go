@@ -1,0 +1,173 @@
+package main
+
+import (
+	"database/sql"
+	"go-initiative-tracker/dao"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+)
+
+// newEncounterMock swaps encounterDAO (and encounterCharacterDAO) for DAOs backed
+// by a fresh sqlmock connection, returning the mock and a restore func. Both DAOs
+// share the connection so ordered expectations across an ownership check and a
+// follow-on combat mutation line up.
+func newEncounterMock(t *testing.T) (sqlmock.Sqlmock, func()) {
+	t.Helper()
+	mockDB, m, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	prevEnc, prevEC := encounterDAO, encounterCharacterDAO
+	encounterDAO = dao.NewEncounterDAO(mockDB)
+	encounterCharacterDAO = dao.NewEncounterCharacterDAO(mockDB)
+	return m, func() {
+		encounterDAO, encounterCharacterDAO = prevEnc, prevEC
+		mockDB.Close()
+	}
+}
+
+func encounterRow(id int, owner string) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "name", "owner_id", "description"}).
+		AddRow(id, "Test Encounter", owner, "")
+}
+
+func postJSON(path, body string) (*httptest.ResponseRecorder, *http.Request) {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return httptest.NewRecorder(), req
+}
+
+func TestStartCombatRejectsNonOwner(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+
+	// Encounter is owned by "dm1"; the caller sends no cookie (logged out).
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+
+	rr, req := postJSON("/encounters/combat/start", `{"encounter_id":1}`)
+	apiStartCombatHandler(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	if err := m.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestStartCombatMissingEncounterIs404(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(99).
+		WillReturnError(sql.ErrNoRows)
+
+	rr, req := postJSON("/encounters/combat/start", `{"encounter_id":99}`)
+	apiStartCombatHandler(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestStartCombatAllowsOwner(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+
+	// Ownership check passes (owner matches the signed cookie), then the combat
+	// transaction runs to completion.
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectBegin()
+	m.ExpectQuery("SELECT character_id FROM encounter_characters").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"character_id"}).AddRow(7))
+	m.ExpectExec("UPDATE encounter_characters SET is_active = FALSE").WithArgs(1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectExec("UPDATE encounter_characters SET is_active = TRUE").WithArgs(1, 7).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectCommit()
+
+	rr, req := postJSON("/encounters/combat/start", `{"encounter_id":1}`)
+	req.AddCookie(&http.Cookie{Name: "discord_id", Value: signValue("dm1")})
+	apiStartCombatHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if err := m.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestAddCharacterToEncounterRejectsNonOwner(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+
+	rr, req := postJSON("/add-character-to-encounter", `{"encounter_id":1,"character_id":5}`)
+	addCharacterToEncounterHandler(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	if err := m.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestSaveCharacterUpdateRejectsNonOwner(t *testing.T) {
+	mockDB, m, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer mockDB.Close()
+	prev := characterDAO
+	characterDAO = dao.NewCharacterDAO(mockDB)
+	defer func() { characterDAO = prev }()
+
+	// Updating a character the caller does not own affects zero rows -> 403.
+	m.ExpectExec("UPDATE characters SET").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	rr, req := postJSON("/save-character", `{"id":5,"name":"Rogue","maxHP":10}`)
+	saveCharacterHandler(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	if err := m.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestDeleteNpcTemplateRejectsNonOwner(t *testing.T) {
+	mockDB, m, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer mockDB.Close()
+	prev := npcTemplateDAO
+	npcTemplateDAO = dao.NewNpcTemplateDAO(mockDB)
+	defer func() { npcTemplateDAO = prev }()
+
+	// Deleting a template owned by someone else matches no rows -> 403.
+	m.ExpectExec("DELETE FROM npc_templates").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	rr, req := postJSON("/npcs/templates/delete", `{"id":1}`)
+	apiDeleteNpcTemplateHandler(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	if err := m.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
