@@ -186,7 +186,6 @@ func main() {
 
 func getDiscordIDFromRequest(r *http.Request) string {
 	if cookie, err := r.Cookie("discord_id"); err == nil {
-		log.Printf("Found discord_id cookie: %s", cookie.Value)
 		return cookie.Value
 	}
 	return ""
