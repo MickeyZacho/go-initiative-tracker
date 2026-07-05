@@ -83,6 +83,17 @@ mutation endpoints return. Uses the React Compiler (babel plugin) — avoid manu
 `encounter_users`). Postgres containers auto-load it via
 `/docker-entrypoint-initdb.d`; for manual setup, `psql -f start.sql`.
 
+**Migrations.** `start.sql` is the baseline that seeds a *fresh* database only
+(initdb runs it just once, on an empty data dir). Every schema change *after* the
+baseline is an additive, versioned migration under `backend/migrations/*.sql`
+(goose format: `NNNNN_name.sql` with `-- +goose Up`/`Down` sections). These are
+embedded into the binary (`migrations.go`) and applied automatically at startup
+by `runMigrations` after the DB is reachable, so fresh and long-lived databases
+converge instead of drifting. **Do not hand-patch a running DB's schema** — add a
+migration. Write them defensively (`ADD COLUMN IF NOT EXISTS`) so they no-op on
+databases that already have the change. goose tracks applied versions in
+`goose_db_version`.
+
 ## Testing
 
 Backend tests use `httptest` for handlers and **go-sqlmock** for the DAO layer (no

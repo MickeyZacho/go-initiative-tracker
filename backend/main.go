@@ -146,6 +146,11 @@ func main() {
 	if err := waitForDB(db, 15, 2*time.Second); err != nil {
 		log.Fatalf("Database not reachable: %v", err)
 	}
+	// Apply any pending schema migrations before serving, so the running schema
+	// always matches what the code expects.
+	if err := runMigrations(db); err != nil {
+		log.Fatalf("Failed to apply migrations: %v", err)
+	}
 
 	discordOAuthConfig = &oauth2.Config{
 		ClientID:     os.Getenv("DISCORD_CLIENT_ID"),
