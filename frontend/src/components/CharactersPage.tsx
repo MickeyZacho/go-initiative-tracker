@@ -13,7 +13,7 @@ import {
 	TextField,
 	Typography,
 } from "@mui/material";
-import { parseJsonResponse } from "../lib/http";
+import { apiGetArray, apiPost } from "../lib/http";
 
 interface Character {
 	ID: number;
@@ -47,14 +47,7 @@ export default function CharactersPage() {
 		setLoading(true);
 		setError("");
 		try {
-			const response = await fetch("/api/characters/library", {
-				credentials: "include",
-			});
-			if (!response.ok) {
-				throw new Error("Failed to load characters");
-			}
-			const payload = await parseJsonResponse<unknown>(response);
-			setCharacters(Array.isArray(payload) ? payload : []);
+			setCharacters(await apiGetArray<Character>("/characters/library"));
 		} catch (err) {
 			setError(
 				err instanceof Error
@@ -84,16 +77,11 @@ export default function CharactersPage() {
 			return false;
 		}
 		try {
-			const response = await fetch("/api/characters/library/save", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(character),
-			});
-			if (!response.ok) {
-				const message = await response.text();
-				throw new Error(message || "Failed to save character");
-			}
+			await apiPost(
+				"/characters/library/save",
+				character,
+				"Failed to save character",
+			);
 			return true;
 		} catch (err) {
 			setError(
@@ -142,16 +130,11 @@ export default function CharactersPage() {
 			return;
 		}
 		try {
-			const response = await fetch("/api/characters/library/delete", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ id }),
-			});
-			if (!response.ok) {
-				const message = await response.text();
-				throw new Error(message || "Failed to delete character");
-			}
+			await apiPost(
+				"/characters/library/delete",
+				{ id },
+				"Failed to delete character",
+			);
 			await loadCharacters();
 		} catch (err) {
 			setError(

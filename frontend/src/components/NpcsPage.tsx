@@ -12,7 +12,7 @@ import {
 	TextField,
 	Typography,
 } from "@mui/material";
-import { parseJsonResponse } from "../lib/http";
+import { apiGetArray, apiPost } from "../lib/http";
 
 interface StatBlock {
 	Strength: number;
@@ -58,14 +58,7 @@ export default function NpcsPage() {
 	const loadNpcs = useCallback(async () => {
 		setError("");
 		try {
-			const response = await fetch("/api/npcs/templates", {
-				credentials: "include",
-			});
-			if (!response.ok) {
-				throw new Error("Failed to load npc templates");
-			}
-			const payload = await parseJsonResponse<unknown>(response);
-			setNpcs(Array.isArray(payload) ? payload : []);
+			setNpcs(await apiGetArray<NpcTemplate>("/npcs/templates"));
 		} catch (err) {
 			setError(
 				err instanceof Error ? err.message : "Failed to load npcs",
@@ -84,36 +77,17 @@ export default function NpcsPage() {
 			setError("NPC name is required");
 			return;
 		}
-		const response = await fetch("/api/npcs/templates/save", {
-			method: "POST",
-			credentials: "include",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(npc),
-		});
-		if (!response.ok) {
-			const message = await response.text();
-			throw new Error(message || "Failed to save npc template");
-		}
+		await apiPost("/npcs/templates/save", npc, "Failed to save npc template");
 	};
 
 	const createCharacterFromTemplate = async (templateId: number) => {
 		setError("");
 		try {
-			const response = await fetch(
-				"/api/npcs/templates/create-character",
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ template_id: templateId }),
-				},
+			await apiPost(
+				"/npcs/templates/create-character",
+				{ template_id: templateId },
+				"Failed to create character from template",
 			);
-			if (!response.ok) {
-				const message = await response.text();
-				throw new Error(
-					message || "Failed to create character from template",
-				);
-			}
 			// Optionally, handle the created character here
 		} catch (err) {
 			setError(
@@ -152,16 +126,11 @@ export default function NpcsPage() {
 			return;
 		}
 		try {
-			const response = await fetch("/api/npcs/templates/delete", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ id }),
-			});
-			if (!response.ok) {
-				const message = await response.text();
-				throw new Error(message || "Failed to delete npc template");
-			}
+			await apiPost(
+				"/npcs/templates/delete",
+				{ id },
+				"Failed to delete npc template",
+			);
 			await loadNpcs();
 		} catch (err) {
 			setError(

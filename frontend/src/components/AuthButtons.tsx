@@ -1,5 +1,5 @@
 import React from "react";
-import { parseJsonResponse } from "../lib/http";
+import { apiGet } from "../lib/http";
 
 const AuthButtons: React.FC = () => {
 	const [username, setUsername] = React.useState<string>("");
@@ -9,12 +9,12 @@ const AuthButtons: React.FC = () => {
 
 	React.useEffect(() => {
 		let mounted = true;
-		fetch("/api/me", { credentials: "include" })
-			.then((response) =>
-				parseJsonResponse<{ loggedIn?: boolean; username?: string; discordID?: string; avatar?: string }>(
-					response,
-				),
-			)
+		apiGet<{
+			loggedIn?: boolean;
+			username?: string;
+			discordID?: string;
+			avatar?: string;
+		}>("/me")
 			.then((data) => {
 				if (!mounted) return;
 				setLoggedIn(Boolean(data.loggedIn));

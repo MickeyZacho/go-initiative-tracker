@@ -12,7 +12,7 @@ import {
 	TextField,
 	Typography,
 } from "@mui/material";
-import { parseJsonResponse } from "../lib/http";
+import { apiGetArray, apiPost } from "../lib/http";
 
 interface Encounter {
 	ID: number;
@@ -38,16 +38,7 @@ export default function EncountersPage({
 		setLoading(true);
 		setError("");
 		try {
-			const response = await fetch("/api/encounters", {
-				credentials: "include",
-			});
-			if (!response.ok) {
-				throw new Error("Failed to load encounters");
-			}
-			const payload = await parseJsonResponse<unknown>(response);
-			setEncounters(
-				Array.isArray(payload) ? (payload as Encounter[]) : [],
-			);
+			setEncounters(await apiGetArray<Encounter>("/encounters"));
 		} catch (err) {
 			setError(
 				err instanceof Error
@@ -71,19 +62,11 @@ export default function EncountersPage({
 			return;
 		}
 		try {
-			const response = await fetch("/api/encounters/save", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					Name: name.trim(),
-					Description: description.trim(),
-				}),
-			});
-			if (!response.ok) {
-				const message = await response.text();
-				throw new Error(message || "Failed to create encounter");
-			}
+			await apiPost(
+				"/encounters/save",
+				{ Name: name.trim(), Description: description.trim() },
+				"Failed to create encounter",
+			);
 			setName("");
 			setDescription("");
 			await loadEncounters();
@@ -101,16 +84,11 @@ export default function EncountersPage({
 			return;
 		}
 		try {
-			const response = await fetch("/api/encounters/delete", {
-				method: "POST",
-				credentials: "include",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ id }),
-			});
-			if (!response.ok) {
-				const message = await response.text();
-				throw new Error(message || "Failed to delete encounter");
-			}
+			await apiPost(
+				"/encounters/delete",
+				{ id },
+				"Failed to delete encounter",
+			);
 			await loadEncounters();
 		} catch (err) {
 			setError(
