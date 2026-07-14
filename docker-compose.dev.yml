@@ -18,7 +18,11 @@ services:
       dockerfile: Dockerfile.dev
     command: air
     ports:
-      - "8080:8080"
+      # Host 8081 (container still 8080) so this doesn't clash with the prod
+      # stack's local smoke-test port (127.0.0.1:8080). The dev frontend talks
+      # to the backend over the internal docker network (backend:8080) via the
+      # Vite proxy, so this host mapping is only for direct API debugging.
+      - "8081:8080"
     volumes:
       - ./backend:/app
     environment:
