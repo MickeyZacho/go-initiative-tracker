@@ -8,6 +8,9 @@
 # Go backend with the /api prefix stripped (the backend registers its routes at
 # the root, e.g. /characters, /login/discord, /auth/discord/callback). All other
 # paths serve the static React frontend.
+#
+# This file is baked into the caddy image at build time (see Dockerfile), so the
+# running prod stack does not depend on it existing on the host.
 :80 {
 	encode gzip
 

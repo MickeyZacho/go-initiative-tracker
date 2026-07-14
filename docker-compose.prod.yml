@@ -72,14 +72,15 @@ services:
       - backend
 
   caddy:
-    image: caddy:2-alpine
+    # Built from ./caddy so the Caddyfile is baked into the image — the running
+    # stack has no host-file dependency on it (survives moving/deleting the
+    # project directory and reboots).
+    build: ./caddy
     restart: unless-stopped
     # Local smoke test only: http://localhost:8080 . Login won't work over plain
     # http (Secure cookies) — the real test is through the tunnel's https URL.
     ports:
       - "127.0.0.1:8080:80"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - backend
       - frontend

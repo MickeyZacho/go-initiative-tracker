@@ -20,7 +20,7 @@ The files that make this work:
 | File | Purpose |
 |------|---------|
 | `docker-compose.prod.yml` | The full stack: db, backend, frontend, caddy, cloudflared |
-| `Caddyfile` | Reverse proxy: serves the frontend, strips `/api` → backend |
+| `caddy/` | Reverse proxy image (Dockerfile + Caddyfile): serves the frontend, strips `/api` → backend |
 | `.env.prod.example` | Template for the secrets/URLs you fill in |
 
 ---

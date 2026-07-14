@@ -37,6 +37,12 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-dev-insecure-session-secret}
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
       - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
+      # Keep the whole OAuth flow on the Vite origin (5173): the dev proxy
+      # strips /api and forwards the callback to the backend, mirroring how prod
+      # routes through caddy. This is independent of the backend's host port and
+      # overrides any stale values in backend/.env.
+      - FRONTEND_URL=http://localhost:5173
+      - DISCORD_REDIRECT_URL=http://localhost:5173/api/auth/discord/callback
     depends_on:
       - db
 
