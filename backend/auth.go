@@ -135,7 +135,7 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		Discriminator: userInfo.Discriminator,
 		Avatar:        userInfo.Avatar,
 	}
-	err = dao.NewUserDAO(db).UpsertUser(user)
+	err = userDAO.UpsertUser(user)
 	if err != nil {
 		http.Error(w, "Failed to save user: "+err.Error(), http.StatusInternalServerError)
 		return

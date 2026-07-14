@@ -32,7 +32,7 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
-	if !requireEncounterOwner(w, r, encounterID) {
+	if !requireEncounterAccess(w, r, encounterID) {
 		return
 	}
 
@@ -61,7 +61,7 @@ func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
-	if !requireEncounterOwner(w, r, encounterID) {
+	if !requireEncounterAccess(w, r, encounterID) {
 		return
 	}
 
@@ -85,7 +85,7 @@ func apiNextTurnHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
-	if !requireEncounterOwner(w, r, encounterID) {
+	if !requireEncounterAccess(w, r, encounterID) {
 		return
 	}
 

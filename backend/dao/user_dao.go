@@ -39,3 +39,14 @@ func (dao UserDAO) GetUserByDiscordID(discordID string) (User, error) {
 	err := row.Scan(&user.DiscordID, &user.Username, &user.Discriminator, &user.Avatar)
 	return user, err
 }
+
+// GetUserByUsername resolves a Discord username to a user row. Only users who
+// have logged into this app exist in the users table, so this returns
+// sql.ErrNoRows for anyone who has never signed in. Usernames are unique under
+// Discord's new (discriminator-less) system.
+func (dao UserDAO) GetUserByUsername(username string) (User, error) {
+	var user User
+	row := dao.db.QueryRow(`SELECT discord_id, username, discriminator, avatar FROM users WHERE username = $1`, username)
+	err := row.Scan(&user.DiscordID, &user.Username, &user.Discriminator, &user.Avatar)
+	return user, err
+}

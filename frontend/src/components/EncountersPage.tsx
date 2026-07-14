@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
+	Avatar,
 	Box,
 	Button,
+	Chip,
+	Divider,
+	MenuItem,
 	Paper,
+	Select,
 	Stack,
 	Table,
 	TableBody,
@@ -13,6 +18,10 @@ import {
 	Typography,
 } from "@mui/material";
 import { apiGetArray, apiPost } from "../lib/http";
+import { useMe } from "../hooks/useMe";
+import { useFriends } from "../hooks/useFriends";
+import { useEncounterMembers } from "../hooks/useEncounterMembers";
+import { discordAvatarUrl } from "../lib/discord";
 
 interface Encounter {
 	ID: number;
@@ -33,6 +42,13 @@ export default function EncountersPage({
 	const [description, setDescription] = useState("");
 	const [error, setError] = useState("");
 	const [loading, setLoading] = useState(false);
+	const [sharingId, setSharingId] = useState<number | null>(null);
+	const [selectedFriend, setSelectedFriend] = useState("");
+
+	const me = useMe();
+	const { friends } = useFriends();
+	const { members, error: membersError, load, addMember, removeMember, clear } =
+		useEncounterMembers();
 
 	const loadEncounters = useCallback(async () => {
 		setLoading(true);
@@ -99,6 +115,45 @@ export default function EncountersPage({
 		}
 	};
 
+	const toggleSharing = (encounterId: number) => {
+		if (sharingId === encounterId) {
+			setSharingId(null);
+			clear();
+			return;
+		}
+		setSharingId(encounterId);
+		setSelectedFriend("");
+		load(encounterId);
+	};
+
+	const handleAddMember = async () => {
+		if (sharingId === null || !selectedFriend) return;
+		setError("");
+		try {
+			await addMember(sharingId, selectedFriend);
+			setSelectedFriend("");
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "Failed to add member",
+			);
+		}
+	};
+
+	const handleRemoveMember = async (userId: string) => {
+		if (sharingId === null) return;
+		try {
+			await removeMember(sharingId, userId);
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "Failed to remove member",
+			);
+		}
+	};
+
+	// Friends not already sharing this encounter, available to add.
+	const memberIds = new Set(members.map((m) => m.discord_id));
+	const addableFriends = friends.filter((f) => !memberIds.has(f.discord_id));
+
 	return (
 		<Stack spacing={2}>
 			<Typography variant="h5" fontWeight={700}>
@@ -137,39 +192,218 @@ export default function EncountersPage({
 						</TableRow>
 					</TableHead>
 					<TableBody>
-						{encounters.map((encounter) => (
-							<TableRow key={encounter.ID}>
-								<TableCell>{encounter.Name}</TableCell>
-								<TableCell>{encounter.Description}</TableCell>
-								<TableCell align="right">
-									<Stack
-										direction="row"
-										spacing={1}
-										justifyContent="flex-end"
-									>
-										<Button
-											size="small"
-											variant="contained"
-											onClick={() =>
-												onOpenEncounter(encounter.ID)
-											}
-										>
-											Open
-										</Button>
-										<Button
-											size="small"
-											color="error"
-											variant="outlined"
-											onClick={() =>
-												handleDelete(encounter.ID)
-											}
-										>
-											Delete
-										</Button>
-									</Stack>
-								</TableCell>
-							</TableRow>
-						))}
+						{encounters.map((encounter) => {
+							const isOwner =
+								me.loggedIn &&
+								encounter.OwnerID === me.discordID;
+							return (
+								<Fragment key={encounter.ID}>
+									<TableRow>
+										<TableCell>
+											{encounter.Name}
+											{!isOwner && me.loggedIn && (
+												<Chip
+													label="Shared with you"
+													size="small"
+													sx={{ ml: 1 }}
+												/>
+											)}
+										</TableCell>
+										<TableCell>
+											{encounter.Description}
+										</TableCell>
+										<TableCell align="right">
+											<Stack
+												direction="row"
+												spacing={1}
+												justifyContent="flex-end"
+											>
+												<Button
+													size="small"
+													variant="contained"
+													onClick={() =>
+														onOpenEncounter(
+															encounter.ID,
+														)
+													}
+												>
+													Open
+												</Button>
+												{isOwner && (
+													<Button
+														size="small"
+														variant="outlined"
+														onClick={() =>
+															toggleSharing(
+																encounter.ID,
+															)
+														}
+													>
+														Share
+													</Button>
+												)}
+												{isOwner && (
+													<Button
+														size="small"
+														color="error"
+														variant="outlined"
+														onClick={() =>
+															handleDelete(
+																encounter.ID,
+															)
+														}
+													>
+														Delete
+													</Button>
+												)}
+											</Stack>
+										</TableCell>
+									</TableRow>
+									{sharingId === encounter.ID && (
+										<TableRow>
+											<TableCell colSpan={3}>
+												<Box sx={{ p: 1 }}>
+													<Typography
+														variant="subtitle2"
+														fontWeight={700}
+														gutterBottom
+													>
+														Shared with
+													</Typography>
+													{membersError && (
+														<Typography color="error">
+															{membersError}
+														</Typography>
+													)}
+													<Stack
+														spacing={1}
+														divider={
+															<Divider flexItem />
+														}
+														mb={2}
+													>
+														{members.length ===
+														0 ? (
+															<Typography color="text.secondary">
+																Not shared with
+																anyone yet.
+															</Typography>
+														) : (
+															members.map((m) => (
+																<Stack
+																	key={
+																		m.discord_id
+																	}
+																	direction="row"
+																	spacing={2}
+																	alignItems="center"
+																>
+																	<Avatar
+																		src={
+																			discordAvatarUrl(
+																				m.discord_id,
+																				m.avatar,
+																			) ??
+																			undefined
+																		}
+																		sx={{
+																			width: 28,
+																			height: 28,
+																		}}
+																	>
+																		{m.username
+																			.charAt(
+																				0,
+																			)
+																			.toUpperCase()}
+																	</Avatar>
+																	<Typography
+																		flexGrow={
+																			1
+																		}
+																	>
+																		{
+																			m.username
+																		}
+																	</Typography>
+																	<Button
+																		size="small"
+																		color="error"
+																		variant="outlined"
+																		onClick={() =>
+																			handleRemoveMember(
+																				m.discord_id,
+																			)
+																		}
+																	>
+																		Remove
+																	</Button>
+																</Stack>
+															))
+														)}
+													</Stack>
+													<Stack
+														direction="row"
+														spacing={2}
+														alignItems="center"
+													>
+														<Select
+															size="small"
+															displayEmpty
+															value={
+																selectedFriend
+															}
+															onChange={(e) =>
+																setSelectedFriend(
+																	e.target
+																		.value,
+																)
+															}
+															sx={{ minWidth: 200 }}
+														>
+															<MenuItem value="">
+																{addableFriends.length ===
+																0
+																	? "No friends to add"
+																	: "Select a friend…"}
+															</MenuItem>
+															{addableFriends.map(
+																(f) => (
+																	<MenuItem
+																		key={
+																			f.discord_id
+																		}
+																		value={
+																			f.discord_id
+																		}
+																	>
+																		{
+																			f.username
+																		}
+																	</MenuItem>
+																),
+															)}
+														</Select>
+														<Button
+															variant="contained"
+															size="small"
+															disabled={
+																!selectedFriend
+															}
+															onClick={
+																handleAddMember
+															}
+														>
+															Add
+														</Button>
+													</Stack>
+												</Box>
+											</TableCell>
+										</TableRow>
+									)}
+								</Fragment>
+							);
+						})}
 					</TableBody>
 				</Table>
 				{!loading && encounters.length === 0 && (

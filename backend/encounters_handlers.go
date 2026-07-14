@@ -17,7 +17,8 @@ func apiEncountersHandler(w http.ResponseWriter, r *http.Request) {
 	var data []dao.Encounter
 	var err error
 	if discordID != "" {
-		data, err = encounterDAO.GetEncountersByOwnerDiscordID(discordID)
+		// Include encounters the user owns and any they are a shared-edit member of.
+		data, err = encounterDAO.GetAccessibleEncounters(discordID)
 	} else {
 		data, err = encounterDAO.GetAllEncounters()
 	}
@@ -106,7 +107,7 @@ func apiEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid encounter id")
 		return
 	}
-	if !requireEncounterOwner(w, r, encounterID) {
+	if !requireEncounterAccess(w, r, encounterID) {
 		return
 	}
 
@@ -146,7 +147,7 @@ func apiAddEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Actor is required")
 		return
 	}
-	if !requireEncounterOwner(w, r, req.EncounterID) {
+	if !requireEncounterAccess(w, r, req.EncounterID) {
 		return
 	}
 	actionType := strings.TrimSpace(req.ActionType)

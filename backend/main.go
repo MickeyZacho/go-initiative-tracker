@@ -25,6 +25,8 @@ var npcTemplateDAO dao.NpcTemplateDAO
 var encounterCharacterDAO dao.EncounterCharacterDAO
 var encounterLedgerDAO dao.EncounterLedgerDAO
 var encounterDAO dao.EncounterDAO
+var friendshipDAO dao.FriendshipDAO
+var userDAO dao.UserDAO
 var frontendURL string
 var allowedOrigins map[string]bool
 
@@ -59,6 +61,8 @@ func initializeApp(db *sql.DB) {
 	encounterCharacterDAO = dao.NewEncounterCharacterDAO(db)
 	encounterLedgerDAO = dao.NewEncounterLedgerDAO(db)
 	npcTemplateDAO = dao.NewNpcTemplateDAO(db)
+	friendshipDAO = dao.NewFriendshipDAO(db)
+	userDAO = dao.NewUserDAO(db)
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
@@ -186,6 +190,17 @@ func main() {
 	http.Handle("/npcs/templates/save", loggingMiddleware(http.HandlerFunc(apiSaveNpcTemplateHandler)))
 	http.Handle("/npcs/templates/delete", loggingMiddleware(http.HandlerFunc(apiDeleteNpcTemplateHandler)))
 	http.Handle("/npcs/templates/create-character", loggingMiddleware(http.HandlerFunc(apiCreateCharacterFromTemplateHandler)))
+	// Friends API
+	http.Handle("/friends", loggingMiddleware(http.HandlerFunc(apiFriendsHandler)))
+	http.Handle("/friends/requests", loggingMiddleware(http.HandlerFunc(apiFriendRequestsHandler)))
+	http.Handle("/friends/request", loggingMiddleware(http.HandlerFunc(apiSendFriendRequestHandler)))
+	http.Handle("/friends/accept", loggingMiddleware(http.HandlerFunc(apiAcceptFriendHandler)))
+	http.Handle("/friends/decline", loggingMiddleware(http.HandlerFunc(apiRemoveFriendHandler)))
+	http.Handle("/friends/remove", loggingMiddleware(http.HandlerFunc(apiRemoveFriendHandler)))
+	// Encounter sharing (members)
+	http.Handle("/encounters/members", loggingMiddleware(http.HandlerFunc(apiEncounterMembersHandler)))
+	http.Handle("/encounters/members/add", loggingMiddleware(http.HandlerFunc(apiAddEncounterMemberHandler)))
+	http.Handle("/encounters/members/remove", loggingMiddleware(http.HandlerFunc(apiRemoveEncounterMemberHandler)))
 
 	http.HandleFunc("/login/discord", discordLoginHandler)
 	http.HandleFunc("/auth/discord/callback", discordCallbackHandler)

@@ -13,6 +13,13 @@ type EncounterDAO interface {
 	RemoveCharacterFromEncounter(encounterID, characterID int) error
 	GetByID(id int) (Encounter, error)
 	GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error)
+	// GetAccessibleEncounters returns encounters the user owns plus any they are
+	// a shared-edit member of (via encounter_users).
+	GetAccessibleEncounters(discordID string) ([]Encounter, error)
+	AddMember(encounterID int, userID string) error
+	RemoveMember(encounterID int, userID string) error
+	IsMember(encounterID int, userID string) (bool, error)
+	ListMembers(encounterID int) ([]Friend, error)
 }
 type Encounter struct {
 	ID          int
@@ -107,4 +114,70 @@ func (dao *encounterDAOImpl) GetEncountersByOwnerDiscordID(discordID string) ([]
 		encounters = append(encounters, e)
 	}
 	return encounters, nil
+}
+
+// GetAccessibleEncounters returns the union of encounters owned by discordID and
+// those they are a shared-edit member of. DISTINCT dedups the case where an owner
+// is (redundantly) also listed as a member.
+func (dao *encounterDAOImpl) GetAccessibleEncounters(discordID string) ([]Encounter, error) {
+	rows, err := dao.db.Query(`
+		SELECT DISTINCT e.id, e.name, COALESCE(e.owner_id, ''), COALESCE(e.description, '')
+		FROM encounters e
+		LEFT JOIN encounter_users eu ON eu.encounter_id = e.id
+		WHERE e.owner_id = $1 OR eu.user_id = $1
+		ORDER BY e.id`, discordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var encounters []Encounter
+	for rows.Next() {
+		var e Encounter
+		if err := rows.Scan(&e.ID, &e.Name, &e.OwnerID, &e.Description); err != nil {
+			return nil, err
+		}
+		encounters = append(encounters, e)
+	}
+	return encounters, rows.Err()
+}
+
+func (dao *encounterDAOImpl) AddMember(encounterID int, userID string) error {
+	_, err := dao.db.Exec(
+		"INSERT INTO encounter_users (encounter_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+		encounterID, userID,
+	)
+	return err
+}
+
+func (dao *encounterDAOImpl) RemoveMember(encounterID int, userID string) error {
+	_, err := dao.db.Exec(
+		"DELETE FROM encounter_users WHERE encounter_id = $1 AND user_id = $2",
+		encounterID, userID,
+	)
+	return err
+}
+
+func (dao *encounterDAOImpl) IsMember(encounterID int, userID string) (bool, error) {
+	var count int
+	err := dao.db.QueryRow(
+		"SELECT COUNT(*) FROM encounter_users WHERE encounter_id = $1 AND user_id = $2",
+		encounterID, userID,
+	).Scan(&count)
+	return count > 0, err
+}
+
+// ListMembers returns the shared-edit members of an encounter, resolved to their
+// user rows for display.
+func (dao *encounterDAOImpl) ListMembers(encounterID int) ([]Friend, error) {
+	rows, err := dao.db.Query(`
+		SELECT u.discord_id, u.username, COALESCE(u.avatar, '')
+		FROM encounter_users eu
+		JOIN users u ON u.discord_id = eu.user_id
+		WHERE eu.encounter_id = $1
+		ORDER BY u.username`, encounterID)
+	if err != nil {
+		return nil, err
+	}
+	return scanFriends(rows)
 }

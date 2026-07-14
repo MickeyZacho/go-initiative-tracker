@@ -12,12 +12,14 @@ import {
 	useParams,
 } from "react-router-dom";
 import NpcsPage from "./components/NpcsPage";
+import FriendsPage from "./components/FriendsPage";
 
 const NAV_ITEMS = [
 	{ label: "Characters", path: "/characters" },
 	{ label: "Encounters", path: "/encounters" },
 	{ label: "Combat", path: "/combat" },
 	{ label: "NPCs", path: "/npcs" },
+	{ label: "Friends", path: "/friends" },
 ] as const;
 
 // Reads the encounter id from the /combat/:encounterId route so the combat
@@ -84,6 +86,7 @@ function App() {
 						element={<CombatRoute />}
 					/>
 					<Route path="/npcs" element={<NpcsPage />} />
+					<Route path="/friends" element={<FriendsPage />} />
 					<Route
 						path="*"
 						element={<Navigate to="/characters" replace />}

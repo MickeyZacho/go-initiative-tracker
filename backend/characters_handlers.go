@@ -9,18 +9,17 @@ import (
 	"strings"
 )
 
-// fetchCharacters loads characters for the given request, scoped to encounterID
-// when it is > 0 and to the signed-in Discord user when a cookie is present.
-// It holds no server-side state, so concurrent requests never see each other's
-// selection.
+// fetchCharacters loads characters for the given request. When encounterID > 0 it
+// returns every character in that encounter (the caller's access is verified by
+// the handler beforehand, and shared-edit members must see the owner's
+// characters). With no encounter it falls back to the caller's own library, or
+// all characters when logged out. It holds no server-side state, so concurrent
+// requests never see each other's selection.
 func fetchCharacters(r *http.Request, encounterID int) ([]dao.Character, error) {
-	discordID := getDiscordIDFromRequest(r)
 	if encounterID > 0 {
-		if discordID != "" {
-			return characterDAO.GetCharactersByEncounterIDAndOwner(encounterID, discordID)
-		}
 		return characterDAO.GetCharactersByEncounterID(encounterID)
 	}
+	discordID := getDiscordIDFromRequest(r)
 	if discordID != "" {
 		return characterDAO.GetAllCharactersByOwner(discordID)
 	}
@@ -40,6 +39,14 @@ func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		encounterID = id
+	}
+	// When scoping to an encounter, the characters returned include the owner's,
+	// so require the caller to own or be a shared-edit member of it. Logged-out
+	// callers still fall through to the historical unscoped/owner-less behavior.
+	if encounterID > 0 && getDiscordIDFromRequest(r) != "" {
+		if !requireEncounterAccess(w, r, encounterID) {
+			return
+		}
 	}
 	characters, err := fetchCharacters(r, encounterID)
 	if err != nil {
@@ -258,7 +265,7 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "encounter_id is required")
 		return
 	}
-	if !requireEncounterOwner(w, r, encounterID) {
+	if !requireEncounterAccess(w, r, encounterID) {
 		return
 	}
 	err := encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID)
@@ -297,7 +304,7 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusBadRequest, "encounter_id is required")
 		return
 	}
-	if !requireEncounterOwner(w, r, encounterID) {
+	if !requireEncounterAccess(w, r, encounterID) {
 		return
 	}
 	err := encounterDAO.RemoveCharacterFromEncounter(encounterID, req.CharacterID)
