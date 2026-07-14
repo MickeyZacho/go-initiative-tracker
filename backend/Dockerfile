@@ -1,12 +1,12 @@
 # Backend Dockerfile
 
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /app
 COPY ./go.mod ./go.sum ./
-RUN GOPROXY="https://goproxy.io" go mod download
+RUN go mod download
 # Now copy the rest of the source code
 COPY . .
-RUN go build -o server ./main.go
+RUN go build -o server .
 
 FROM alpine:latest
 WORKDIR /app

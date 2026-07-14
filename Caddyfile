@@ -1,0 +1,21 @@
+# Reverse proxy for the production stack.
+#
+# Cloudflare terminates TLS at its edge and the tunnel (cloudflared) forwards
+# plain HTTP to this container, so Caddy only needs to listen on :80 here — no
+# certificates are managed on the box.
+#
+# Routing mirrors the Vite dev proxy: everything under /api is forwarded to the
+# Go backend with the /api prefix stripped (the backend registers its routes at
+# the root, e.g. /characters, /login/discord, /auth/discord/callback). All other
+# paths serve the static React frontend.
+:80 {
+	encode gzip
+
+	handle_path /api/* {
+		reverse_proxy backend:8080
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}

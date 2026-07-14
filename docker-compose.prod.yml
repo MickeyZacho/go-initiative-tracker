@@ -1,0 +1,98 @@
+# Production stack for a single-host deployment reached through a Cloudflare
+# Tunnel (no inbound ports opened on the host/router).
+#
+#   internet ──► Cloudflare edge (TLS) ──► cloudflared ──► caddy
+#                                                           ├─ /api/* ─► backend ─► db
+#                                                           └─ /*     ─► frontend
+#
+# Nothing here needs a public IP or router port-forwarding: cloudflared makes an
+# outbound connection to Cloudflare. Only caddy is published to the host (on
+# 8080) for a local smoke test; remove that mapping if you don't want it.
+#
+# Usage:
+#   cp .env.prod.example .env      # then fill in real values
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+# Dedicated project name so this stack's containers and volumes are fully
+# isolated from the dev stack (docker-compose.dev.yml), which runs from the same
+# directory. Without this they'd share names/volumes and clobber each other's
+# database.
+name: initiative-prod
+
+services:
+  db:
+    # Match the dev stack's major version (postgres:18). Note the volume mount
+    # path: the postgres:18 image keeps its cluster under /var/lib/postgresql,
+    # not /var/lib/postgresql/data as earlier majors did.
+    image: postgres:18
+    restart: always
+    environment:
+      POSTGRES_DB: initiative_db
+      POSTGRES_USER: initiative_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD to a strong value}
+    volumes:
+      - db_data:/var/lib/postgresql
+      - ./start.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U initiative_user -d initiative_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      - PORT=8080
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=initiative_user
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD to a strong value}
+      - DB_NAME=initiative_db
+      # Long, stable random value (e.g. `openssl rand -hex 32`). Without it the
+      # app mints an ephemeral secret and logs every user out on each restart.
+      - SESSION_SECRET=${SESSION_SECRET:?set SESSION_SECRET to a long random value}
+      # Served over HTTPS via Cloudflare, so auth cookies must be Secure.
+      - SECURE_COOKIES=true
+      # Public URL of the site (also the OAuth post-login redirect target).
+      - FRONTEND_URL=${FRONTEND_URL:?set FRONTEND_URL to https://your-domain}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:?set DISCORD_CLIENT_ID}
+      - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET}
+      # Must be https://your-domain/api/auth/discord/callback and match the
+      # redirect URI registered in the Discord developer portal exactly.
+      - DISCORD_REDIRECT_URL=${DISCORD_REDIRECT_URL:?set DISCORD_REDIRECT_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # Local smoke test only: http://localhost:8080 . Login won't work over plain
+    # http (Secure cookies) — the real test is through the tunnel's https URL.
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - backend
+      - frontend
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Token from the Cloudflare Zero Trust dashboard tunnel you create.
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:?set TUNNEL_TOKEN to your Cloudflare tunnel token}
+    depends_on:
+      - caddy
+
+volumes:
+  db_data:

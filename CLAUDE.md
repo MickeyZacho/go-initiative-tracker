@@ -12,7 +12,7 @@ Discord OAuth2 scopes characters/encounters to the signed-in user.
 
 Run backend commands from `backend/`, frontend commands from `frontend/`.
 
-**Backend (Go 1.23):**
+**Backend (Go 1.25):**
 ```bash
 go build ./...            # build
 go vet ./...              # vet

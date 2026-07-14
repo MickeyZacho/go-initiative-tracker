@@ -1,7 +1,6 @@
-version: '3.8'
 services:
   db:
-    image: postgres:16
+    image: postgres:18
     restart: always
     environment:
       POSTGRES_DB: initiative_db
@@ -11,7 +10,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      # postgres:18 keeps its cluster under /var/lib/postgresql (not
+      # /var/lib/postgresql/data as earlier majors did).
+      - db_data:/var/lib/postgresql
       - ./start.sql:/docker-entrypoint-initdb.d/init.sql
 
   backend:

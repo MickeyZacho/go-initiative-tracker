@@ -50,9 +50,9 @@ docker compose -f docker-compose.dev.yml up --build
 
 ### Prerequisites
 
-- Go 1.23+
-- Node.js 20+ (22 recommended)
-- PostgreSQL 16+
+- Go 1.25+
+- Node.js 22 (20+ works)
+- PostgreSQL 18 (16+ works)
 
 ### 1. Database
 
