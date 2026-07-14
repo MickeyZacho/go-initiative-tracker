@@ -14,6 +14,16 @@
 :80 {
 	encode gzip
 
+	# Server-Sent Events stream for live encounter sync. It must bypass gzip
+	# (which buffers) and flush every write immediately, so it is routed before
+	# the generic /api handler. strip_prefix mirrors handle_path's /api removal.
+	handle /api/encounters/events* {
+		uri strip_prefix /api
+		reverse_proxy backend:8080 {
+			flush_interval -1
+		}
+	}
+
 	handle_path /api/* {
 		reverse_proxy backend:8080
 	}

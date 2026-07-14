@@ -232,6 +232,7 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to save encounter values")
 			return
 		}
+		events.publish(payload.EncounterID, "character")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -277,6 +278,7 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to add character to encounter")
 		return
 	}
+	events.publish(encounterID, "character")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
@@ -312,5 +314,6 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusInternalServerError, "Failed to remove character from encounter")
 		return
 	}
+	events.publish(encounterID, "character")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }

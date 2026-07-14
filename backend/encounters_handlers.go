@@ -168,5 +168,6 @@ func apiAddEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	events.publish(req.EncounterID, "ledger")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "entry": entry})
 }

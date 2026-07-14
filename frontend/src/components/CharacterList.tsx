@@ -21,6 +21,7 @@ import { useEncounters } from "../hooks/useEncounters";
 import { useCharacters } from "../hooks/useCharacters";
 import { useNpcTemplates } from "../hooks/useNpcTemplates";
 import { useCombatLog } from "../hooks/useCombatLog";
+import { useEncounterEvents } from "../hooks/useEncounterEvents";
 import { apiGetArray, apiPost } from "../lib/http";
 
 export interface Character {
@@ -122,6 +123,14 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		fetchLibraryCharacters,
 		fetchNpcTemplates,
 	]);
+
+	// Live sync: when any viewer changes this encounter, the backend pushes an
+	// event and we re-pull characters + ledger so every viewer stays in step.
+	useEncounterEvents(encounterId, () => {
+		if (!encounterId) return;
+		void fetchCharacters(encounterId);
+		void fetchLedger(encounterId);
+	});
 	// Add NPC to encounter
 	const addNpcToEncounter = async () => {
 		if (!encounterId || !selectedAddNpcId) {

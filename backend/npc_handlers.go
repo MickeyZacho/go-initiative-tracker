@@ -127,7 +127,7 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		writeJSONError(w, http.StatusBadRequest, "No encounter selected")
 		return
 	}
-	if !requireEncounterOwner(w, r, req.EncounterID) {
+	if !requireEncounterAccess(w, r, req.EncounterID) {
 		return
 	}
 
@@ -136,6 +136,7 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		writeJSONError(w, http.StatusInternalServerError, "Failed to create character from template")
 		return
 	}
+	events.publish(req.EncounterID, "character")
 	// Optionally, insert the character into the characters table here
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "character": character})

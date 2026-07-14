@@ -46,6 +46,7 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	events.publish(encounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
 }
 
@@ -70,6 +71,7 @@ func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	events.publish(encounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
@@ -99,5 +101,6 @@ func apiNextTurnHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	events.publish(encounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
 }
