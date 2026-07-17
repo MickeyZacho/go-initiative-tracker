@@ -466,10 +466,10 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		<Box display="flex" justifyContent="center" alignItems="center">
 			<Card
 				sx={{
-					width: 700,
+					width: "100%",
 					borderRadius: 3,
 					boxShadow: 3,
-					p: 3,
+					p: { xs: 1, sm: 3 },
 				}}
 			>
 				<CardContent>

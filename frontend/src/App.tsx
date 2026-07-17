@@ -2,7 +2,7 @@ import { CharacterList } from "./components/CharacterList";
 import AuthButtons from "./components/AuthButtons";
 import CharactersPage from "./components/CharactersPage";
 import EncountersPage from "./components/EncountersPage";
-import { Button, Stack } from "@mui/material";
+import { AppBar, Box, Button, Container, Stack, Toolbar, Typography } from "@mui/material";
 import {
 	Navigate,
 	Route,
@@ -37,33 +37,54 @@ function App() {
 	const location = useLocation();
 
 	return (
-		<div
-			style={{
-				width: "100vw",
-				height: "100vh",
-				display: "flex",
-				justifyContent: "center",
-				alignItems: "flex-start",
-			}}
-		>
-			<div style={{ padding: "2rem" }}>
-				<AuthButtons />
-				<h1>Initiative Tracker</h1>
-				<Stack direction="row" spacing={1} mb={2}>
-					{NAV_ITEMS.map((item) => (
-						<Button
-							key={item.path}
-							variant={
-								location.pathname.startsWith(item.path)
-									? "contained"
-									: "outlined"
-							}
-							onClick={() => navigate(item.path)}
+		<Box sx={{ minHeight: "100vh", width: "100%" }}>
+			<AppBar position="sticky" color="default" elevation={1}>
+				<Container maxWidth="md" disableGutters>
+					<Toolbar
+						disableGutters
+						sx={{
+							px: { xs: 2, sm: 3 },
+							gap: 2,
+							justifyContent: "space-between",
+							flexWrap: "wrap",
+						}}
+					>
+						<Typography
+							variant="h6"
+							component="h1"
+							noWrap
+							sx={{ fontWeight: 700 }}
 						>
-							{item.label}
-						</Button>
-					))}
-				</Stack>
+							Initiative Tracker
+						</Typography>
+						<Stack
+							direction="row"
+							spacing={1}
+							sx={{ flexWrap: "wrap", rowGap: 1 }}
+						>
+							{NAV_ITEMS.map((item) => (
+								<Button
+									key={item.path}
+									size="small"
+									variant={
+										location.pathname.startsWith(item.path)
+											? "contained"
+											: "text"
+									}
+									onClick={() => navigate(item.path)}
+								>
+									{item.label}
+								</Button>
+							))}
+						</Stack>
+						<AuthButtons />
+					</Toolbar>
+				</Container>
+			</AppBar>
+			<Container
+				maxWidth="md"
+				sx={{ py: 4, px: { xs: 2, sm: 3 }, textAlign: "left" }}
+			>
 				<Routes>
 					<Route
 						path="/"
@@ -92,8 +113,8 @@ function App() {
 						element={<Navigate to="/characters" replace />}
 					/>
 				</Routes>
-			</div>
-		</div>
+			</Container>
+		</Box>
 	);
 }
 

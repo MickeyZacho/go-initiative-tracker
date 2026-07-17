@@ -8,6 +8,7 @@ import {
 	TextField,
 	Button,
 	Typography,
+	Paper,
 } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material/Select";
 import type { Character } from "./CharacterList";
@@ -66,18 +67,21 @@ export const CombatControls: React.FC<CombatControlsProps> = ({
 							: "";
 
 					return (
-						<div style={{ width: "100%" }} key={character.ID}>
+						<Paper
+							key={character.ID}
+							variant="outlined"
+							sx={{ width: "100%", p: 1.5, borderRadius: 2 }}
+						>
 							<Stack
 								direction="row"
 								spacing={1}
 								useFlexGap
 								flexWrap="wrap"
 								alignItems="center"
-								mt={1}
 							>
 								<Typography
 									variant="subtitle1"
-									sx={{ minWidth: 100, fontWeight: 600 }}
+									sx={{ minWidth: 100, fontWeight: 600, flexGrow: 1 }}
 								>
 									{character.Name}
 								</Typography>
@@ -178,7 +182,7 @@ export const CombatControls: React.FC<CombatControlsProps> = ({
 										? `Preview: ${targetCharacter.Name} HP ${targetCharacter.CurrentHP} → ${attackPreviewHP} (Attack) / ${healPreviewHP} (Heal)  • Enter = Attack, Shift+Enter = Heal`
 										: "Select a target to preview result"}
 							</Typography>
-						</div>
+						</Paper>
 					);
 				})}
 		</Stack>

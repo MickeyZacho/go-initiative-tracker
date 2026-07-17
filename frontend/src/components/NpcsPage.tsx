@@ -1,6 +1,7 @@
 // Renamed from MonstersPage.tsx
 import { useCallback, useEffect, useState } from "react";
 import {
+	Box,
 	Button,
 	MenuItem,
 	Paper,
@@ -183,14 +184,22 @@ export default function NpcsPage() {
 			{error && <Typography color="error">{error}</Typography>}
 			{notice && <Typography color="success.main">{notice}</Typography>}
 			<Paper sx={{ p: 2 }}>
-				<Stack
-					direction="row"
-					spacing={2}
-					alignItems="center"
-					flexWrap="wrap"
+				<Box
+					sx={{
+						display: "grid",
+						gridTemplateColumns: {
+							xs: "repeat(2, 1fr)",
+							sm: "repeat(3, 1fr)",
+							md: "repeat(4, 1fr)",
+						},
+						gap: 2,
+						alignItems: "start",
+					}}
 				>
 					<TextField
 						label="Name"
+						size="small"
+						sx={{ gridColumn: { xs: "1 / -1", sm: "span 2" } }}
 						value={draft.Name}
 						onChange={(e) =>
 							setDraft((prev) => ({
@@ -201,6 +210,8 @@ export default function NpcsPage() {
 					/>
 					<TextField
 						label="Description"
+						size="small"
+						sx={{ gridColumn: { xs: "1 / -1", sm: "span 2" } }}
 						value={draft.Description}
 						onChange={(e) =>
 							setDraft((prev) => ({
@@ -219,7 +230,7 @@ export default function NpcsPage() {
 								ArmorClass: Number(e.target.value),
 							}))
 						}
-						sx={{ width: 100 }}
+						size="small"
 					/>
 					<TextField
 						label="Max HP"
@@ -231,7 +242,7 @@ export default function NpcsPage() {
 								MaxHP: Number(e.target.value),
 							}))
 						}
-						sx={{ width: 100 }}
+						size="small"
 					/>
 					{Object.entries(draft.BaseStats).map(([stat, value]) => (
 						<TextField
@@ -248,13 +259,17 @@ export default function NpcsPage() {
 									},
 								}))
 							}
-							sx={{ width: 100 }}
+							size="small"
 						/>
 					))}
-					<Button variant="contained" onClick={handleCreate}>
+					<Button
+						variant="contained"
+						onClick={handleCreate}
+						sx={{ gridColumn: "1 / -1", justifySelf: "start" }}
+					>
 						New NPC
 					</Button>
-				</Stack>
+				</Box>
 			</Paper>
 			<Paper sx={{ p: 2 }}>
 				<Stack direction="row" spacing={2} alignItems="center">
@@ -281,8 +296,8 @@ export default function NpcsPage() {
 					</TextField>
 				</Stack>
 			</Paper>
-			<Paper sx={{ p: 1 }}>
-				<Table size="small">
+			<Paper sx={{ p: 1, overflowX: "auto" }}>
+				<Table size="small" sx={{ minWidth: 900 }}>
 					<TableHead>
 						<TableRow>
 							<TableCell>Name</TableCell>
@@ -315,7 +330,10 @@ export default function NpcsPage() {
 								</TableCell>
 								<TableCell>{npc.BaseStats.Wisdom}</TableCell>
 								<TableCell>{npc.BaseStats.Charisma}</TableCell>
-								<TableCell align="right">
+								<TableCell
+									align="right"
+									sx={{ whiteSpace: "nowrap" }}
+								>
 									<Button
 										size="small"
 										onClick={() => handleUpdate(npc)}

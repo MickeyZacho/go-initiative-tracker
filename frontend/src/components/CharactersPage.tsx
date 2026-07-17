@@ -239,13 +239,14 @@ export default function CharactersPage() {
 			{error && <Typography color="error">{error}</Typography>}
 			<Paper sx={{ p: 2 }}>
 				<Stack
-					direction="row"
+					direction={{ xs: "column", sm: "row" }}
 					spacing={2}
-					alignItems="center"
-					flexWrap="wrap"
+					alignItems={{ xs: "stretch", sm: "center" }}
 				>
 					<TextField
 						label="Name"
+						size="small"
+						sx={{ flex: 1, minWidth: 160 }}
 						value={draft.Name}
 						onChange={(e) =>
 							setDraft((prev) => ({
@@ -257,6 +258,8 @@ export default function CharactersPage() {
 					<TextField
 						label="AC"
 						type="number"
+						size="small"
+						sx={{ width: { xs: "100%", sm: 90 } }}
 						value={draft.ArmorClass}
 						onChange={(e) =>
 							setDraft((prev) => ({
@@ -268,6 +271,8 @@ export default function CharactersPage() {
 					<TextField
 						label="To-Hit"
 						type="number"
+						size="small"
+						sx={{ width: { xs: "100%", sm: 90 } }}
 						value={draft.ToHitModifier ?? 0}
 						onChange={(e) =>
 							setDraft((prev) => ({
@@ -279,6 +284,8 @@ export default function CharactersPage() {
 					<TextField
 						label="Max HP"
 						type="number"
+						size="small"
+						sx={{ width: { xs: "100%", sm: 90 } }}
 						value={draft.MaxHP}
 						onChange={(e) =>
 							setDraft((prev) => ({
@@ -287,7 +294,11 @@ export default function CharactersPage() {
 							}))
 						}
 					/>
-					<Button variant="contained" onClick={handleCreate}>
+					<Button
+						variant="contained"
+						onClick={handleCreate}
+						sx={{ flexShrink: 0 }}
+					>
 						New Character
 					</Button>
 				</Stack>
