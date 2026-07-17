@@ -166,18 +166,20 @@ natively on ARM64), so the move is mostly OS setup. Use a **64-bit** DietPi imag
    ```
 2. **Create the persistent deploy checkout.** This directory is what the deploy
    job updates on every push — it lives *outside* the runner's workspace and
-   holds the gitignored `.env`.
+   holds the gitignored `.env`. Cloning into your **home directory** keeps you as
+   the owner with no `sudo chown` needed:
    ```bash
-   sudo mkdir -p /opt/initiative-tracker
-   sudo chown "$USER:$USER" /opt/initiative-tracker
-   git clone https://github.com/MickeyZacho/go-initiative-tracker.git /opt/initiative-tracker
+   git clone https://github.com/MickeyZacho/go-initiative-tracker.git ~/go-initiative-tracker
    ```
-3. **Recreate `.env`** in `/opt/initiative-tracker/.env` — same values as your
+   > This must be the **same user** that runs the Actions runner (below), so the
+   > runner can read/write it. Any path works as long as you point `DEPLOY_DIR`
+   > at it in step 3 of the CD section.
+3. **Recreate `.env`** in `~/go-initiative-tracker/.env` — same values as your
    desktop (the `TUNNEL_TOKEN` works from anywhere). This file is *not* in git,
    so it must be created on the Pi by hand and it persists across deploys.
 4. **First manual launch** (proves the box works before automating):
    ```bash
-   cd /opt/initiative-tracker
+   cd ~/go-initiative-tracker
    docker compose -f docker-compose.prod.yml up -d --build
    ```
    Once you can reach `https://YOUR-DOMAIN`, tear nothing down — the runner will
@@ -215,16 +217,20 @@ behind the Cloudflare Tunnel / CGNAT unchanged.
    sudo ./svc.sh start
    ./svc.sh status          # should show "active (running)"
    ```
-3. **(Optional) Point the deploy elsewhere.** The job defaults to
-   `/opt/initiative-tracker`. To use another path, set a repository variable
-   `DEPLOY_DIR` (repo → Settings → Secrets and variables → Actions → Variables).
+3. **Tell the deploy where the checkout is.** The job defaults to
+   `/opt/initiative-tracker`, so if you cloned into your home directory (as in
+   step 2 above) you **must** point it at that path: set a repository variable
+   `DEPLOY_DIR` = `/home/<user>/go-initiative-tracker` (repo → Settings → Secrets
+   and variables → Actions → **Variables** tab → *New repository variable*). It's
+   a variable, not a secret — the path isn't sensitive. Skip this only if you
+   used the exact default `/opt/initiative-tracker` path.
 
 That's it. Push to `main` → CI runs on GitHub → the Pi pulls that exact commit,
 rebuilds, restarts, and waits for the local smoke port (`127.0.0.1:8080`) to
 answer before the job goes green. Watch it under the repo's **Actions** tab, or
 tail it on the Pi:
 ```bash
-cd /opt/initiative-tracker
+cd ~/go-initiative-tracker
 docker compose -f docker-compose.prod.yml logs -f backend
 ```
 
