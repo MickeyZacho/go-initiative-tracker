@@ -26,6 +26,12 @@ services:
     # not /var/lib/postgresql/data as earlier majors did.
     image: postgres:18
     restart: always
+    # Publish Postgres on the host loopback ONLY (127.0.0.1), so it's reachable
+    # from on-box tooling / an SSH tunnel (e.g. pgAdmin) but never from the LAN
+    # or internet. The backend still talks to it over the compose network as
+    # `db:5432` — this mapping is purely for admin access.
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: initiative_db
       POSTGRES_USER: initiative_user
