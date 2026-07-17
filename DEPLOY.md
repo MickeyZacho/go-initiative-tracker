@@ -149,35 +149,88 @@ apply automatically at startup via the embedded goose migrations.
 
 ---
 
-## Later: moving to a Raspberry Pi
+## Hosting on the Raspberry Pi (DietPi)
 
 Nothing above is Windows-specific, and the images are multi-arch (they build
-natively on ARM), so the move is mostly OS setup.
+natively on ARM64), so the move is mostly OS setup. Use a **64-bit** DietPi image
+— required for the `arm64` container images and for Postgres to behave.
 
-**Recommended OS:** **Raspberry Pi OS Lite (64-bit)** — the mainstream, best-
-supported choice, headless (no desktop). If you want something even leaner,
-**DietPi** (64-bit) is a good alternative with a smaller footprint. Use 64-bit
-either way (needed for the `arm64` container images and for Postgres to behave).
+### One-time Pi setup
 
-1. Flash Raspberry Pi OS Lite (64-bit) with **Raspberry Pi Imager** (it lets you
-   preset the hostname, SSH, and Wi-Fi before first boot — handy since you're
-   headless).
-2. SSH in and install Docker:
+1. **Install Docker + Compose.** On DietPi, run `dietpi-software` and install
+   **Docker** (ID 162) and **Docker Compose** (ID 134), or use the upstream
+   script:
    ```bash
    curl -fsSL https://get.docker.com | sh
-   sudo usermod -aG docker $USER   # log out/in afterwards
+   sudo usermod -aG docker "$USER"      # then log out/in so the group applies
    ```
-3. Copy the project to the Pi (`git clone` your repo, or `scp` the folder).
-4. Recreate `.env` on the Pi (same values as your desktop — the `TUNNEL_TOKEN`
-   works from anywhere).
-5. Run the same command:
+2. **Create the persistent deploy checkout.** This directory is what the deploy
+   job updates on every push — it lives *outside* the runner's workspace and
+   holds the gitignored `.env`.
    ```bash
+   sudo mkdir -p /opt/initiative-tracker
+   sudo chown "$USER:$USER" /opt/initiative-tracker
+   git clone https://github.com/MickeyZacho/go-initiative-tracker.git /opt/initiative-tracker
+   ```
+3. **Recreate `.env`** in `/opt/initiative-tracker/.env` — same values as your
+   desktop (the `TUNNEL_TOKEN` works from anywhere). This file is *not* in git,
+   so it must be created on the Pi by hand and it persists across deploys.
+4. **First manual launch** (proves the box works before automating):
+   ```bash
+   cd /opt/initiative-tracker
    docker compose -f docker-compose.prod.yml up -d --build
    ```
+   Once you can reach `https://YOUR-DOMAIN`, tear nothing down — the runner will
+   just roll this same stack forward from here.
 
-Run it on the Pi **or** the desktop — not both against the same tunnel at once.
-When you're ready to switch, `docker compose ... down` on the desktop first.
+> **Low-RAM Pi (< ~2 GB):** the frontend (Vite) build is memory-hungry and the
+> OOM killer may abort it. Add swap first: on DietPi run `dietpi-config` →
+> *Advanced Options* → *Swapfile* and set ~2 GB (or `sudo fallocate -l 2G
+> /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon
+> /swapfile`, then add it to `/etc/fstab`).
 
-> On a Pi with under ~2 GB RAM the frontend (Vite) build can be memory-hungry.
-> If the build gets killed, either add swap, or build the images on your desktop
-> and push them to a registry / load them onto the Pi instead of building there.
+### Continuous deployment (self-hosted GitHub Actions runner)
+
+The `deploy` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs
+**on the Pi** through a self-hosted runner. It only fires after the backend and
+frontend CI jobs pass, and only on a push to `main` (or a manual *Run workflow*).
+Because the runner dials out to GitHub, this needs **no inbound ports** — it works
+behind the Cloudflare Tunnel / CGNAT unchanged.
+
+1. In GitHub: **repo → Settings → Actions → Runners → New self-hosted runner →
+   Linux / ARM64**. GitHub shows a `curl` download command and a `./config.sh`
+   command with a registration token — run them on the Pi as a **non-root** user
+   (that user must be in the `docker` group from step 1):
+   ```bash
+   mkdir -p ~/actions-runner && cd ~/actions-runner
+   # (paste the download + tar command GitHub gave you)
+   ./config.sh --url https://github.com/MickeyZacho/go-initiative-tracker \
+     --token <REG_TOKEN> --labels initiative-pi --name pi --unattended
+   ```
+   The **`initiative-pi` label is required** — the workflow targets
+   `runs-on: [self-hosted, initiative-pi]`.
+2. **Install it as a service** so it survives reboots and runs in the background:
+   ```bash
+   sudo ./svc.sh install "$USER"
+   sudo ./svc.sh start
+   ./svc.sh status          # should show "active (running)"
+   ```
+3. **(Optional) Point the deploy elsewhere.** The job defaults to
+   `/opt/initiative-tracker`. To use another path, set a repository variable
+   `DEPLOY_DIR` (repo → Settings → Secrets and variables → Actions → Variables).
+
+That's it. Push to `main` → CI runs on GitHub → the Pi pulls that exact commit,
+rebuilds, restarts, and waits for the local smoke port (`127.0.0.1:8080`) to
+answer before the job goes green. Watch it under the repo's **Actions** tab, or
+tail it on the Pi:
+```bash
+cd /opt/initiative-tracker
+docker compose -f docker-compose.prod.yml logs -f backend
+```
+
+> **Security note.** A self-hosted runner executes whatever a workflow tells it
+> to. Keep this repository **private**, or the runner could be abused by pull
+> requests from forks. (The `deploy` job itself is guarded to run only on pushes
+> to `main`, never on PRs — but a public repo still warrants a private runner.)
+> Run the Pi on the desktop **or** the Pi against the same tunnel, not both at
+> once; `docker compose ... down` on the desktop before letting the Pi take over.

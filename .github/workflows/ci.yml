@@ -1,13 +1,21 @@
-# CI for the Go backend and the React/Vite frontend.
+# CI/CD for the Go backend and the React/Vite frontend.
+#
+# On every push/PR to main the backend + frontend jobs build and test. On a push
+# to main (or a manual run), the `deploy` job then runs on the self-hosted runner
+# living on the Raspberry Pi and rolls the production stack forward. See DEPLOY.md
+# ("Continuous deployment to the Raspberry Pi") for the one-time runner setup.
+#
 # See: https://docs.github.com/en/actions/automating-builds-and-tests
 
-name: CI
+name: CI/CD
 
 on:
   push:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  # Lets you trigger a redeploy by hand from the Actions tab (Run workflow).
+  workflow_dispatch:
 
 jobs:
   backend:
@@ -73,3 +81,66 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Deploy: runs ON the Raspberry Pi via a self-hosted runner (label
+  # `initiative-pi`). Purely outbound — the Pi dials GitHub, so this works behind
+  # CGNAT / the Cloudflare Tunnel with no inbound ports opened. Gated on the two
+  # CI jobs above, so a red build never reaches production.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to Raspberry Pi
+    needs: [backend, frontend]
+    # Only real pushes to main (or a manual dispatch) deploy — never PRs.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted, initiative-pi]
+    # Never let two deploys overlap; let an in-flight deploy finish rather than
+    # cancelling it half-built.
+    concurrency:
+      group: deploy-pi
+      cancel-in-progress: false
+    env:
+      # Persistent clone on the Pi that also holds the (gitignored) production
+      # .env. The runner only updates and rebuilds this checkout — it never
+      # touches its own ephemeral workspace. Override by setting a DEPLOY_DIR
+      # repository variable if you put the project somewhere else.
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/initiative-tracker' }}
+      COMPOSE_FILE: docker-compose.prod.yml
+    steps:
+      - name: Fast-forward the Pi's checkout to this commit
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          git fetch --prune origin
+          # Deploy exactly the commit that triggered this run (not merely the
+          # current tip of origin/main, which a newer push may have moved).
+          git reset --hard "$GITHUB_SHA"
+
+      - name: Rebuild and restart the production stack
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          docker compose -f "$COMPOSE_FILE" up -d --build --remove-orphans
+
+      - name: Wait for the stack to answer
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080 >/dev/null 2>&1; then
+              echo "Frontend is responding on the local smoke port."
+              exit 0
+            fi
+            echo "Waiting for the stack to come up... ($i/30)"
+            sleep 2
+          done
+          echo "::error::Stack did not become healthy within 60s"
+          docker compose -f "$COMPOSE_FILE" ps
+          docker compose -f "$COMPOSE_FILE" logs --tail=50
+          exit 1
+
+      - name: Prune dangling images
+        if: always()
+        run: docker image prune -f
