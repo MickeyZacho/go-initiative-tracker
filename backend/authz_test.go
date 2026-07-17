@@ -167,6 +167,98 @@ func TestSaveCharacterUpdateRejectsNonOwner(t *testing.T) {
 	}
 }
 
+// newEncounterAndCharacterMock swaps encounterDAO, encounterCharacterDAO and
+// characterDAO for DAOs sharing one mock connection, so ordered expectations
+// across an access check and a follow-on character write line up.
+func newEncounterAndCharacterMock(t *testing.T) (sqlmock.Sqlmock, func()) {
+	t.Helper()
+	mockDB, m, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	prevEnc, prevEC, prevChar := encounterDAO, encounterCharacterDAO, characterDAO
+	encounterDAO = dao.NewEncounterDAO(mockDB)
+	encounterCharacterDAO = dao.NewEncounterCharacterDAO(mockDB)
+	characterDAO = dao.NewCharacterDAO(mockDB)
+	return m, func() {
+		encounterDAO, encounterCharacterDAO, characterDAO = prevEnc, prevEC, prevChar
+		mockDB.Close()
+	}
+}
+
+// A shared-edit member may edit a character they do not own, as long as it is in
+// an encounter they have access to.
+func TestSaveCharacterInEncounterAllowsMemberEditingOthersCharacter(t *testing.T) {
+	m, restore := newEncounterAndCharacterMock(t)
+	defer restore()
+
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectQuery("FROM encounter_users").WithArgs(1, "player2").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// The character is owned by dm1, yet the member's update lands.
+	m.ExpectQuery("UPDATE characters c SET").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	m.ExpectExec("INSERT INTO encounter_characters").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	rr, req := postJSON("/save-character", `{"id":5,"name":"Rogue","maxHP":10,"encounter_id":1}`)
+	req.AddCookie(&http.Cookie{Name: "discord_id", Value: signValue("player2")})
+	saveCharacterHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (body %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if err := m.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// Encounter access is still required: a caller with neither ownership nor
+// membership cannot edit through the encounter.
+func TestSaveCharacterInEncounterRejectsNonMember(t *testing.T) {
+	m, restore := newEncounterAndCharacterMock(t)
+	defer restore()
+
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectQuery("FROM encounter_users").WithArgs(1, "stranger").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	rr, req := postJSON("/save-character", `{"id":5,"name":"Rogue","maxHP":10,"encounter_id":1}`)
+	req.AddCookie(&http.Cookie{Name: "discord_id", Value: signValue("stranger")})
+	saveCharacterHandler(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	if err := m.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// A character that is not in the encounter cannot be edited through it, even by
+// a member — otherwise encounter access would be a lever on the whole table.
+func TestSaveCharacterInEncounterRejectsCharacterOutsideEncounter(t *testing.T) {
+	m, restore := newEncounterAndCharacterMock(t)
+	defer restore()
+
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "player2"))
+	m.ExpectQuery("UPDATE characters c SET").WillReturnError(sql.ErrNoRows)
+
+	rr, req := postJSON("/save-character", `{"id":99,"name":"Rogue","maxHP":10,"encounter_id":1}`)
+	req.AddCookie(&http.Cookie{Name: "discord_id", Value: signValue("player2")})
+	saveCharacterHandler(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+	if err := m.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 func TestDeleteNpcTemplateRejectsNonOwner(t *testing.T) {
 	mockDB, m, err := sqlmock.New()
 	if err != nil {

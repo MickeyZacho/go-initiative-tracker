@@ -190,13 +190,19 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	if char.CurrentHP > char.MaxHP {
 		char.CurrentHP = char.MaxHP
 	}
-	// Ownership is always the authenticated caller; never trust an owner_id
-	// supplied in the request body.
 	discordID := getDiscordIDFromRequest(r)
-	char.OwnerID = discordID
 
-	if char.ID == 0 {
-		// New character, insert into DB
+	// Saving into an encounter requires access to that encounter, and access is
+	// then enough to edit any character in it — not just the caller's own.
+	if payload.EncounterID > 0 && !requireEncounterAccess(w, r, payload.EncounterID) {
+		return
+	}
+
+	switch {
+	case char.ID == 0:
+		// New character: ownership is always the authenticated caller; never
+		// trust an owner_id supplied in the request body.
+		char.OwnerID = discordID
 		newID, err := characterDAO.CreateCharacter(char)
 		if err != nil {
 			log.Printf("Error creating character: %v", err)
@@ -204,8 +210,22 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		char.ID = newID
-	} else {
-		// Update existing character, but only if the caller owns it.
+	case payload.EncounterID > 0:
+		// Editing a character through an encounter the caller has access to.
+		ownerID, updated, err := characterDAO.UpdateCharacterInEncounter(char, payload.EncounterID)
+		if err != nil {
+			log.Printf("Error updating character: %v", err)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to update character")
+			return
+		}
+		if !updated {
+			writeJSONError(w, http.StatusNotFound, "Character not found in this encounter")
+			return
+		}
+		char.OwnerID = ownerID
+	default:
+		// Library edit outside any encounter: caller must own the character.
+		char.OwnerID = discordID
 		updated, err := characterDAO.UpdateCharacterByOwner(char, discordID)
 		if err != nil {
 			log.Printf("Error updating character: %v", err)

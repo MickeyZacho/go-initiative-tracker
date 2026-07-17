@@ -2,6 +2,7 @@ package dao
 
 import (
 	"database/sql"
+	"errors"
 )
 
 type Character struct {
@@ -24,6 +25,7 @@ type CharacterDAO interface {
 	GetCharactersByEncounterID(encounterID int) ([]Character, error)
 	CreateCharacter(character Character) (int, error)
 	UpdateCharacterByOwner(character Character, ownerID string) (bool, error)
+	UpdateCharacterInEncounter(character Character, encounterID int) (string, bool, error)
 	DeleteCharacter(id int) error
 	DeleteCharacterByOwner(id int, ownerID string) (bool, error)
 	GetAllCharactersByOwner(discordID string) ([]Character, error)
@@ -114,6 +116,32 @@ func (dao *characterDAOImpl) UpdateCharacterByOwner(character Character, ownerID
 	}
 	rows, err := result.RowsAffected()
 	return rows > 0, err
+}
+
+// UpdateCharacterInEncounter updates a character when it belongs to encounterID,
+// whoever owns it: access to an encounter carries the right to edit every
+// character in it. Callers must verify the requester's encounter access first.
+// owner_id stays out of the SET clause, so an edit can never reassign a
+// character; the current owner is returned so callers can echo it back. Returns
+// false when the character is not in the encounter (or does not exist).
+func (dao *characterDAOImpl) UpdateCharacterInEncounter(character Character, encounterID int) (string, bool, error) {
+	if character.Type == "" {
+		character.Type = "pc"
+	}
+	var ownerID string
+	err := dao.db.QueryRow(
+		`UPDATE characters c SET name = $1, armor_class = $2, to_hit_modifier = $3, max_hp = $4, type = $5
+		 WHERE c.id = $6 AND EXISTS (SELECT 1 FROM encounter_characters ec WHERE ec.character_id = c.id AND ec.encounter_id = $7)
+		 RETURNING COALESCE(c.owner_id, '')`,
+		character.Name, character.ArmorClass, character.ToHitModifier, character.MaxHP, character.Type, character.ID, encounterID,
+	).Scan(&ownerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return ownerID, true, nil
 }
 
 func (dao *characterDAOImpl) DeleteCharacter(id int) error {
