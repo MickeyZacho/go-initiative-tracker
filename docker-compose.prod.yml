@@ -84,15 +84,10 @@ services:
     build: ./caddy
     restart: unless-stopped
     environment:
-      # Host header that routes to the host-based DietPi dashboard (e.g.
-      # dietpi.your-domain). Unset -> defaults to a host nobody uses, so the
-      # dashboard route stays dormant and the main app is unaffected.
-      - DIETPI_HOSTNAME=${DIETPI_HOSTNAME:-dietpi.invalid}
-    # Lets caddy reach services on the host (the Pi) — the DietPi dashboard runs
-    # on the host, not in a container, so host.docker.internal:5252 in the
-    # Caddyfile resolves here. Harmless when the dashboard route is unused.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # Host header that routes to the Beszel monitoring hub (e.g.
+      # beszel.your-domain). Unset -> defaults to a host nobody uses, so the
+      # monitoring route stays dormant and the main app is unaffected.
+      - BESZEL_HOSTNAME=${BESZEL_HOSTNAME:-beszel.invalid}
     # Local smoke test only: http://localhost:8080 . Login won't work over plain
     # http (Secure cookies) — the real test is through the tunnel's https URL.
     ports:
@@ -100,6 +95,44 @@ services:
     depends_on:
       - backend
       - frontend
+
+  # --- Read-only monitoring (Beszel) ---
+  # Two parts: the hub (web dashboard, reached via caddy at BESZEL_HOSTNAME) and
+  # an agent that reports this host's metrics to the hub. Beszel is a monitor
+  # only — it cannot control the machine. First-run setup (create the admin
+  # account, add this host with the agent's key) is in DEPLOY.md.
+  beszel:
+    image: henrygd/beszel:latest
+    restart: unless-stopped
+    # No host port published — caddy reaches it over the compose network as
+    # `beszel:8090`. Data (accounts, history) persists in the named volume.
+    volumes:
+      - beszel_data:/beszel_data
+    # Lets the hub reach the host-networked agent: when you "Add System" in the
+    # web UI, use host `host.docker.internal` port `45876`. host-gateway resolves
+    # to this compose network's gateway (not necessarily 172.17.0.1).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  beszel-agent:
+    image: henrygd/beszel-agent:latest
+    restart: unless-stopped
+    # host networking so the agent reports the *host's* real CPU/mem/net/disk
+    # (not a container's namespace) and listens on the host's :45876 for the hub.
+    network_mode: host
+    volumes:
+      # Read-only docker socket enables per-container stats on the dashboard.
+      # Read-only, but still a privileged handle — that's why the subdomain is
+      # gated by Cloudflare Access (see DEPLOY.md).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - LISTEN=45876
+      # Public key the hub generates when you click "Add System" — paste it into
+      # the prod .env. Empty until then; the agent just restart-loops harmlessly
+      # (the rest of the stack is unaffected) until you set it.
+      - KEY=${BESZEL_KEY:-}
+    depends_on:
+      - beszel
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -113,3 +146,4 @@ services:
 
 volumes:
   db_data:
+  beszel_data:

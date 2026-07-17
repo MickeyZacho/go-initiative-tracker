@@ -135,51 +135,71 @@ apply automatically at startup via the embedded goose migrations.
 
 ---
 
-## Optional — DietPi dashboard on its own subdomain
+## Optional — Beszel monitoring dashboard on its own subdomain
 
-Exposes the Pi's **DietPi dashboard** (system panel on host port `5252`) at
-`dietpi.YOUR-DOMAIN`, routed through the same tunnel and Caddy. The dashboard
-runs on the *host*, not in a container, so Caddy reaches it through the docker
-host gateway (already wired: the `caddy` service has
-`extra_hosts: host.docker.internal:host-gateway`, and the Caddyfile proxies the
-`DIETPI_HOSTNAME` host to `host.docker.internal:5252`).
+Exposes a **read-only** system monitor ([Beszel](https://beszel.dev)) at
+`beszel.YOUR-DOMAIN`, routed through the same tunnel and Caddy. Beszel shows
+CPU / memory / disk / temperature / network and per-container Docker stats — it
+has **no** reboot/service/terminal controls, so it's far safer to expose than a
+full admin panel. Two containers are already defined in the compose file:
 
-> **Security first.** This is a full system-admin panel (reboot, service
-> control, terminal). Do **not** leave it protected only by its own password —
-> gate the subdomain with **Cloudflare Access** (step 3 below), which puts an
-> identity check in front of it for free.
+- **`beszel`** — the web hub. Caddy reaches it over the compose network as
+  `beszel:8090` (the Caddyfile routes the `BESZEL_HOSTNAME` host to it).
+- **`beszel-agent`** — reports *this host's* metrics to the hub. It uses host
+  networking (to see the real host, not a container) and a read-only Docker
+  socket (for per-container stats).
 
-1. **Set the hostname** in your prod `.env`:
+> **Still gate it.** Beszel has its own login, but keep **Cloudflare Access**
+> (step 4) in front too — the agent mounts the Docker socket (read-only), so
+> defense in depth is worth it.
+
+Because the hub mints a key you must feed back to the agent, setup is a short
+two-phase dance:
+
+1. **First launch (hub only needs `BESZEL_HOSTNAME`).** In your prod `.env`:
    ```
-   DIETPI_HOSTNAME=dietpi.YOUR-DOMAIN
+   BESZEL_HOSTNAME=beszel.YOUR-DOMAIN
+   # BESZEL_KEY stays blank for now
    ```
-   (Leave it unset/blank to disable the route — the Caddyfile falls back to a
-   host nobody uses, so the main app is unaffected.)
-
-2. **Add a Public Hostname** to the tunnel (Zero Trust → Networks → Tunnels →
-   your tunnel → **Public Hostname** → *Add*):
-   - **Subdomain**: `dietpi`
-   - **Domain**: your domain
-   - **Type**: `HTTP`
-   - **URL**: `caddy:80`  *(same as the main app — Caddy routes by Host header)*
-
-3. **Protect it with Cloudflare Access** (Zero Trust → Access → **Applications**
-   → *Add an application* → **Self-hosted**):
-   - **Application domain**: `dietpi.YOUR-DOMAIN`
-   - Add a **policy** allowing only your email (Action: *Allow*, Include: *Emails*
-     → your address). Now Cloudflare prompts for login before anyone reaches the
-     dashboard.
-
-4. **Apply** — rebuild so the new Caddyfile/compose take effect:
+   Then bring the stack up:
    ```bash
-   docker compose -f docker-compose.prod.yml up -d --build caddy
+   docker compose -f docker-compose.prod.yml up -d --build
    ```
-   Then open **https://dietpi.YOUR-DOMAIN**. If the dashboard isn't installed
-   yet, enable it on the Pi with `dietpi-software` (search "DietPi-Dashboard").
+   `beszel-agent` will restart-loop until you set its key below — that's
+   expected and harmless; the rest of the stack runs normally.
 
-> **Verify the port.** `5252` is the DietPi-Dashboard default. If you changed it,
-> override the upstream via the `DIETPI_UPSTREAM` env on the caddy service (e.g.
-> `host.docker.internal:PORT`).
+2. **Add the tunnel route + Access** (do these once, same as any subdomain):
+   - **Public Hostname** (Zero Trust → Networks → Tunnels → your tunnel →
+     *Public Hostname* → Add): Subdomain `beszel`, your domain, Type `HTTP`,
+     URL `caddy:80`.
+   - **Cloudflare Access** (Zero Trust → Access → Applications → *Self-hosted*):
+     Application domain `beszel.YOUR-DOMAIN`; policy *Allow* → Include *Emails* →
+     your address.
+
+3. **Create the admin account & register this host.** Open
+   **https://beszel.YOUR-DOMAIN** (through the Access prompt), create the first
+   user, then **Add System**:
+   - **Name**: anything (e.g. `pi`)
+   - **Host / IP**: `host.docker.internal`  *(how the hub container reaches the
+     host-networked agent — wired via the hub's `extra_hosts`)*
+   - **Port**: `45876`
+   - Copy the **public key** it shows (`ssh-ed25519 …`).
+
+4. **Feed the key to the agent.** Put it in your prod `.env` (quote the whole
+   line) and restart just the agent:
+   ```
+   BESZEL_KEY="ssh-ed25519 AAAA... beszel"
+   ```
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d beszel-agent
+   ```
+   Back in the hub, the system flips to **up** within a few seconds and charts
+   start filling in.
+
+> **Agent shows "down"?** Check `docker compose logs beszel-agent`. Usual causes:
+> the `KEY` doesn't match what the hub generated, or the host/port in the hub
+> isn't `host.docker.internal:45876`. Confirm the agent is listening with
+> `sudo ss -tlnp | grep 45876`.
 
 ---
 
