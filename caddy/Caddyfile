@@ -14,6 +14,24 @@
 :80 {
 	encode gzip
 
+	# --- DietPi system dashboard on its own subdomain ---
+	# The dashboard runs on the *host* (the Pi), not in a container, so we reach
+	# it through the docker host gateway (host.docker.internal, wired via the
+	# caddy service's extra_hosts in docker-compose.prod.yml). Requests are
+	# matched by Host header — set DIETPI_HOSTNAME (e.g. dietpi.your-domain) in
+	# the prod .env; when unset it defaults to a host nobody uses, so this route
+	# stays dormant and the main app is unaffected.
+	#
+	# SECURITY: this exposes a full system-admin panel. Gate the subdomain with
+	# Cloudflare Access (Zero Trust) — see DEPLOY.md. reverse_proxy upgrades the
+	# dashboard's websocket automatically, so no extra config is needed.
+	@dietpi host {$DIETPI_HOSTNAME:dietpi.invalid}
+	handle @dietpi {
+		reverse_proxy {$DIETPI_UPSTREAM:host.docker.internal:5252}
+	}
+
+	# --- Main app (all other hostnames) ---
+
 	# Server-Sent Events stream for live encounter sync. It must bypass gzip
 	# (which buffers) and flush every write immediately, so it is routed before
 	# the generic /api handler. strip_prefix mirrors handle_path's /api removal.

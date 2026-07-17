@@ -83,6 +83,16 @@ services:
     # project directory and reboots).
     build: ./caddy
     restart: unless-stopped
+    environment:
+      # Host header that routes to the host-based DietPi dashboard (e.g.
+      # dietpi.your-domain). Unset -> defaults to a host nobody uses, so the
+      # dashboard route stays dormant and the main app is unaffected.
+      - DIETPI_HOSTNAME=${DIETPI_HOSTNAME:-dietpi.invalid}
+    # Lets caddy reach services on the host (the Pi) — the DietPi dashboard runs
+    # on the host, not in a container, so host.docker.internal:5252 in the
+    # Caddyfile resolves here. Harmless when the dashboard route is unused.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Local smoke test only: http://localhost:8080 . Login won't work over plain
     # http (Secure cookies) — the real test is through the tunnel's https URL.
     ports:

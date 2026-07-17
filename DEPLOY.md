@@ -135,6 +135,54 @@ apply automatically at startup via the embedded goose migrations.
 
 ---
 
+## Optional — DietPi dashboard on its own subdomain
+
+Exposes the Pi's **DietPi dashboard** (system panel on host port `5252`) at
+`dietpi.YOUR-DOMAIN`, routed through the same tunnel and Caddy. The dashboard
+runs on the *host*, not in a container, so Caddy reaches it through the docker
+host gateway (already wired: the `caddy` service has
+`extra_hosts: host.docker.internal:host-gateway`, and the Caddyfile proxies the
+`DIETPI_HOSTNAME` host to `host.docker.internal:5252`).
+
+> **Security first.** This is a full system-admin panel (reboot, service
+> control, terminal). Do **not** leave it protected only by its own password —
+> gate the subdomain with **Cloudflare Access** (step 3 below), which puts an
+> identity check in front of it for free.
+
+1. **Set the hostname** in your prod `.env`:
+   ```
+   DIETPI_HOSTNAME=dietpi.YOUR-DOMAIN
+   ```
+   (Leave it unset/blank to disable the route — the Caddyfile falls back to a
+   host nobody uses, so the main app is unaffected.)
+
+2. **Add a Public Hostname** to the tunnel (Zero Trust → Networks → Tunnels →
+   your tunnel → **Public Hostname** → *Add*):
+   - **Subdomain**: `dietpi`
+   - **Domain**: your domain
+   - **Type**: `HTTP`
+   - **URL**: `caddy:80`  *(same as the main app — Caddy routes by Host header)*
+
+3. **Protect it with Cloudflare Access** (Zero Trust → Access → **Applications**
+   → *Add an application* → **Self-hosted**):
+   - **Application domain**: `dietpi.YOUR-DOMAIN`
+   - Add a **policy** allowing only your email (Action: *Allow*, Include: *Emails*
+     → your address). Now Cloudflare prompts for login before anyone reaches the
+     dashboard.
+
+4. **Apply** — rebuild so the new Caddyfile/compose take effect:
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d --build caddy
+   ```
+   Then open **https://dietpi.YOUR-DOMAIN**. If the dashboard isn't installed
+   yet, enable it on the Pi with `dietpi-software` (search "DietPi-Dashboard").
+
+> **Verify the port.** `5252` is the DietPi-Dashboard default. If you changed it,
+> override the upstream via the `DIETPI_UPSTREAM` env on the caddy service (e.g.
+> `host.docker.internal:PORT`).
+
+---
+
 ## Troubleshooting
 
 - **502 / "no healthy origin"** — caddy or the app containers aren't up yet;
