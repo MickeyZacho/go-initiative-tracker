@@ -1,8 +1,14 @@
+# syntax=docker/dockerfile:1
 # Frontend Dockerfile
 FROM node:22-alpine AS builder
 WORKDIR /app
+# Install deps first, keyed only on the lockfiles. A source-only change then
+# reuses this layer instead of triggering a full `npm ci` reinstall on every
+# commit. The cache mount persists npm's download cache across builds.
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+# Now the source. Changes here reuse the cached node_modules layer above.
 COPY . .
-RUN npm ci
 # Stamp the bundle with the git short SHA (baked in via Vite's `define`).
 # Passed in from docker-compose / CI; defaults to "dev" for a plain build.
 ARG GIT_SHA=dev
