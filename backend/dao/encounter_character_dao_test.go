@@ -204,6 +204,70 @@ func TestAdvanceTurn_NoCharactersErrorsAndRollsBack(t *testing.T) {
 	}
 }
 
+func TestSetActiveCharacter_ActivatesOneClearsRest(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	dao := NewEncounterCharacterDAO(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 2).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := dao.SetActiveCharacter(7, 2); err != nil {
+		t.Fatalf("SetActiveCharacter returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestSetActiveCharacter_NotInEncounterErrorsAndRollsBack(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	dao := NewEncounterCharacterDAO(db)
+
+	// The target isn't a combatant, so the activating UPDATE hits no rows and the
+	// transaction must roll back rather than leave the encounter with no active.
+	mock.ExpectBegin()
+	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 99).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+
+	if err := dao.SetActiveCharacter(7, 99); err == nil {
+		t.Fatal("expected an error when the character is not in the encounter")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestSetActiveCharacter_RollsBackWhenClearFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	dao := NewEncounterCharacterDAO(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnError(errors.New("boom"))
+	mock.ExpectRollback()
+
+	if err := dao.SetActiveCharacter(7, 2); err == nil {
+		t.Fatal("expected SetActiveCharacter to surface the update error")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 func TestResetCombat_DeactivatesEveryone(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
