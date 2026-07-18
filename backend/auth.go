@@ -103,9 +103,16 @@ func discordCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to decode user info: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Discord retired discriminators in 2023; migrated accounts report "0" and a
+	// globally-unique username. Only append the legacy "#xxxx" for the vanishing
+	// set of un-migrated accounts so modern users don't display as "name#0".
+	displayName := userInfo.Username
+	if userInfo.Discriminator != "" && userInfo.Discriminator != "0" {
+		displayName = userInfo.Username + "#" + userInfo.Discriminator
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "discord_user",
-		Value:    userInfo.Username + "#" + userInfo.Discriminator,
+		Value:    displayName,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   secureCookies,
