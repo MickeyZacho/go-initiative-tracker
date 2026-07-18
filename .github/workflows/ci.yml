@@ -146,6 +146,14 @@ jobs:
           docker compose -f "$COMPOSE_FILE" logs --tail=50
           exit 1
 
-      - name: Prune dangling images
+      - name: Reclaim disk (dangling images + capped build cache)
         if: always()
-        run: docker image prune -f
+        run: |
+          docker image prune -f
+          # The BuildKit cache (incl. our Go/npm cache mounts) never evicts old
+          # entries on its own, so it grows a fresh layer set per deploy and
+          # would eventually fill the Pi's SD card. Keep the most-recent ~1GB
+          # warm — enough to keep deploys fast — and trim everything older.
+          # --keep-storage is the widely-compatible spelling; on newer Docker it
+          # may warn and the equivalent is --reserved-space=1GB.
+          docker builder prune --keep-storage=1GB -f
