@@ -12,6 +12,7 @@ interface CharacterRowProps {
 	character: Character;
 	setCharacters: React.Dispatch<React.SetStateAction<Character[]>>;
 	setSelected: (id: number) => void;
+	onSelect: (id: number) => void;
 	onSave: (character: Character) => void;
 	onRemove: () => void;
 }
@@ -84,6 +85,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	character,
 	setCharacters,
 	setSelected,
+	onSelect,
 	onSave,
 	onRemove,
 }) => {
@@ -129,10 +131,20 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	const handleRowClick = (e: React.MouseEvent<HTMLDivElement>) => {
 		const tag = (e.target as HTMLElement).tagName;
 		if (tag === "INPUT") return;
+		// Only replace the objects whose IsActive actually flips; keep identity
+		// for every other row so React/the compiler can skip re-rendering (and
+		// repainting) them. Rebuilding the whole list repaints the entire card,
+		// which flickers unrelated elements like the collapsed combat log.
 		setCharacters((prev) =>
-			prev.map((c) => ({ ...c, IsActive: c.ID === character.ID }))
+			prev.map((c) => {
+				const shouldBeActive = c.ID === character.ID;
+				return c.IsActive === shouldBeActive
+					? c
+					: { ...c, IsActive: shouldBeActive };
+			})
 		);
 		setSelected(character.ID);
+		onSelect(character.ID);
 	};
 
 	return (

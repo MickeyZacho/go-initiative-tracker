@@ -183,6 +183,7 @@ func main() {
 	http.Handle("/encounters/combat/start", loggingMiddleware(http.HandlerFunc(apiStartCombatHandler)))
 	http.Handle("/encounters/combat/setup", loggingMiddleware(http.HandlerFunc(apiResetCombatHandler)))
 	http.Handle("/encounters/combat/next-turn", loggingMiddleware(http.HandlerFunc(apiNextTurnHandler)))
+	http.Handle("/encounters/combat/set-active", loggingMiddleware(http.HandlerFunc(apiSetActiveHandler)))
 	http.Handle("/encounters/ledger", loggingMiddleware(http.HandlerFunc(apiEncounterLedgerHandler)))
 	http.Handle("/encounters/events", loggingMiddleware(http.HandlerFunc(apiEncounterEventsHandler)))
 	http.Handle("/encounters/ledger/add", loggingMiddleware(http.HandlerFunc(apiAddEncounterLedgerHandler)))

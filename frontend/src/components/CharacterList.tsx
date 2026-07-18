@@ -10,6 +10,11 @@ import {
 	FormControl,
 	InputLabel,
 	Stack,
+	Accordion,
+	AccordionSummary,
+	AccordionDetails,
+	Button,
+	Collapse,
 } from "@mui/material";
 import { AddCharacterControl } from "./AddCharacterControl";
 import { AddNpcControl } from "./AddNpcControl";
@@ -95,6 +100,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		Record<number, QuickActionInput>
 	>({});
 	const [, setSelected] = useState<number | null>(null);
+	// Secondary combat surfaces are collapsed by default so the initiative list
+	// stays the focus; users open them on demand.
+	const [showAddControls, setShowAddControls] = useState<boolean>(false);
 
 	// Compose error and loading states from hooks
 	const isLoading = encountersLoading || charactersLoading;
@@ -337,6 +345,33 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[applyQuickAction],
 	);
 
+	// Persist the clicked character as the active turn holder so the server's
+	// turn pointer moves with the selection (a subsequent "next turn" continues
+	// from here, not the previous active character). The row updates IsActive
+	// locally for instant feedback; this just syncs the server.
+	const setActiveCharacter = useCallback(
+		async (characterID: number) => {
+			if (!encounterId || !characterID) return;
+			try {
+				await apiPost(
+					"/encounters/combat/set-active",
+					{
+						encounter_id: encounterId,
+						character_id: characterID,
+					},
+					"Failed to select character",
+				);
+			} catch (err) {
+				setActionError(
+					err instanceof Error
+						? err.message
+						: "Failed to select character",
+				);
+			}
+		},
+		[encounterId],
+	);
+
 	const removeCharacter = async (characterID: number) => {
 		await apiPost(
 			"/remove-character-from-encounter",
@@ -526,74 +561,134 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 											character={character}
 											setCharacters={setCharacters}
 											setSelected={setSelected}
+											onSelect={setActiveCharacter}
 											onSave={saveCharacter}
 											onRemove={() => removeCharacter(character.ID)}
 										/>
 									</div>
 								))}
-							<CombatControls
-								characters={characters}
-								quickActionByActor={quickActionByActor}
-								handleQuickActionChange={handleQuickActionChange}
-								handleQuickAmountKeyDown={handleQuickAmountKeyDown}
-								applyQuickAction={applyQuickAction}
-							/>
+							{characters.length > 0 && (
+								<Accordion
+									disableGutters
+									elevation={0}
+									slotProps={{
+										transition: { unmountOnExit: true },
+									}}
+									sx={{
+										border: 1,
+										borderColor: "divider",
+										borderRadius: 2,
+										"&:before": { display: "none" },
+									}}
+								>
+									<AccordionSummary expandIcon={<span>▾</span>}>
+										<Typography fontWeight={600}>
+											Attack / Heal Actions
+										</Typography>
+									</AccordionSummary>
+									<AccordionDetails>
+										<CombatControls
+											characters={characters}
+											quickActionByActor={quickActionByActor}
+											handleQuickActionChange={handleQuickActionChange}
+											handleQuickAmountKeyDown={handleQuickAmountKeyDown}
+											applyQuickAction={applyQuickAction}
+										/>
+									</AccordionDetails>
+								</Accordion>
+							)}
 						</Stack>
-						{/* Add Existing Character */}
-						<Stack
-							direction="row"
-							spacing={2}
-							justifyContent="center"
-							alignItems="center"
-							mt={2}
-						>
-							<AddCharacterControl
-								availableLibraryCharacters={availableLibraryCharacters}
-								selectedAddCharacterId={selectedAddCharacterId}
-								setSelectedAddCharacterId={setSelectedAddCharacterId}
-								addExistingCharacterToEncounter={addExistingCharacterToEncounter}
-								encounterId={encounterId}
-							/>
-						</Stack>
-						{/* Add NPC */}
-						<Stack
-							direction="row"
-							spacing={2}
-							justifyContent="center"
-							alignItems="center"
-							mt={1}
-						>
-							<AddNpcControl
-								npcTemplates={npcTemplates}
-								selectedAddNpcId={selectedAddNpcId}
-								setSelectedAddNpcId={setSelectedAddNpcId}
-								addNpcToEncounter={addNpcToEncounter}
-								encounterId={encounterId}
-							/>
-						</Stack>
-						{isLoading && (
+						{/* Add existing characters / NPCs — tucked behind a single
+						    unobtrusive toggle so it doesn't dominate the view. */}
+						<Box>
+							<Button
+								size="small"
+								variant="text"
+								onClick={() => setShowAddControls((prev) => !prev)}
+								sx={{ textTransform: "none" }}
+							>
+								{showAddControls ? "▾" : "▸"} Add characters & NPCs
+							</Button>
+							<Collapse in={showAddControls}>
+								<Stack spacing={2} mt={1}>
+									<Stack
+										direction="row"
+										spacing={2}
+										alignItems="center"
+										flexWrap="wrap"
+										useFlexGap
+									>
+										<AddCharacterControl
+											availableLibraryCharacters={availableLibraryCharacters}
+											selectedAddCharacterId={selectedAddCharacterId}
+											setSelectedAddCharacterId={setSelectedAddCharacterId}
+											addExistingCharacterToEncounter={addExistingCharacterToEncounter}
+											encounterId={encounterId}
+										/>
+									</Stack>
+									<Stack
+										direction="row"
+										spacing={2}
+										alignItems="center"
+										flexWrap="wrap"
+										useFlexGap
+									>
+										<AddNpcControl
+											npcTemplates={npcTemplates}
+											selectedAddNpcId={selectedAddNpcId}
+											setSelectedAddNpcId={setSelectedAddNpcId}
+											addNpcToEncounter={addNpcToEncounter}
+											encounterId={encounterId}
+										/>
+									</Stack>
+								</Stack>
+							</Collapse>
+						</Box>
+						{isLoading && characters.length === 0 && (
 							<Typography color="text.secondary">
 								Loading...
 							</Typography>
 						)}
-						<CombatLog
-							ledgerEntries={ledgerEntries}
-							characters={characters}
-							logActorId={logActorId}
-							setLogActorId={setLogActorId}
-							logTargetId={logTargetId}
-							setLogTargetId={setLogTargetId}
-							logActionType={logActionType}
-							setLogActionType={setLogActionType}
-							logHPChange={logHPChange}
-							setLogHPChange={setLogHPChange}
-							logDescription={logDescription}
-							setLogDescription={setLogDescription}
-							addLogEntry={addLogEntry}
-							encounterId={encounterId}
-							formatLogTime={formatLogTime}
-							characterNameByID={characterNameByID}
-						/>
+						<Accordion
+							disableGutters
+							elevation={0}
+							slotProps={{ transition: { unmountOnExit: true } }}
+							sx={{
+								border: 1,
+								borderColor: "divider",
+								borderRadius: 2,
+								"&:before": { display: "none" },
+							}}
+						>
+							<AccordionSummary expandIcon={<span>▾</span>}>
+								<Typography fontWeight={600}>
+									Combat Log
+									{ledgerEntries.length > 0
+										? ` (${ledgerEntries.length})`
+										: ""}
+								</Typography>
+							</AccordionSummary>
+							<AccordionDetails>
+								<CombatLog
+									ledgerEntries={ledgerEntries}
+									characters={characters}
+									logActorId={logActorId}
+									setLogActorId={setLogActorId}
+									logTargetId={logTargetId}
+									setLogTargetId={setLogTargetId}
+									logActionType={logActionType}
+									setLogActionType={setLogActionType}
+									logHPChange={logHPChange}
+									setLogHPChange={setLogHPChange}
+									logDescription={logDescription}
+									setLogDescription={setLogDescription}
+									addLogEntry={addLogEntry}
+									encounterId={encounterId}
+									formatLogTime={formatLogTime}
+									characterNameByID={characterNameByID}
+								/>
+							</AccordionDetails>
+						</Accordion>
 					</Stack>
 				</CardContent>
 			</Card>

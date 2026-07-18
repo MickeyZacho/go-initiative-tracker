@@ -51,10 +51,7 @@ export const CombatLog: React.FC<CombatLogProps> = ({
 	formatLogTime,
 	characterNameByID,
 }) => (
-	<Stack spacing={1.5} mt={2}>
-		<Typography variant="h6" fontWeight={700}>
-			Combat Log
-		</Typography>
+	<Stack spacing={1.5}>
 		<Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
 			<FormControl sx={{ minWidth: 140 }}>
 				<InputLabel id="log-actor-label">Actor</InputLabel>

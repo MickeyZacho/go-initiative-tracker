@@ -50,6 +50,42 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
 }
 
+func apiSetActiveHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+
+	var req struct {
+		EncounterID int `json:"encounter_id"`
+		CharacterID int `json:"character_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if req.EncounterID <= 0 || req.CharacterID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid encounter or character id")
+		return
+	}
+	if !requireEncounterAccess(w, r, req.EncounterID) {
+		return
+	}
+
+	if err := encounterCharacterDAO.SetActiveCharacter(req.EncounterID, req.CharacterID); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not in encounter") {
+			writeJSONError(w, http.StatusNotFound, "Character not in encounter")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "Failed to set active character")
+		return
+	}
+
+	events.publish(req.EncounterID, "combat")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": req.CharacterID})
+}
+
 func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {

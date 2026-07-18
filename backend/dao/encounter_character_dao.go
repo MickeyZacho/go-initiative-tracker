@@ -20,6 +20,7 @@ type EncounterCharacterDAO interface {
 	StartCombat(encounterID int) (int, error)
 	ResetCombat(encounterID int) error
 	AdvanceTurn(encounterID int) (int, error)
+	SetActiveCharacter(encounterID, characterID int) error
 }
 
 type encounterCharacterDAOImpl struct {
@@ -111,6 +112,41 @@ func (dao *encounterCharacterDAOImpl) ResetCombat(encounterID int) error {
 		encounterID,
 	)
 	return err
+}
+
+// SetActiveCharacter makes a single character the active turn holder, clearing
+// is_active on everyone else in the encounter. This lets a user click a
+// character to take the turn so a subsequent AdvanceTurn continues from there.
+func (dao *encounterCharacterDAOImpl) SetActiveCharacter(encounterID, characterID int) error {
+	tx, err := dao.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err = tx.Exec(
+		"UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1",
+		encounterID,
+	); err != nil {
+		return err
+	}
+
+	res, err := tx.Exec(
+		"UPDATE encounter_characters SET is_active = TRUE WHERE encounter_id = $1 AND character_id = $2",
+		encounterID, characterID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("character not in encounter")
+	}
+
+	return tx.Commit()
 }
 
 func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) {
