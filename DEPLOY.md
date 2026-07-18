@@ -105,7 +105,10 @@ matching `DISCORD_REDIRECT_URL`, and the `TUNNEL_TOKEN` from Step 3.
 ## Step 5 — Launch
 
 ```powershell
-docker compose -f docker-compose.prod.yml up -d --build
+# GIT_SHA stamps the /version endpoint and the UI footer with the commit you're
+# deploying. Setting it from git here keeps a manual deploy from falling back to
+# the "dev" placeholder. (CI/CD sets this automatically — see the CD section.)
+$env:GIT_SHA = (git rev-parse --short HEAD); docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 Check everything is healthy:
@@ -127,7 +130,7 @@ full OAuth round-trip.
 ```powershell
 docker compose -f docker-compose.prod.yml logs -f backend    # tail backend logs
 docker compose -f docker-compose.prod.yml down               # stop (keeps the db volume)
-docker compose -f docker-compose.prod.yml up -d --build       # apply code changes
+$env:GIT_SHA = (git rev-parse --short HEAD); docker compose -f docker-compose.prod.yml up -d --build   # apply code changes (stamps the version)
 ```
 
 Data lives in the `db_data` Docker volume and survives restarts. Schema changes

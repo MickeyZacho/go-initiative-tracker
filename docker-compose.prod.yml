@@ -46,7 +46,12 @@ services:
       retries: 5
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        # Stamps the /version endpoint. Set when building, e.g.:
+        #   GIT_SHA=$(git rev-parse --short HEAD) docker compose -f docker-compose.prod.yml up -d --build
+        GIT_SHA: ${GIT_SHA:-dev}
     restart: unless-stopped
     environment:
       - PORT=8080
@@ -72,7 +77,11 @@ services:
         condition: service_healthy
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # Same short SHA baked into the frontend bundle (shown in the footer).
+        GIT_SHA: ${GIT_SHA:-dev}
     restart: unless-stopped
     depends_on:
       - backend

@@ -103,6 +103,7 @@ func TestHandlersRejectWrongMethod(t *testing.T) {
 		{"members", apiEncounterMembersHandler, http.MethodPost},
 		{"members/add", apiAddEncounterMemberHandler, http.MethodGet},
 		{"members/remove", apiRemoveEncounterMemberHandler, http.MethodGet},
+		{"version", apiVersionHandler, http.MethodPost},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

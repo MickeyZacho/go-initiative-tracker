@@ -13,6 +13,7 @@ import {
 } from "react-router-dom";
 import NpcsPage from "./components/NpcsPage";
 import FriendsPage from "./components/FriendsPage";
+import Footer from "./components/Footer";
 
 const NAV_ITEMS = [
 	{ label: "Characters", path: "/characters" },
@@ -37,7 +38,14 @@ function App() {
 	const location = useLocation();
 
 	return (
-		<Box sx={{ minHeight: "100vh", width: "100%" }}>
+		<Box
+			sx={{
+				minHeight: "100vh",
+				width: "100%",
+				display: "flex",
+				flexDirection: "column",
+			}}
+		>
 			<AppBar position="sticky" color="default" elevation={1}>
 				<Container maxWidth="md" disableGutters>
 					<Toolbar
@@ -83,7 +91,12 @@ function App() {
 			</AppBar>
 			<Container
 				maxWidth="md"
-				sx={{ py: 4, px: { xs: 2, sm: 3 }, textAlign: "left" }}
+				sx={{
+					py: 4,
+					px: { xs: 2, sm: 3 },
+					textAlign: "left",
+					flexGrow: 1,
+				}}
 			>
 				<Routes>
 					<Route
@@ -114,6 +127,7 @@ function App() {
 					/>
 				</Routes>
 			</Container>
+			<Footer />
 		</Box>
 	);
 }

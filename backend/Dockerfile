@@ -6,7 +6,11 @@ COPY ./go.mod ./go.sum ./
 RUN go mod download
 # Now copy the rest of the source code
 COPY . .
-RUN go build -o server .
+# Stamp the build with the git short SHA. Passed in from docker-compose / CI
+# (the .git dir isn't copied into the image, so it must come in as a build arg).
+# Defaults to "dev" for a plain `docker build` with no arg.
+ARG GIT_SHA=dev
+RUN go build -ldflags "-X main.version=${GIT_SHA}" -o server .
 
 FROM alpine:latest
 WORKDIR /app

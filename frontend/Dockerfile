@@ -3,6 +3,10 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 COPY . .
 RUN npm ci
+# Stamp the bundle with the git short SHA (baked in via Vite's `define`).
+# Passed in from docker-compose / CI; defaults to "dev" for a plain build.
+ARG GIT_SHA=dev
+ENV GIT_SHA=${GIT_SHA}
 RUN npm run build
 
 FROM nginx:alpine

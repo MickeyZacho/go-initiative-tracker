@@ -122,6 +122,11 @@ jobs:
         run: |
           set -euo pipefail
           cd "$DEPLOY_DIR"
+          # Stamp both images with the exact commit being deployed (the checkout
+          # was just reset to $GITHUB_SHA above). docker-compose.prod.yml reads
+          # ${GIT_SHA}, so the /version endpoint and UI footer always reflect the
+          # running commit and can't drift from what's actually deployed.
+          export GIT_SHA="$(git rev-parse --short HEAD)"
           docker compose -f "$COMPOSE_FILE" up -d --build --remove-orphans
 
       - name: Wait for the stack to answer
