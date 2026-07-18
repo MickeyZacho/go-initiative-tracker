@@ -6,6 +6,9 @@ import (
 
 type EncounterDAO interface {
 	GetAllEncounters() ([]Encounter, error)
+	// GetUnownedEncounters returns only encounters with no owner, shown to
+	// logged-out visitors as public examples.
+	GetUnownedEncounters() ([]Encounter, error)
 	CreateEncounter(encounter Encounter) (int, error)
 	DeleteEncounter(id int) error
 	DeleteEncounterByOwner(id int, ownerID string) (bool, error)
@@ -38,6 +41,25 @@ func NewEncounterDAO(db *sql.DB) EncounterDAO {
 
 func (dao *encounterDAOImpl) GetAllEncounters() ([]Encounter, error) {
 	rows, err := dao.db.Query("SELECT id, name, COALESCE(owner_id, ''), COALESCE(description, '') FROM encounters")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var encounters []Encounter
+	for rows.Next() {
+		var e Encounter
+		err := rows.Scan(&e.ID, &e.Name, &e.OwnerID, &e.Description)
+		if err != nil {
+			return nil, err
+		}
+		encounters = append(encounters, e)
+	}
+	return encounters, nil
+}
+
+func (dao *encounterDAOImpl) GetUnownedEncounters() ([]Encounter, error) {
+	rows, err := dao.db.Query("SELECT id, name, COALESCE(owner_id, ''), COALESCE(description, '') FROM encounters WHERE owner_id IS NULL OR owner_id = '' ORDER BY id")
 	if err != nil {
 		return nil, err
 	}

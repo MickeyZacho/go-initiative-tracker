@@ -23,7 +23,7 @@ func fetchCharacters(r *http.Request, encounterID int) ([]dao.Character, error) 
 	if discordID != "" {
 		return characterDAO.GetAllCharactersByOwner(discordID)
 	}
-	return characterDAO.GetAllCharacters()
+	return characterDAO.GetSampleCharacters()
 }
 
 func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,7 @@ func apiLibraryCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	if discordID != "" {
 		data, err = characterDAO.GetAllCharactersByOwner(discordID)
 	} else {
-		data, err = characterDAO.GetAllCharacters()
+		data, err = characterDAO.GetSampleCharacters()
 	}
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch characters")
@@ -103,8 +103,13 @@ func apiSaveLibraryCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Ownership is always the authenticated caller; never trust an owner_id
-	// supplied in the request body.
+	// supplied in the request body. Logged-out visitors may not create or edit
+	// characters — they only get a read-only sample.
 	discordID := getDiscordIDFromRequest(r)
+	if discordID == "" {
+		writeJSONError(w, http.StatusUnauthorized, "You must be signed in to save characters")
+		return
+	}
 	char.OwnerID = discordID
 	if char.ID == 0 {
 		newID, err := characterDAO.CreateCharacter(char)
@@ -201,7 +206,12 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case char.ID == 0:
 		// New character: ownership is always the authenticated caller; never
-		// trust an owner_id supplied in the request body.
+		// trust an owner_id supplied in the request body. Logged-out visitors may
+		// not create characters, even inside an owner-less encounter.
+		if discordID == "" {
+			writeJSONError(w, http.StatusUnauthorized, "You must be signed in to create characters")
+			return
+		}
 		char.OwnerID = discordID
 		newID, err := characterDAO.CreateCharacter(char)
 		if err != nil {

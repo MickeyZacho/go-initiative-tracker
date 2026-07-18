@@ -164,6 +164,34 @@ func TestGetAllCharacters(t *testing.T) {
 	}
 }
 
+func TestGetSampleCharacters(t *testing.T) {
+	mockDB, mockConn, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer mockDB.Close()
+
+	rows := sqlmock.NewRows([]string{
+		"id", "name", "armor_class", "to_hit_modifier", "max_hp",
+		"current_hp", "initiative", "is_active", "owner_id", "type", "npc_template_id",
+	}).AddRow(1, "Goblin", 13, 2, 7, 7, 0, false, "", "npc", nil)
+	// Only unowned characters are sampled for logged-out visitors.
+	mockConn.ExpectQuery("SELECT id, name").
+		WillReturnRows(rows)
+
+	characterDAO := dao.NewCharacterDAO(mockDB)
+	characters, err := characterDAO.GetSampleCharacters()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(characters) != 1 || characters[0].OwnerID != "" {
+		t.Errorf("unexpected result: %+v", characters)
+	}
+	if err := mockConn.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 func TestGetAllEncounters(t *testing.T) {
 	mockDB, mockConn, err := sqlmock.New()
 	if err != nil {

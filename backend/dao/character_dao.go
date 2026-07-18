@@ -21,6 +21,7 @@ type Character struct {
 
 type CharacterDAO interface {
 	GetAllCharacters() ([]Character, error)
+	GetSampleCharacters() ([]Character, error)
 	GetCharacterByID(id int) (Character, error)
 	GetCharactersByEncounterID(encounterID int) ([]Character, error)
 	CreateCharacter(character Character) (int, error)
@@ -42,6 +43,28 @@ func NewCharacterDAO(db *sql.DB) CharacterDAO {
 
 func (dao *characterDAOImpl) GetAllCharacters() ([]Character, error) {
 	rows, err := dao.db.Query("SELECT id, name, armor_class, to_hit_modifier, max_hp, max_hp AS current_hp, 0 AS initiative, false AS is_active, COALESCE(owner_id, ''), type, npc_template_id FROM characters")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var characters []Character
+	for rows.Next() {
+		var c Character
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID, &c.Type, &c.NpcTemplateID)
+		if err != nil {
+			return nil, err
+		}
+		characters = append(characters, c)
+	}
+	return characters, nil
+}
+
+// GetSampleCharacters returns the unowned example characters (NPCs/monsters and
+// seed rows with no owner), so logged-out visitors see a few examples rather
+// than every row in the database. Ordered by id for a stable sample.
+func (dao *characterDAOImpl) GetSampleCharacters() ([]Character, error) {
+	rows, err := dao.db.Query("SELECT id, name, armor_class, to_hit_modifier, max_hp, max_hp AS current_hp, 0 AS initiative, false AS is_active, COALESCE(owner_id, ''), type, npc_template_id FROM characters WHERE owner_id IS NULL OR owner_id = '' ORDER BY id")
 	if err != nil {
 		return nil, err
 	}

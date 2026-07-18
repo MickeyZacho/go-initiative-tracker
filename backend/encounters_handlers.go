@@ -20,7 +20,8 @@ func apiEncountersHandler(w http.ResponseWriter, r *http.Request) {
 		// Include encounters the user owns and any they are a shared-edit member of.
 		data, err = encounterDAO.GetAccessibleEncounters(discordID)
 	} else {
-		data, err = encounterDAO.GetAllEncounters()
+		// Logged-out visitors only see public (owner-less) encounters.
+		data, err = encounterDAO.GetUnownedEncounters()
 	}
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch encounters")

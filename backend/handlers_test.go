@@ -391,10 +391,11 @@ func TestResetCombatAllowsOwner(t *testing.T) {
 
 // --- Encounters CRUD --------------------------------------------------------
 
-func TestEncountersListLoggedOutReturnsAll(t *testing.T) {
+func TestEncountersListLoggedOutReturnsOnlyUnowned(t *testing.T) {
 	m, restore := newFullMock(t)
 	defer restore()
-	m.ExpectQuery("SELECT id, name").WillReturnRows(
+	// Logged-out visitors only see owner-less encounters.
+	m.ExpectQuery("owner_id IS NULL OR owner_id = ''").WillReturnRows(
 		sqlmock.NewRows([]string{"id", "name", "owner_id", "description"}).
 			AddRow(1, "Goblins", "", "ambush"),
 	)
@@ -527,10 +528,31 @@ func TestSaveLibraryCharacterCreates(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(11))
 
 	rr, req := postJSON("/characters/library/save", `{"Name":"Rogue","MaxHP":8}`)
+	authed(req, "u1")
 	apiSaveLibraryCharacterHandler(rr, req)
 
 	assertStatus(t, rr, http.StatusOK)
 	assertMet(t, m)
+}
+
+func TestSaveLibraryCharacterLoggedOutRejected(t *testing.T) {
+	_, restore := newFullMock(t)
+	defer restore()
+
+	rr, req := postJSON("/characters/library/save", `{"Name":"Rogue","MaxHP":8}`)
+	apiSaveLibraryCharacterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusUnauthorized)
+}
+
+func TestSaveCharacterLoggedOutRejected(t *testing.T) {
+	_, restore := newFullMock(t)
+	defer restore()
+
+	rr, req := postJSON("/save-character", `{"Name":"Rogue","MaxHP":8}`)
+	saveCharacterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusUnauthorized)
 }
 
 func TestDeleteLibraryCharacterOwner(t *testing.T) {
