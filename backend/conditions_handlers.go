@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"go-initiative-tracker/dao"
 	"net/http"
 	"strings"
@@ -22,6 +23,7 @@ func apiAddConditionHandler(w http.ResponseWriter, r *http.Request) {
 		CharacterID    int    `json:"character_id"`
 		Condition      string `json:"condition"`
 		DurationRounds *int   `json:"duration_rounds"`
+		Level          *int   `json:"level"`
 		Note           string `json:"note"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -43,6 +45,18 @@ func apiAddConditionHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Duration must be greater than 0")
 		return
 	}
+	// Leveled conditions (Exhaustion) require a level in range; every other
+	// condition must not carry one, so a stray level can't be stored and then
+	// rendered as "Prone 4".
+	if !dao.IsValidConditionLevel(req.Condition, req.Level) {
+		if max := dao.ConditionMaxLevel(req.Condition); max > 0 {
+			writeJSONError(w, http.StatusBadRequest,
+				fmt.Sprintf("%s requires a level between 1 and %d", req.Condition, max))
+		} else {
+			writeJSONError(w, http.StatusBadRequest, req.Condition+" does not have levels")
+		}
+		return
+	}
 	if !requireEncounterAccess(w, r, req.EncounterID) {
 		return
 	}
@@ -52,6 +66,7 @@ func apiAddConditionHandler(w http.ResponseWriter, r *http.Request) {
 		CharacterID:    req.CharacterID,
 		Condition:      req.Condition,
 		DurationRounds: req.DurationRounds,
+		Level:          req.Level,
 		Note:           strings.TrimSpace(req.Note),
 	}); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to add condition")
@@ -101,13 +116,14 @@ func apiRemoveConditionHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
-// apiConditionCatalogHandler returns the canonical set of condition names so the
-// frontend can populate its picker without hardcoding the list.
+// apiConditionCatalogHandler returns the canonical set of conditions — name plus
+// level metadata — so the frontend can populate its picker, and know to prompt
+// for a level on Exhaustion, without hardcoding the list.
 func apiConditionCatalogHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dao.ValidConditions)
+	json.NewEncoder(w).Encode(dao.ConditionCatalog())
 }

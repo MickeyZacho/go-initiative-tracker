@@ -35,7 +35,18 @@ export interface Condition {
 	CharacterID: number;
 	Condition: string;
 	DurationRounds: number | null;
+	// Non-null only for leveled conditions (Exhaustion, 1-6).
+	Level: number | null;
 	Note: string;
+}
+
+// One catalog entry from the backend. MaxLevel is 0 for ordinary conditions and
+// >0 for leveled ones (Exhaustion), which is what tells the picker to prompt for
+// a level; LevelEffects describes each level, used as tooltip text.
+export interface ConditionInfo {
+	Name: string;
+	MaxLevel: number;
+	LevelEffects?: string[];
 }
 
 export interface Character {
@@ -98,7 +109,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 
 	// Local state
 	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
-	const [conditionCatalog, setConditionCatalog] = useState<string[]>([]);
+	const [conditionCatalog, setConditionCatalog] = useState<ConditionInfo[]>([]);
 	const [actionError, setActionError] = useState<string>("");
 	const [selectedAddCharacterId, setSelectedAddCharacterId] =
 		useState<number>(0);
@@ -134,7 +145,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	// The condition catalog is a static, backend-owned list (the 5e set); fetch it
 	// once so the row picker stays in sync with what the server will accept.
 	useEffect(() => {
-		void apiGetArray<string>("/encounters/conditions/catalog")
+		void apiGetArray<ConditionInfo>("/encounters/conditions/catalog")
 			.then(setConditionCatalog)
 			.catch(() => setConditionCatalog([]));
 	}, []);
@@ -396,6 +407,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			characterID: number,
 			condition: string,
 			durationRounds: number | null,
+			level: number | null,
 		) => {
 			if (!encounterId || !characterID || !condition) return;
 			setActionError("");
@@ -407,6 +419,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						character_id: characterID,
 						condition,
 						duration_rounds: durationRounds,
+						level,
 					},
 					"Failed to add condition",
 				);

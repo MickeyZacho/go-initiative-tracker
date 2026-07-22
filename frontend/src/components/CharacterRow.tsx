@@ -1,5 +1,5 @@
 import React from "react";
-import type { Character } from "./CharacterList";
+import type { Character, ConditionInfo } from "./CharacterList";
 
 type EditableFieldName =
 	| "Name"
@@ -15,11 +15,12 @@ interface CharacterRowProps {
 	onSelect: (id: number) => void;
 	onSave: (character: Character) => void;
 	onRemove: () => void;
-	conditionCatalog: string[];
+	conditionCatalog: ConditionInfo[];
 	onAddCondition: (
 		characterID: number,
 		condition: string,
 		durationRounds: number | null,
+		level: number | null,
 	) => void;
 	onRemoveCondition: (conditionID: number) => void;
 }
@@ -109,22 +110,52 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	const [addingCondition, setAddingCondition] = React.useState(false);
 	const [newCondition, setNewCondition] = React.useState("");
 	const [newDuration, setNewDuration] = React.useState("");
+	const [newLevel, setNewLevel] = React.useState("1");
 
 	const conditions = character.Conditions ?? [];
-	// Only offer conditions not already applied to this character.
+	// Only offer conditions not already applied — except leveled ones (Exhaustion),
+	// which stay in the picker so the DM can raise or lower the level. Adding one
+	// again upserts the existing row rather than stacking a second chip.
 	const availableConditions = conditionCatalog.filter(
-		(name) => !conditions.some((c) => c.Condition === name),
+		(info) =>
+			info.MaxLevel > 0 ||
+			!conditions.some((c) => c.Condition === info.Name),
 	);
+	const selectedInfo = conditionCatalog.find(
+		(info) => info.Name === newCondition,
+	);
+	const maxLevel = selectedInfo?.MaxLevel ?? 0;
+
+	// Picking a leveled condition pre-fills the next level up from whatever the
+	// creature already has, since exhaustion almost always goes up by one.
+	const handleConditionChange = (name: string) => {
+		setNewCondition(name);
+		const info = conditionCatalog.find((c) => c.Name === name);
+		if (info && info.MaxLevel > 0) {
+			const current = conditions.find((c) => c.Condition === name)?.Level ?? 0;
+			setNewLevel(String(Math.min(current + 1, info.MaxLevel)));
+		}
+	};
+
+	const resetConditionForm = () => {
+		setAddingCondition(false);
+		setNewCondition("");
+		setNewDuration("");
+		setNewLevel("1");
+	};
 
 	const submitCondition = () => {
 		if (!newCondition) return;
 		const trimmed = newDuration.trim();
 		const rounds = trimmed === "" ? null : Math.floor(Number(trimmed));
 		if (rounds !== null && (!Number.isFinite(rounds) || rounds <= 0)) return;
-		onAddCondition(character.ID, newCondition, rounds);
-		setNewCondition("");
-		setNewDuration("");
-		setAddingCondition(false);
+		// The backend rejects a level on a binary condition, so only send one when
+		// the selected condition actually has levels.
+		const level = maxLevel > 0 ? Number(newLevel) : null;
+		if (level !== null && (!Number.isFinite(level) || level < 1 || level > maxLevel))
+			return;
+		onAddCondition(character.ID, newCondition, rounds, level);
+		resetConditionForm();
 	};
 
 	const handleFieldClick = (
@@ -500,10 +531,21 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 						none
 					</span>
 				)}
-				{conditions.map((cond) => (
+				{conditions.map((cond) => {
+					// For a leveled condition the chip's tooltip explains what that
+					// level does (e.g. exhaustion 5 = speed 0); notes come first when
+					// the DM wrote one.
+					const levelEffect =
+						cond.Level != null
+							? conditionCatalog.find((i) => i.Name === cond.Condition)
+									?.LevelEffects?.[cond.Level - 1]
+							: undefined;
+					const tooltip =
+						[cond.Note, levelEffect].filter(Boolean).join(" — ") || undefined;
+					return (
 					<span
 						key={cond.ID}
-						title={cond.Note || undefined}
+						title={tooltip}
 						style={{
 							display: "inline-flex",
 							alignItems: "center",
@@ -517,6 +559,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 						}}
 					>
 						{cond.Condition}
+						{cond.Level != null && <span>&nbsp;{cond.Level}</span>}
 						{cond.DurationRounds != null && (
 							<span style={{ fontWeight: 400 }}>
 								({cond.DurationRounds})
@@ -539,14 +582,15 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 							✕
 						</button>
 					</span>
-				))}
+					);
+				})}
 				{addingCondition ? (
 					<span
 						style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
 					>
 						<select
 							value={newCondition}
-							onChange={(e) => setNewCondition(e.target.value)}
+							onChange={(e) => handleConditionChange(e.target.value)}
 							autoFocus
 							style={{
 								fontSize: "0.8rem",
@@ -555,12 +599,36 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 							}}
 						>
 							<option value="">Select…</option>
-							{availableConditions.map((name) => (
-								<option key={name} value={name}>
-									{name}
+							{availableConditions.map((info) => (
+								<option key={info.Name} value={info.Name}>
+									{info.Name}
 								</option>
 							))}
 						</select>
+						{maxLevel > 0 && (
+							<select
+								value={newLevel}
+								onChange={(e) => setNewLevel(e.target.value)}
+								title="Exhaustion level"
+								style={{
+									fontSize: "0.8rem",
+									padding: "2px 4px",
+									borderRadius: 4,
+								}}
+							>
+								{Array.from({ length: maxLevel }, (_, i) => i + 1).map(
+									(lvl) => (
+										<option key={lvl} value={String(lvl)}>
+											{`Lv ${lvl}${
+												selectedInfo?.LevelEffects?.[lvl - 1]
+													? ` — ${selectedInfo.LevelEffects[lvl - 1]}`
+													: ""
+											}`}
+										</option>
+									),
+								)}
+							</select>
+						)}
 						<input
 							type="number"
 							min={1}
@@ -594,11 +662,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 						</button>
 						<button
 							type="button"
-							onClick={() => {
-								setAddingCondition(false);
-								setNewCondition("");
-								setNewDuration("");
-							}}
+							onClick={resetConditionForm}
 							style={{
 								border: "none",
 								background: "none",

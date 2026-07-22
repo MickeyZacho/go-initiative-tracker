@@ -130,7 +130,7 @@ func (dao *characterDAOImpl) attachConditions(encounterID int, characters []Char
 		return nil
 	}
 	rows, err := dao.db.Query(
-		"SELECT id, encounter_id, character_id, condition, duration_rounds, COALESCE(note, '') FROM encounter_character_conditions WHERE encounter_id = $1 ORDER BY character_id ASC, condition ASC",
+		"SELECT id, encounter_id, character_id, condition, duration_rounds, level, COALESCE(note, '') FROM encounter_character_conditions WHERE encounter_id = $1 ORDER BY character_id ASC, condition ASC",
 		encounterID,
 	)
 	if err != nil {
@@ -141,7 +141,7 @@ func (dao *characterDAOImpl) attachConditions(encounterID int, characters []Char
 	byCharacter := make(map[int][]Condition)
 	for rows.Next() {
 		var cond Condition
-		if err := rows.Scan(&cond.ID, &cond.EncounterID, &cond.CharacterID, &cond.Condition, &cond.DurationRounds, &cond.Note); err != nil {
+		if err := rows.Scan(&cond.ID, &cond.EncounterID, &cond.CharacterID, &cond.Condition, &cond.DurationRounds, &cond.Level, &cond.Note); err != nil {
 			return err
 		}
 		byCharacter[cond.CharacterID] = append(byCharacter[cond.CharacterID], cond)

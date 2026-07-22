@@ -32,7 +32,7 @@ func TestAddConditionAllowsOwner(t *testing.T) {
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
 	m.ExpectExec("INSERT INTO encounter_character_conditions").
-		WithArgs(1, 5, "Poisoned", 3, "").
+		WithArgs(1, 5, "Poisoned", 3, nil, "").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	rr, req := postJSON("/encounters/conditions/add",
@@ -84,6 +84,68 @@ func TestAddConditionRejectsNonOwner(t *testing.T) {
 	apiAddConditionHandler(rr, req)
 
 	assertStatus(t, rr, http.StatusForbidden)
+	assertMet(t, m)
+}
+
+func TestAddExhaustionStoresLevel(t *testing.T) {
+	m, restore := newConditionMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectExec("INSERT INTO encounter_character_conditions").
+		WithArgs(1, 5, "Exhaustion", nil, 3, "").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	rr, req := postJSON("/encounters/conditions/add",
+		`{"encounter_id":1,"character_id":5,"condition":"Exhaustion","level":3}`)
+	authed(req, "dm1")
+	apiAddConditionHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestAddExhaustionRequiresLevel(t *testing.T) {
+	m, restore := newConditionMock(t)
+	defer restore()
+
+	rr, req := postJSON("/encounters/conditions/add",
+		`{"encounter_id":1,"character_id":5,"condition":"Exhaustion"}`)
+	authed(req, "dm1")
+	apiAddConditionHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusBadRequest)
+	assertMet(t, m)
+}
+
+func TestAddExhaustionRejectsOutOfRangeLevel(t *testing.T) {
+	m, restore := newConditionMock(t)
+	defer restore()
+
+	for _, body := range []string{
+		`{"encounter_id":1,"character_id":5,"condition":"Exhaustion","level":0}`,
+		`{"encounter_id":1,"character_id":5,"condition":"Exhaustion","level":7}`,
+	} {
+		rr, req := postJSON("/encounters/conditions/add", body)
+		authed(req, "dm1")
+		apiAddConditionHandler(rr, req)
+		assertStatus(t, rr, http.StatusBadRequest)
+	}
+	assertMet(t, m)
+}
+
+// A level on a binary condition is rejected rather than silently dropped, so the
+// UI can never render something like "Prone 4".
+func TestAddConditionRejectsLevelOnBinaryCondition(t *testing.T) {
+	m, restore := newConditionMock(t)
+	defer restore()
+
+	rr, req := postJSON("/encounters/conditions/add",
+		`{"encounter_id":1,"character_id":5,"condition":"Prone","level":2}`)
+	authed(req, "dm1")
+	apiAddConditionHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusBadRequest)
 	assertMet(t, m)
 }
 

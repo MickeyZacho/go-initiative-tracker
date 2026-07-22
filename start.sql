@@ -85,13 +85,14 @@ CREATE TABLE encounter_users (
 	PRIMARY KEY (encounter_id, user_id)
 );
 
--- Per-encounter status conditions on a character (see migration 00004).
+-- Per-encounter status conditions on a character (see migrations 00004, 00005).
 CREATE TABLE encounter_character_conditions (
 	id              SERIAL PRIMARY KEY,
 	encounter_id    INTEGER NOT NULL,
 	character_id    INTEGER NOT NULL,
 	condition       TEXT NOT NULL,
 	duration_rounds INTEGER, -- NULL = until removed
+	level           INTEGER, -- NULL unless the condition is leveled (Exhaustion 1-6)
 	note            TEXT,
 	created_at      TIMESTAMP DEFAULT now(),
 	FOREIGN KEY (encounter_id, character_id)
