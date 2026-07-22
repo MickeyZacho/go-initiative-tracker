@@ -210,6 +210,25 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 		return 0, err
 	}
 
+	// Tick down the outgoing creature's timed conditions as its turn ends (when we
+	// switch away from it), then clear any that have expired. Conditions with a
+	// NULL duration ("until removed") are left untouched. currentActiveID is 0 on
+	// the very first advance (no one active yet), so nothing is decremented then.
+	if currentActiveID != 0 {
+		if _, err = tx.Exec(
+			"UPDATE encounter_character_conditions SET duration_rounds = duration_rounds - 1 WHERE encounter_id = $1 AND character_id = $2 AND duration_rounds IS NOT NULL",
+			encounterID, currentActiveID,
+		); err != nil {
+			return 0, err
+		}
+		if _, err = tx.Exec(
+			"DELETE FROM encounter_character_conditions WHERE encounter_id = $1 AND character_id = $2 AND duration_rounds IS NOT NULL AND duration_rounds <= 0",
+			encounterID, currentActiveID,
+		); err != nil {
+			return 0, err
+		}
+	}
+
 	if err = tx.Commit(); err != nil {
 		return 0, err
 	}

@@ -17,6 +17,10 @@ type Character struct {
 	OwnerID       string
 	Type          string // 'pc' or 'npc'
 	NpcTemplateID *int   // Nullable foreign key to NpcTemplate
+	// Conditions holds this character's status conditions within an encounter.
+	// Only populated by GetCharactersByEncounterID; nil (and omitted from JSON)
+	// for library/global queries that have no encounter scope.
+	Conditions []Condition `json:",omitempty"`
 }
 
 type CharacterDAO interface {
@@ -109,7 +113,46 @@ func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Char
 		}
 		characters = append(characters, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := dao.attachConditions(encounterID, characters); err != nil {
+		return nil, err
+	}
 	return characters, nil
+}
+
+// attachConditions loads every condition in the encounter in one query and
+// distributes them onto the matching characters by character_id, keeping the
+// character list a single round-trip rather than one query per character.
+func (dao *characterDAOImpl) attachConditions(encounterID int, characters []Character) error {
+	if len(characters) == 0 {
+		return nil
+	}
+	rows, err := dao.db.Query(
+		"SELECT id, encounter_id, character_id, condition, duration_rounds, COALESCE(note, '') FROM encounter_character_conditions WHERE encounter_id = $1 ORDER BY character_id ASC, condition ASC",
+		encounterID,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	byCharacter := make(map[int][]Condition)
+	for rows.Next() {
+		var cond Condition
+		if err := rows.Scan(&cond.ID, &cond.EncounterID, &cond.CharacterID, &cond.Condition, &cond.DurationRounds, &cond.Note); err != nil {
+			return err
+		}
+		byCharacter[cond.CharacterID] = append(byCharacter[cond.CharacterID], cond)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range characters {
+		characters[i].Conditions = byCharacter[characters[i].ID]
+	}
+	return nil
 }
 
 func (dao *characterDAOImpl) CreateCharacter(character Character) (int, error) {

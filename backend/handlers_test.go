@@ -364,6 +364,10 @@ func TestNextTurnAllowsOwner(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 3))
 	m.ExpectExec("UPDATE encounter_characters SET is_active = TRUE").WithArgs(1, 2).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectExec("UPDATE encounter_character_conditions SET duration_rounds").WithArgs(1, 5).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	m.ExpectExec("DELETE FROM encounter_character_conditions").WithArgs(1, 5).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	m.ExpectCommit()
 
 	rr, req := postJSON("/encounters/combat/next-turn", `{"encounter_id":1}`)

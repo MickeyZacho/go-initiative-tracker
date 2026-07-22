@@ -15,6 +15,10 @@ const (
 	selectActiveQ  = "SELECT COALESCE(MAX(character_id), 0) FROM encounter_characters WHERE encounter_id = $1 AND is_active = TRUE"
 	updateAllOffQ  = "UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1"
 	updateOnQ      = "UPDATE encounter_characters SET is_active = TRUE WHERE encounter_id = $1 AND character_id = $2"
+	// AdvanceTurn ticks the newly-active creature's timed conditions at the start
+	// of its turn and clears expired ones; these mirror those two statements.
+	tickConditionsQ   = "UPDATE encounter_character_conditions SET duration_rounds = duration_rounds - 1 WHERE encounter_id = $1 AND character_id = $2 AND duration_rounds IS NOT NULL"
+	expireConditionsQ = "DELETE FROM encounter_character_conditions WHERE encounter_id = $1 AND character_id = $2 AND duration_rounds IS NOT NULL AND duration_rounds <= 0"
 )
 
 func q(s string) string { return regexp.QuoteMeta(s) }
@@ -112,6 +116,9 @@ func TestAdvanceTurn_MovesToNextCombatant(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(5))
 	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 2).WillReturnResult(sqlmock.NewResult(0, 1))
+	// Conditions tick on the outgoing creature (5), whose turn is ending.
+	mock.ExpectExec(q(tickConditionsQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(q(expireConditionsQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
 	next, err := dao.AdvanceTurn(7)
@@ -141,6 +148,9 @@ func TestAdvanceTurn_WrapsFromLastToFirst(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(8))
 	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 1))
+	// Conditions tick on the outgoing creature (8), whose turn is ending.
+	mock.ExpectExec(q(tickConditionsQ)).WithArgs(7, 8).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(q(expireConditionsQ)).WithArgs(7, 8).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
 	next, err := dao.AdvanceTurn(7)
@@ -163,7 +173,8 @@ func TestAdvanceTurn_NoActiveStartsAtFirst(t *testing.T) {
 	defer db.Close()
 	dao := NewEncounterCharacterDAO(db)
 
-	// No one active yet (MAX returns 0) -> first combatant becomes active.
+	// No one active yet (MAX returns 0) -> first combatant becomes active. With no
+	// outgoing creature, no conditions are ticked, so none are expected here.
 	mock.ExpectBegin()
 	mock.ExpectQuery(q(selectOrderedQ)).WithArgs(7).WillReturnRows(orderedRows(5, 2, 8))
 	mock.ExpectQuery(q(selectActiveQ)).WithArgs(7).

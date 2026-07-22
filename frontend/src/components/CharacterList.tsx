@@ -29,6 +29,15 @@ import { useCombatLog } from "../hooks/useCombatLog";
 import { useEncounterEvents } from "../hooks/useEncounterEvents";
 import { apiGetArray, apiPost } from "../lib/http";
 
+export interface Condition {
+	ID: number;
+	EncounterID: number;
+	CharacterID: number;
+	Condition: string;
+	DurationRounds: number | null;
+	Note: string;
+}
+
 export interface Character {
 	ID: number;
 	Name: string;
@@ -40,6 +49,7 @@ export interface Character {
 	IsActive: boolean;
 	OwnerID: string;
 	Type: string;
+	Conditions?: Condition[];
 }
 
 // (Encounter and LedgerEntry interfaces removed; now provided by hooks or not needed)
@@ -88,6 +98,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 
 	// Local state
 	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
+	const [conditionCatalog, setConditionCatalog] = useState<string[]>([]);
 	const [actionError, setActionError] = useState<string>("");
 	const [selectedAddCharacterId, setSelectedAddCharacterId] =
 		useState<number>(0);
@@ -118,6 +129,14 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		} catch {
 			setLibraryCharacters([]);
 		}
+	}, []);
+
+	// The condition catalog is a static, backend-owned list (the 5e set); fetch it
+	// once so the row picker stays in sync with what the server will accept.
+	useEffect(() => {
+		void apiGetArray<string>("/encounters/conditions/catalog")
+			.then(setConditionCatalog)
+			.catch(() => setConditionCatalog([]));
 	}, []);
 
 	useEffect(() => {
@@ -372,6 +391,58 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[encounterId],
 	);
 
+	const addCondition = useCallback(
+		async (
+			characterID: number,
+			condition: string,
+			durationRounds: number | null,
+		) => {
+			if (!encounterId || !characterID || !condition) return;
+			setActionError("");
+			try {
+				await apiPost(
+					"/encounters/conditions/add",
+					{
+						encounter_id: encounterId,
+						character_id: characterID,
+						condition,
+						duration_rounds: durationRounds,
+					},
+					"Failed to add condition",
+				);
+				await fetchCharacters(encounterId);
+			} catch (err) {
+				setActionError(
+					err instanceof Error ? err.message : "Failed to add condition",
+				);
+			}
+		},
+		[encounterId, fetchCharacters],
+	);
+
+	const removeCondition = useCallback(
+		async (conditionID: number) => {
+			if (!encounterId || !conditionID) return;
+			setActionError("");
+			try {
+				await apiPost(
+					"/encounters/conditions/remove",
+					{
+						encounter_id: encounterId,
+						condition_id: conditionID,
+					},
+					"Failed to remove condition",
+				);
+				await fetchCharacters(encounterId);
+			} catch (err) {
+				setActionError(
+					err instanceof Error ? err.message : "Failed to remove condition",
+				);
+			}
+		},
+		[encounterId, fetchCharacters],
+	);
+
 	const removeCharacter = async (characterID: number) => {
 		await apiPost(
 			"/remove-character-from-encounter",
@@ -564,6 +635,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 											onSelect={setActiveCharacter}
 											onSave={saveCharacter}
 											onRemove={() => removeCharacter(character.ID)}
+											conditionCatalog={conditionCatalog}
+											onAddCondition={addCondition}
+											onRemoveCondition={removeCondition}
 										/>
 									</div>
 								))}

@@ -15,6 +15,13 @@ interface CharacterRowProps {
 	onSelect: (id: number) => void;
 	onSave: (character: Character) => void;
 	onRemove: () => void;
+	conditionCatalog: string[];
+	onAddCondition: (
+		characterID: number,
+		condition: string,
+		durationRounds: number | null,
+	) => void;
+	onRemoveCondition: (conditionID: number) => void;
 }
 
 const EditableField: React.FC<{
@@ -88,12 +95,37 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	onSelect,
 	onSave,
 	onRemove,
+	conditionCatalog,
+	onAddCondition,
+	onRemoveCondition,
 }) => {
 	const [editing, setEditing] = React.useState<{
 		field: EditableFieldName | null;
 		value: string;
 	}>({ field: null, value: "" });
 	const [deleteHovered, setDeleteHovered] = React.useState(false);
+	// Add-condition form state; the picker is hidden behind a "+" toggle so the
+	// row stays uncluttered until the user wants to apply a condition.
+	const [addingCondition, setAddingCondition] = React.useState(false);
+	const [newCondition, setNewCondition] = React.useState("");
+	const [newDuration, setNewDuration] = React.useState("");
+
+	const conditions = character.Conditions ?? [];
+	// Only offer conditions not already applied to this character.
+	const availableConditions = conditionCatalog.filter(
+		(name) => !conditions.some((c) => c.Condition === name),
+	);
+
+	const submitCondition = () => {
+		if (!newCondition) return;
+		const trimmed = newDuration.trim();
+		const rounds = trimmed === "" ? null : Math.floor(Number(trimmed));
+		if (rounds !== null && (!Number.isFinite(rounds) || rounds <= 0)) return;
+		onAddCondition(character.ID, newCondition, rounds);
+		setNewCondition("");
+		setNewDuration("");
+		setAddingCondition(false);
+	};
 
 	const handleFieldClick = (
 		field: EditableFieldName,
@@ -152,7 +184,8 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 			className={`character-row${character.IsActive ? " active" : ""}`}
 			style={{
 				display: "flex",
-				alignItems: "center",
+				flexDirection: "column",
+				alignItems: "stretch",
 				borderRadius: 8,
 				borderTop: "1px solid " + (character.IsActive ? "#1976d2" : "#e0e0e0"),
 				borderRight: "1px solid " + (character.IsActive ? "#1976d2" : "#e0e0e0"),
@@ -178,6 +211,13 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 			}}
 			onClick={handleRowClick}
 		>
+			<div
+				style={{
+					display: "flex",
+					alignItems: "center",
+					width: "100%",
+				}}
+			>
 			{/* Name */}
 			<div style={{ flex: 2 }}>
 				<label
@@ -431,6 +471,166 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					<path d="M9 6V4h6v2" />
 				</svg>
 			</button>
+			</div>
+			{/* Conditions strip. Clicks here must not select the row, so stop
+			    propagation on the whole strip. */}
+			<div
+				onClick={(e) => e.stopPropagation()}
+				style={{
+					display: "flex",
+					alignItems: "center",
+					flexWrap: "wrap",
+					gap: 6,
+					marginTop: 8,
+					paddingTop: 8,
+					borderTop: "1px dashed #e0e0e0",
+				}}
+			>
+				<span
+					style={{
+						fontWeight: 500,
+						color: "#1976d2",
+						fontSize: "0.8rem",
+					}}
+				>
+					Conditions:
+				</span>
+				{conditions.length === 0 && !addingCondition && (
+					<span style={{ color: "#9e9e9e", fontSize: "0.8rem" }}>
+						none
+					</span>
+				)}
+				{conditions.map((cond) => (
+					<span
+						key={cond.ID}
+						title={cond.Note || undefined}
+						style={{
+							display: "inline-flex",
+							alignItems: "center",
+							gap: 4,
+							background: "#ede7f6",
+							color: "#4527a0",
+							borderRadius: 12,
+							padding: "2px 8px",
+							fontSize: "0.8rem",
+							fontWeight: 600,
+						}}
+					>
+						{cond.Condition}
+						{cond.DurationRounds != null && (
+							<span style={{ fontWeight: 400 }}>
+								({cond.DurationRounds})
+							</span>
+						)}
+						<button
+							type="button"
+							aria-label={`Remove ${cond.Condition}`}
+							onClick={() => onRemoveCondition(cond.ID)}
+							style={{
+								border: "none",
+								background: "none",
+								color: "#7e57c2",
+								cursor: "pointer",
+								padding: 0,
+								lineHeight: 1,
+								fontSize: "0.9rem",
+							}}
+						>
+							✕
+						</button>
+					</span>
+				))}
+				{addingCondition ? (
+					<span
+						style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+					>
+						<select
+							value={newCondition}
+							onChange={(e) => setNewCondition(e.target.value)}
+							autoFocus
+							style={{
+								fontSize: "0.8rem",
+								padding: "2px 4px",
+								borderRadius: 4,
+							}}
+						>
+							<option value="">Select…</option>
+							{availableConditions.map((name) => (
+								<option key={name} value={name}>
+									{name}
+								</option>
+							))}
+						</select>
+						<input
+							type="number"
+							min={1}
+							value={newDuration}
+							onChange={(e) => setNewDuration(e.target.value)}
+							placeholder="∞"
+							title="Duration in rounds (blank = until removed)"
+							style={{
+								width: 48,
+								fontSize: "0.8rem",
+								padding: "2px 4px",
+								borderRadius: 4,
+							}}
+						/>
+						<button
+							type="button"
+							onClick={submitCondition}
+							disabled={!newCondition}
+							style={{
+								border: "none",
+								background: "#1976d2",
+								color: "#fff",
+								borderRadius: 4,
+								padding: "2px 8px",
+								fontSize: "0.8rem",
+								cursor: newCondition ? "pointer" : "not-allowed",
+								opacity: newCondition ? 1 : 0.6,
+							}}
+						>
+							Add
+						</button>
+						<button
+							type="button"
+							onClick={() => {
+								setAddingCondition(false);
+								setNewCondition("");
+								setNewDuration("");
+							}}
+							style={{
+								border: "none",
+								background: "none",
+								color: "#757575",
+								cursor: "pointer",
+								fontSize: "0.8rem",
+							}}
+						>
+							Cancel
+						</button>
+					</span>
+				) : (
+					availableConditions.length > 0 && (
+						<button
+							type="button"
+							aria-label="Add condition"
+							onClick={() => setAddingCondition(true)}
+							style={{
+								border: "1px dashed #90caf9",
+								background: "none",
+								color: "#1976d2",
+								borderRadius: 12,
+								padding: "1px 8px",
+								fontSize: "0.8rem",
+								cursor: "pointer",
+							}}
+						>
+							+ Condition
+						</button>
+					)
+				)}
+			</div>
 		</div>
 	);
 };

@@ -1,5 +1,6 @@
 
 
+DROP TABLE IF EXISTS encounter_character_conditions;
 DROP TABLE IF EXISTS encounter_characters;
 DROP TABLE IF EXISTS encounter_users;
 DROP TABLE IF EXISTS encounter_ledger;
@@ -82,6 +83,20 @@ CREATE TABLE encounter_users (
 	encounter_id INTEGER REFERENCES encounters(id) ON DELETE CASCADE,
 	user_id TEXT NOT NULL, -- Discord user ID
 	PRIMARY KEY (encounter_id, user_id)
+);
+
+-- Per-encounter status conditions on a character (see migration 00004).
+CREATE TABLE encounter_character_conditions (
+	id              SERIAL PRIMARY KEY,
+	encounter_id    INTEGER NOT NULL,
+	character_id    INTEGER NOT NULL,
+	condition       TEXT NOT NULL,
+	duration_rounds INTEGER, -- NULL = until removed
+	note            TEXT,
+	created_at      TIMESTAMP DEFAULT now(),
+	FOREIGN KEY (encounter_id, character_id)
+		REFERENCES encounter_characters(encounter_id, character_id) ON DELETE CASCADE,
+	UNIQUE (encounter_id, character_id, condition)
 );
 
 -- Example Inserts

@@ -23,6 +23,7 @@ var db *sql.DB
 var characterDAO dao.CharacterDAO
 var npcTemplateDAO dao.NpcTemplateDAO
 var encounterCharacterDAO dao.EncounterCharacterDAO
+var encounterConditionDAO dao.EncounterConditionDAO
 var encounterLedgerDAO dao.EncounterLedgerDAO
 var encounterDAO dao.EncounterDAO
 var friendshipDAO dao.FriendshipDAO
@@ -59,6 +60,7 @@ func initializeApp(db *sql.DB) {
 	characterDAO = dao.NewCharacterDAO(db)
 	encounterDAO = dao.NewEncounterDAO(db)
 	encounterCharacterDAO = dao.NewEncounterCharacterDAO(db)
+	encounterConditionDAO = dao.NewEncounterConditionDAO(db)
 	encounterLedgerDAO = dao.NewEncounterLedgerDAO(db)
 	npcTemplateDAO = dao.NewNpcTemplateDAO(db)
 	friendshipDAO = dao.NewFriendshipDAO(db)
@@ -185,6 +187,9 @@ func main() {
 	http.Handle("/encounters/combat/setup", loggingMiddleware(http.HandlerFunc(apiResetCombatHandler)))
 	http.Handle("/encounters/combat/next-turn", loggingMiddleware(http.HandlerFunc(apiNextTurnHandler)))
 	http.Handle("/encounters/combat/set-active", loggingMiddleware(http.HandlerFunc(apiSetActiveHandler)))
+	http.Handle("/encounters/conditions/catalog", loggingMiddleware(http.HandlerFunc(apiConditionCatalogHandler)))
+	http.Handle("/encounters/conditions/add", loggingMiddleware(http.HandlerFunc(apiAddConditionHandler)))
+	http.Handle("/encounters/conditions/remove", loggingMiddleware(http.HandlerFunc(apiRemoveConditionHandler)))
 	http.Handle("/encounters/ledger", loggingMiddleware(http.HandlerFunc(apiEncounterLedgerHandler)))
 	http.Handle("/encounters/events", loggingMiddleware(http.HandlerFunc(apiEncounterEventsHandler)))
 	http.Handle("/encounters/ledger/add", loggingMiddleware(http.HandlerFunc(apiAddEncounterLedgerHandler)))
