@@ -14,7 +14,10 @@ const (
 	selectOrderedQ = "SELECT character_id FROM encounter_characters WHERE encounter_id = $1 ORDER BY COALESCE(initiative, 0) DESC, character_id ASC"
 	selectActiveQ  = "SELECT COALESCE(MAX(character_id), 0) FROM encounter_characters WHERE encounter_id = $1 AND is_active = TRUE"
 	updateAllOffQ  = "UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1"
-	updateOnQ      = "UPDATE encounter_characters SET is_active = TRUE WHERE encounter_id = $1 AND character_id = $2"
+	// Activating a character also refreshes its reaction: a creature's reaction
+	// comes back at the start of its turn, so every path that makes a character
+	// active (start combat, advance turn, click-to-select) clears reaction_used.
+	updateOnQ = "UPDATE encounter_characters SET is_active = TRUE, reaction_used = FALSE WHERE encounter_id = $1 AND character_id = $2"
 	// AdvanceTurn ticks the newly-active creature's timed conditions at the start
 	// of its turn and clears expired ones; these mirror those two statements.
 	tickConditionsQ   = "UPDATE encounter_character_conditions SET duration_rounds = duration_rounds - 1 WHERE encounter_id = $1 AND character_id = $2 AND duration_rounds IS NOT NULL"
@@ -273,6 +276,46 @@ func TestSetActiveCharacter_RollsBackWhenClearFails(t *testing.T) {
 
 	if err := dao.SetActiveCharacter(7, 2); err == nil {
 		t.Fatal("expected SetActiveCharacter to surface the update error")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+const setReactionQ = "UPDATE encounter_characters SET reaction_used = $1 WHERE encounter_id = $2 AND character_id = $3"
+
+func TestSetReactionUsed_UpdatesFlag(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	dao := NewEncounterCharacterDAO(db)
+
+	mock.ExpectExec(q(setReactionQ)).WithArgs(true, 7, 2).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := dao.SetReactionUsed(7, 2, true); err != nil {
+		t.Fatalf("SetReactionUsed returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestSetReactionUsed_NotInEncounterErrors(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	dao := NewEncounterCharacterDAO(db)
+
+	// No matching combatant row -> zero rows affected must surface as an error so a
+	// stale character id can't silently no-op.
+	mock.ExpectExec(q(setReactionQ)).WithArgs(false, 7, 99).WillReturnResult(sqlmock.NewResult(0, 0))
+
+	if err := dao.SetReactionUsed(7, 99, false); err == nil {
+		t.Fatal("expected an error when the character is not in the encounter")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)

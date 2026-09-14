@@ -86,6 +86,47 @@ func apiSetActiveHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": req.CharacterID})
 }
 
+// apiSetReactionHandler toggles whether a character has spent its reaction this
+// round. Access mirrors the other combat endpoints; a change publishes a "combat"
+// event so every viewer live-refreshes. The turn-advance logic clears the flag on
+// its own when a creature's turn begins, so this only covers the manual toggle.
+func apiSetReactionHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+
+	var req struct {
+		EncounterID  int  `json:"encounter_id"`
+		CharacterID  int  `json:"character_id"`
+		ReactionUsed bool `json:"reaction_used"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if req.EncounterID <= 0 || req.CharacterID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid encounter or character id")
+		return
+	}
+	if !requireEncounterAccess(w, r, req.EncounterID) {
+		return
+	}
+
+	if err := encounterCharacterDAO.SetReactionUsed(req.EncounterID, req.CharacterID, req.ReactionUsed); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not in encounter") {
+			writeJSONError(w, http.StatusNotFound, "Character not in encounter")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "Failed to update reaction")
+		return
+	}
+
+	events.publish(req.EncounterID, "combat")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "reaction_used": req.ReactionUsed})
+}
+
 func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {

@@ -6,11 +6,12 @@ import (
 )
 
 type EncounterCharacter struct {
-	EncounterID int
-	CharacterID int
-	Initiative  int
-	CurrentHP   int
-	IsActive    bool
+	EncounterID  int
+	CharacterID  int
+	Initiative   int
+	CurrentHP    int
+	IsActive     bool
+	ReactionUsed bool
 }
 
 type EncounterCharacterDAO interface {
@@ -21,6 +22,7 @@ type EncounterCharacterDAO interface {
 	ResetCombat(encounterID int) error
 	AdvanceTurn(encounterID int) (int, error)
 	SetActiveCharacter(encounterID, characterID int) error
+	SetReactionUsed(encounterID, characterID int, used bool) error
 }
 
 type encounterCharacterDAOImpl struct {
@@ -34,9 +36,9 @@ func NewEncounterCharacterDAO(db *sql.DB) EncounterCharacterDAO {
 func (dao *encounterCharacterDAOImpl) GetByEncounterAndCharacter(encounterID, characterID int) (EncounterCharacter, error) {
 	var ec EncounterCharacter
 	err := dao.db.QueryRow(
-		"SELECT encounter_id, character_id, initiative, current_hp, is_active FROM encounter_characters WHERE encounter_id = $1 AND character_id = $2",
+		"SELECT encounter_id, character_id, initiative, current_hp, is_active, reaction_used FROM encounter_characters WHERE encounter_id = $1 AND character_id = $2",
 		encounterID, characterID,
-	).Scan(&ec.EncounterID, &ec.CharacterID, &ec.Initiative, &ec.CurrentHP, &ec.IsActive)
+	).Scan(&ec.EncounterID, &ec.CharacterID, &ec.Initiative, &ec.CurrentHP, &ec.IsActive, &ec.ReactionUsed)
 	return ec, err
 }
 
@@ -93,7 +95,7 @@ func (dao *encounterCharacterDAOImpl) StartCombat(encounterID int) (int, error) 
 	}
 
 	if _, err = tx.Exec(
-		"UPDATE encounter_characters SET is_active = TRUE WHERE encounter_id = $1 AND character_id = $2",
+		"UPDATE encounter_characters SET is_active = TRUE, reaction_used = FALSE WHERE encounter_id = $1 AND character_id = $2",
 		encounterID, activeID,
 	); err != nil {
 		return 0, err
@@ -132,7 +134,7 @@ func (dao *encounterCharacterDAOImpl) SetActiveCharacter(encounterID, characterI
 	}
 
 	res, err := tx.Exec(
-		"UPDATE encounter_characters SET is_active = TRUE WHERE encounter_id = $1 AND character_id = $2",
+		"UPDATE encounter_characters SET is_active = TRUE, reaction_used = FALSE WHERE encounter_id = $1 AND character_id = $2",
 		encounterID, characterID,
 	)
 	if err != nil {
@@ -147,6 +149,28 @@ func (dao *encounterCharacterDAOImpl) SetActiveCharacter(encounterID, characterI
 	}
 
 	return tx.Commit()
+}
+
+// SetReactionUsed records whether a character has spent its reaction this round.
+// The turn-advance logic clears this automatically when the creature's turn
+// begins; this is the manual toggle a DM uses mid-round. Returns an error when the
+// character is not part of the encounter so a stale id can't silently no-op.
+func (dao *encounterCharacterDAOImpl) SetReactionUsed(encounterID, characterID int, used bool) error {
+	res, err := dao.db.Exec(
+		"UPDATE encounter_characters SET reaction_used = $1 WHERE encounter_id = $2 AND character_id = $3",
+		used, encounterID, characterID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("character not in encounter")
+	}
+	return nil
 }
 
 func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) {
@@ -204,7 +228,7 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 	}
 
 	if _, err = tx.Exec(
-		"UPDATE encounter_characters SET is_active = TRUE WHERE encounter_id = $1 AND character_id = $2",
+		"UPDATE encounter_characters SET is_active = TRUE, reaction_used = FALSE WHERE encounter_id = $1 AND character_id = $2",
 		encounterID, nextActiveID,
 	); err != nil {
 		return 0, err

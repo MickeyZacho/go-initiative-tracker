@@ -75,6 +75,7 @@ CREATE TABLE encounter_characters (
 	initiative INTEGER,
 	current_hp INTEGER,
 	is_active BOOLEAN DEFAULT FALSE,
+	reaction_used BOOLEAN NOT NULL DEFAULT FALSE,
 	PRIMARY KEY (encounter_id, character_id)
 );
 

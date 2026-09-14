@@ -23,6 +23,7 @@ interface CharacterRowProps {
 		level: number | null,
 	) => void;
 	onRemoveCondition: (conditionID: number) => void;
+	onSetReaction: (characterID: number, used: boolean) => void;
 }
 
 const EditableField: React.FC<{
@@ -99,6 +100,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	conditionCatalog,
 	onAddCondition,
 	onRemoveCondition,
+	onSetReaction,
 }) => {
 	const [editing, setEditing] = React.useState<{
 		field: EditableFieldName | null;
@@ -468,6 +470,56 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					}}
 					autoFocus={editing.field === "Initiative"}
 				/>
+			</div>
+			{/* Reaction toggle. A creature has one reaction per round; click to mark
+			    it spent, click again to restore. The backend also clears it
+			    automatically at the start of the creature's turn. */}
+			<div style={{ flex: 1, textAlign: "center" }}>
+				<label
+					style={{
+						fontWeight: 500,
+						color: "#1976d2",
+						marginBottom: 4,
+						display: "block",
+					}}
+				>
+					Reaction
+				</label>
+				<button
+					type="button"
+					aria-label={
+						character.ReactionUsed
+							? `${character.Name || "Character"} reaction used — click to restore`
+							: `${character.Name || "Character"} reaction available — click to mark used`
+					}
+					aria-pressed={character.ReactionUsed}
+					title={
+						character.ReactionUsed
+							? "Reaction used — click to restore"
+							: "Reaction available — click to mark used"
+					}
+					onClick={(e) => {
+						e.stopPropagation();
+						onSetReaction(character.ID, !character.ReactionUsed);
+					}}
+					style={{
+						display: "inline-flex",
+						alignItems: "center",
+						gap: 4,
+						border: "1px solid " + (character.ReactionUsed ? "#e0e0e0" : "#1976d2"),
+						background: character.ReactionUsed ? "#f5f5f5" : "#e3f2fd",
+						color: character.ReactionUsed ? "#9e9e9e" : "#1976d2",
+						borderRadius: 12,
+						padding: "2px 10px",
+						fontSize: "0.8rem",
+						fontWeight: 600,
+						cursor: "pointer",
+						transition: "background 0.2s, color 0.2s, border-color 0.2s",
+						textDecoration: character.ReactionUsed ? "line-through" : "none",
+					}}
+				>
+					{character.ReactionUsed ? "⚡ Used" : "⚡ Ready"}
+				</button>
 			</div>
 			{/* Delete */}
 			<button

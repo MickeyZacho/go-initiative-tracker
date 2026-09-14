@@ -18,6 +18,10 @@ import {
 } from "@mui/material";
 import { AddCharacterControl } from "./AddCharacterControl";
 import { AddNpcControl } from "./AddNpcControl";
+import {
+	AddCustomCharacterControl,
+	type CustomCharacterDraft,
+} from "./AddCustomCharacterControl";
 import { CombatControls } from "./CombatControls";
 import { CombatLog } from "./CombatLog";
 import type { SelectChangeEvent } from "@mui/material/Select";
@@ -60,6 +64,9 @@ export interface Character {
 	IsActive: boolean;
 	OwnerID: string;
 	Type: string;
+	// True once the character has spent its reaction this round; reset by the
+	// backend when the character's turn begins.
+	ReactionUsed: boolean;
 	Conditions?: Condition[];
 }
 
@@ -456,6 +463,37 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[encounterId, fetchCharacters],
 	);
 
+	// Toggle a character's reaction between spent and available. We flip it locally
+	// first for instant feedback, then persist; the live-sync refetch (and the
+	// automatic reset on a character's turn) keep every viewer in step.
+	const setReaction = useCallback(
+		async (characterID: number, used: boolean) => {
+			if (!encounterId || !characterID) return;
+			setCharacters((prev) =>
+				prev.map((c) =>
+					c.ID === characterID ? { ...c, ReactionUsed: used } : c,
+				),
+			);
+			try {
+				await apiPost(
+					"/encounters/combat/reaction",
+					{
+						encounter_id: encounterId,
+						character_id: characterID,
+						reaction_used: used,
+					},
+					"Failed to update reaction",
+				);
+			} catch (err) {
+				setActionError(
+					err instanceof Error ? err.message : "Failed to update reaction",
+				);
+				await fetchCharacters(encounterId);
+			}
+		},
+		[encounterId, setCharacters, fetchCharacters],
+	);
+
 	const removeCharacter = async (characterID: number) => {
 		await apiPost(
 			"/remove-character-from-encounter",
@@ -485,6 +523,42 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		} catch (err) {
 			setActionError(
 				err instanceof Error ? err.message : "Failed to add character",
+			);
+		}
+	};
+
+	// Create a brand-new character/NPC and drop it straight into the encounter.
+	// /save-character with id=0 + encounter_id both persists it and adds it, so we
+	// also refresh the library list to pick up the newly created character.
+	const addCustomCharacterToEncounter = async (draft: CustomCharacterDraft) => {
+		if (!encounterId) {
+			return;
+		}
+		setActionError("");
+		try {
+			await apiPost(
+				"/save-character",
+				{
+					id: 0,
+					name: draft.name,
+					armorClass: draft.armorClass,
+					maxHP: draft.maxHP,
+					currentHP: draft.maxHP,
+					initiative: draft.initiative,
+					toHitModifier: draft.toHitModifier,
+					isActive: false,
+					type: draft.type,
+					encounter_id: encounterId,
+				},
+				"Failed to add custom character",
+			);
+			await fetchCharacters(encounterId);
+			await fetchLibraryCharacters();
+		} catch (err) {
+			setActionError(
+				err instanceof Error
+					? err.message
+					: "Failed to add custom character",
 			);
 		}
 	};
@@ -651,39 +725,10 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 											conditionCatalog={conditionCatalog}
 											onAddCondition={addCondition}
 											onRemoveCondition={removeCondition}
+											onSetReaction={setReaction}
 										/>
 									</div>
 								))}
-							{characters.length > 0 && (
-								<Accordion
-									disableGutters
-									elevation={0}
-									slotProps={{
-										transition: { unmountOnExit: true },
-									}}
-									sx={{
-										border: 1,
-										borderColor: "divider",
-										borderRadius: 2,
-										"&:before": { display: "none" },
-									}}
-								>
-									<AccordionSummary expandIcon={<span>▾</span>}>
-										<Typography fontWeight={600}>
-											Attack / Heal Actions
-										</Typography>
-									</AccordionSummary>
-									<AccordionDetails>
-										<CombatControls
-											characters={characters}
-											quickActionByActor={quickActionByActor}
-											handleQuickActionChange={handleQuickActionChange}
-											handleQuickAmountKeyDown={handleQuickAmountKeyDown}
-											applyQuickAction={applyQuickAction}
-										/>
-									</AccordionDetails>
-								</Accordion>
-							)}
 						</Stack>
 						{/* Add existing characters / NPCs — tucked behind a single
 						    unobtrusive toggle so it doesn't dominate the view. */}
@@ -728,9 +773,54 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 											encounterId={encounterId}
 										/>
 									</Stack>
+									<Box>
+										<Typography
+											variant="subtitle2"
+											color="text.secondary"
+											gutterBottom
+										>
+											Add Custom Character
+										</Typography>
+										<AddCustomCharacterControl
+											addCustomCharacterToEncounter={
+												addCustomCharacterToEncounter
+											}
+											encounterId={encounterId}
+										/>
+									</Box>
 								</Stack>
 							</Collapse>
 						</Box>
+						{characters.length > 0 && (
+							<Accordion
+								disableGutters
+								elevation={0}
+								slotProps={{
+									transition: { unmountOnExit: true },
+								}}
+								sx={{
+									border: 1,
+									borderColor: "divider",
+									borderRadius: 2,
+									"&:before": { display: "none" },
+								}}
+							>
+								<AccordionSummary expandIcon={<span>▾</span>}>
+									<Typography fontWeight={600}>
+										Attack / Heal Actions
+									</Typography>
+								</AccordionSummary>
+								<AccordionDetails>
+									<CombatControls
+										characters={characters}
+										quickActionByActor={quickActionByActor}
+										handleQuickActionChange={handleQuickActionChange}
+										handleQuickAmountKeyDown={handleQuickAmountKeyDown}
+										applyQuickAction={applyQuickAction}
+									/>
+								</AccordionDetails>
+							</Accordion>
+						)}
 						{isLoading && characters.length === 0 && (
 							<Typography color="text.secondary">
 								Loading...

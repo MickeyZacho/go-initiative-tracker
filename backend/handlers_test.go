@@ -350,6 +350,48 @@ func TestSetActiveCharacterNotInEncounterIs404(t *testing.T) {
 	assertMet(t, m)
 }
 
+func TestSetReactionAllowsOwner(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectExec("UPDATE encounter_characters SET reaction_used").WithArgs(true, 1, 7).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	rr, req := postJSON("/encounters/combat/reaction", `{"encounter_id":1,"character_id":7,"reaction_used":true}`)
+	authed(req, "dm1")
+	apiSetReactionHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	var body struct {
+		Status       string `json:"status"`
+		ReactionUsed bool   `json:"reaction_used"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Status != "success" || !body.ReactionUsed {
+		t.Errorf("unexpected body: %+v", body)
+	}
+	assertMet(t, m)
+}
+
+func TestSetReactionCharacterNotInEncounterIs404(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectExec("UPDATE encounter_characters SET reaction_used").WithArgs(false, 1, 999).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	rr, req := postJSON("/encounters/combat/reaction", `{"encounter_id":1,"character_id":999,"reaction_used":false}`)
+	authed(req, "dm1")
+	apiSetReactionHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusNotFound)
+	assertMet(t, m)
+}
+
 func TestNextTurnAllowsOwner(t *testing.T) {
 	m, restore := newEncounterMock(t)
 	defer restore()
