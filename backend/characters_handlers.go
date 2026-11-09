@@ -203,6 +203,11 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remember the character's HP before this save so we can log the delta as a
+	// damage/heal entry on the combat log. Only meaningful on the encounter path
+	// (previousHP stays -1 otherwise, which suppresses logging).
+	previousHP := -1
+
 	switch {
 	case char.ID == 0:
 		// New character: ownership is always the authenticated caller; never
@@ -222,6 +227,9 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		char.ID = newID
 	case payload.EncounterID > 0:
 		// Editing a character through an encounter the caller has access to.
+		if prev, prevErr := encounterCharacterDAO.GetByEncounterAndCharacter(payload.EncounterID, char.ID); prevErr == nil {
+			previousHP = prev.CurrentHP
+		}
 		ownerID, updated, err := characterDAO.UpdateCharacterInEncounter(char, payload.EncounterID)
 		if err != nil {
 			log.Printf("Error updating character: %v", err)
@@ -261,6 +269,21 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error upserting encounter character: %v", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to save encounter values")
 			return
+		}
+		// An HP change is the raw material of the combat log: log the delta as a
+		// damage (HP down) or heal (HP up) entry. Edits that leave HP untouched
+		// (name, AC, initiative) produce no entry.
+		if previousHP >= 0 && char.CurrentHP != previousHP {
+			actionType := "heal"
+			if char.CurrentHP < previousHP {
+				actionType = "damage"
+			}
+			logCombatEvent(dao.EncounterLedgerInsert{
+				EncounterID: payload.EncounterID,
+				ActorID:     char.ID,
+				ActionType:  actionType,
+				HPChange:    char.CurrentHP - previousHP,
+			})
 		}
 		events.publish(payload.EncounterID, "character")
 	}

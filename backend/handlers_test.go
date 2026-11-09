@@ -89,7 +89,6 @@ func TestHandlersRejectWrongMethod(t *testing.T) {
 		{"combat/next-turn", apiNextTurnHandler, http.MethodGet},
 		{"combat/set-active", apiSetActiveHandler, http.MethodGet},
 		{"ledger", apiEncounterLedgerHandler, http.MethodPost},
-		{"ledger/add", apiAddEncounterLedgerHandler, http.MethodGet},
 		{"events", apiEncounterEventsHandler, http.MethodPost},
 		{"npcs/templates", apiNpcTemplatesHandler, http.MethodPost},
 		{"npcs/templates/save", apiSaveNpcTemplateHandler, http.MethodGet},
@@ -134,7 +133,6 @@ func TestHandlersRejectInvalidJSON(t *testing.T) {
 		{"library/delete", apiDeleteLibraryCharacterHandler, "/characters/library/delete"},
 		{"combat/start", apiStartCombatHandler, "/encounters/combat/start"},
 		{"combat/set-active", apiSetActiveHandler, "/encounters/combat/set-active"},
-		{"ledger/add", apiAddEncounterLedgerHandler, "/encounters/ledger/add"},
 		{"npcs/save", apiSaveNpcTemplateHandler, "/npcs/templates/save"},
 		{"npcs/delete", apiDeleteNpcTemplateHandler, "/npcs/templates/delete"},
 		{"npcs/create-character", apiCreateCharacterFromTemplateHandler, "/npcs/templates/create-character"},
@@ -656,30 +654,40 @@ func TestEncounterLedgerReadAllowsOwner(t *testing.T) {
 	assertMet(t, m)
 }
 
-func TestAddLedgerEntryAllowsOwner(t *testing.T) {
+// The combat log is written automatically as a side effect of combat actions.
+// Saving a character with reduced HP through an encounter records a damage entry
+// on the ledger (a heal entry when HP goes up).
+func TestSaveCharacterInEncounterLogsDamage(t *testing.T) {
 	m, restore := newFullMock(t)
 	defer restore()
+	// Owner access check.
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
-	m.ExpectQuery("INSERT INTO encounter_ledger").WillReturnRows(
-		sqlmock.NewRows([]string{
+	// Previous HP lookup for the delta.
+	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used",
+		}).AddRow(1, 5, 0, 12, false, false))
+	// The character update itself.
+	m.ExpectQuery("UPDATE characters c SET").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	m.ExpectExec("INSERT INTO encounter_characters").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// The automatic damage entry: HP fell from 12 to 5 (delta -7).
+	m.ExpectQuery("INSERT INTO encounter_ledger").
+		WithArgs(1, 5, 0, "damage", -7, "").
+		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "encounter_id", "actor_id", "actor_name", "target_id",
 			"target_name", "action_type", "hp_change", "description", "created_at",
-		}).AddRow(1, 1, 5, "Hero", 0, "", "attack", -3, "", "2026-07-18T00:00:00Z"),
-	)
+		}).AddRow(1, 1, 5, "Hero", 0, "", "damage", -7, "", "2026-07-18T00:00:00Z"))
 
-	rr, req := postJSON("/encounters/ledger/add", `{"encounter_id":1,"actor_id":5,"action_type":"attack","hp_change":-3}`)
+	rr, req := postJSON("/save-character",
+		`{"id":5,"name":"Hero","maxHP":12,"currentHP":5,"encounter_id":1}`)
 	authed(req, "dm1")
-	apiAddEncounterLedgerHandler(rr, req)
+	saveCharacterHandler(rr, req)
 
 	assertStatus(t, rr, http.StatusOK)
 	assertMet(t, m)
-}
-
-func TestAddLedgerEntryRejectsBadEncounterID(t *testing.T) {
-	rr, req := postJSON("/encounters/ledger/add", `{"encounter_id":0,"actor_id":5}`)
-	apiAddEncounterLedgerHandler(rr, req)
-	assertStatus(t, rr, http.StatusBadRequest)
 }
 
 // --- NPC templates ----------------------------------------------------------

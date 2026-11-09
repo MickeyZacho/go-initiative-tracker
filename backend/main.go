@@ -193,7 +193,6 @@ func main() {
 	http.Handle("/encounters/conditions/remove", loggingMiddleware(http.HandlerFunc(apiRemoveConditionHandler)))
 	http.Handle("/encounters/ledger", loggingMiddleware(http.HandlerFunc(apiEncounterLedgerHandler)))
 	http.Handle("/encounters/events", loggingMiddleware(http.HandlerFunc(apiEncounterEventsHandler)))
-	http.Handle("/encounters/ledger/add", loggingMiddleware(http.HandlerFunc(apiAddEncounterLedgerHandler)))
 	// NPC Template API endpoints
 	http.Handle("/npcs/templates", loggingMiddleware(http.HandlerFunc(apiNpcTemplatesHandler)))
 	http.Handle("/npcs/templates/save", loggingMiddleware(http.HandlerFunc(apiSaveNpcTemplateHandler)))

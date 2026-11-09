@@ -22,7 +22,6 @@ import {
 	AddCustomCharacterControl,
 	type CustomCharacterDraft,
 } from "./AddCustomCharacterControl";
-import { CombatControls } from "./CombatControls";
 import { CombatLog } from "./CombatLog";
 import type { SelectChangeEvent } from "@mui/material/Select";
 
@@ -72,11 +71,6 @@ export interface Character {
 
 // (Encounter and LedgerEntry interfaces removed; now provided by hooks or not needed)
 
-interface QuickActionInput {
-	targetId: number;
-	amount: string;
-}
-
 interface CharacterListProps {
 	initialEncounterId?: number | null;
 }
@@ -120,14 +114,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const [actionError, setActionError] = useState<string>("");
 	const [selectedAddCharacterId, setSelectedAddCharacterId] =
 		useState<number>(0);
-	const [logActorId, setLogActorId] = useState<number>(0);
-	const [logTargetId, setLogTargetId] = useState<number>(0);
-	const [logActionType, setLogActionType] = useState<string>("note");
-	const [logHPChange, setLogHPChange] = useState<string>("0");
-	const [logDescription, setLogDescription] = useState<string>("");
-	const [quickActionByActor, setQuickActionByActor] = useState<
-		Record<number, QuickActionInput>
-	>({});
 	const [, setSelected] = useState<number | null>(null);
 	// Secondary combat surfaces are collapsed by default so the initiative list
 	// stays the focus; users open them on demand.
@@ -220,74 +206,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		await fetchLedger(newId);
 	};
 
-	const addLogEntry = async () => {
-		if (!encounterId || !logActorId) {
-			setActionError(
-				"Select an encounter and actor before adding a log entry",
-			);
-			return;
-		}
-		setActionError("");
-		try {
-			await createLedgerEntry(
-				logActorId,
-				logTargetId,
-				logActionType,
-				Number(logHPChange) || 0,
-				logDescription.trim(),
-			);
-			setLogDescription("");
-			setLogHPChange("0");
-			await fetchLedger(encounterId);
-		} catch (err) {
-			setActionError(
-				err instanceof Error ? err.message : "Failed to add log entry",
-			);
-		}
-	};
-
-	const createLedgerEntry = useCallback(
-		async (
-			actorID: number,
-			targetID: number,
-			actionType: string,
-			hpChange: number,
-			description: string,
-		) => {
-			await apiPost(
-				"/encounters/ledger/add",
-				{
-					encounter_id: encounterId,
-					actor_id: actorID,
-					target_id: targetID,
-					action_type: actionType,
-					hp_change: hpChange,
-					description,
-				},
-				"Failed to add combat log entry",
-			);
-		},
-		[encounterId],
-	);
-
-	const handleQuickActionChange = useCallback(
-		(
-			actorID: number,
-			field: keyof QuickActionInput,
-			value: number | string,
-		) => {
-			setQuickActionByActor((prev) => ({
-				...prev,
-				[actorID]: {
-					targetId: prev[actorID]?.targetId ?? 0,
-					amount: prev[actorID]?.amount ?? "1",
-					[field]: value,
-				},
-			}));
-		},
-		[],
-	);
-
 	const saveCharacter = useCallback(
 		async (character: Character) => {
 			const idToSend = character.ID > 2147483647 ? 0 : character.ID;
@@ -310,76 +228,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			await fetchCharacters(encounterId);
 		},
 		[encounterId, fetchCharacters],
-	);
-
-	const applyQuickAction = useCallback(
-		async (actor: Character, actionType: "attack" | "heal") => {
-			if (!encounterId) {
-				return;
-			}
-			const config = quickActionByActor[actor.ID];
-			const targetID = config?.targetId ?? 0;
-			const amount = Math.floor(Number(config?.amount ?? "0"));
-			if (!targetID || amount <= 0) {
-				setActionError(
-					"Select a target and enter an amount greater than 0",
-				);
-				return;
-			}
-			const target = characters.find((c) => c.ID === targetID);
-			if (!target) {
-				setActionError("Target character not found");
-				return;
-			}
-
-			const newHP =
-				actionType === "attack"
-					? Math.max(0, target.CurrentHP - amount)
-					: Math.min(target.MaxHP, target.CurrentHP + amount);
-			const hpChange = newHP - target.CurrentHP;
-
-			setActionError("");
-			try {
-				await saveCharacter({ ...target, CurrentHP: newHP });
-				await createLedgerEntry(
-					actor.ID,
-					target.ID,
-					actionType,
-					hpChange,
-					`${actor.Name} ${actionType === "attack" ? "attacks" : "heals"} ${target.Name}`,
-				);
-				await fetchCharacters(encounterId);
-				await fetchLedger(encounterId);
-			} catch (err) {
-				setActionError(
-					err instanceof Error ? err.message : "Action failed",
-				);
-			}
-		},
-		[
-			characters,
-			createLedgerEntry,
-			encounterId,
-			fetchCharacters,
-			fetchLedger,
-			quickActionByActor,
-			saveCharacter,
-		],
-	);
-
-	const handleQuickAmountKeyDown = useCallback(
-		(event: React.KeyboardEvent<HTMLElement>, actor: Character) => {
-			if (event.key !== "Enter") {
-				return;
-			}
-			event.preventDefault();
-			if (event.shiftKey) {
-				void applyQuickAction(actor, "heal");
-				return;
-			}
-			void applyQuickAction(actor, "attack");
-		},
-		[applyQuickAction],
 	);
 
 	// Persist the clicked character as the active turn holder so the server's
@@ -599,44 +447,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		});
 	}, []);
 
-	useEffect(() => {
-		if (characters.length === 0) {
-			setLogActorId(0);
-			setLogTargetId(0);
-			return;
-		}
-		if (!characters.some((c) => c.ID === logActorId)) {
-			setLogActorId(characters[0].ID);
-		}
-		if (
-			logTargetId !== 0 &&
-			!characters.some((c) => c.ID === logTargetId)
-		) {
-			setLogTargetId(0);
-		}
-	}, [characters, logActorId, logTargetId]);
-
-	useEffect(() => {
-		setQuickActionByActor((prev) => {
-			const next: Record<number, QuickActionInput> = {};
-			for (const actor of characters) {
-				const existing = prev[actor.ID];
-				const fallbackTarget =
-					characters.find((c) => c.ID !== actor.ID)?.ID ?? actor.ID;
-				const validTarget =
-					existing &&
-					characters.some((c) => c.ID === existing.targetId)
-						? existing.targetId
-						: fallbackTarget;
-				next[actor.ID] = {
-					targetId: validTarget,
-					amount: existing?.amount ?? "1",
-				};
-			}
-			return next;
-		});
-	}, [characters]);
-
 	// Spacebar triggers nextCharacter
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -791,36 +601,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								</Stack>
 							</Collapse>
 						</Box>
-						{characters.length > 0 && (
-							<Accordion
-								disableGutters
-								elevation={0}
-								slotProps={{
-									transition: { unmountOnExit: true },
-								}}
-								sx={{
-									border: 1,
-									borderColor: "divider",
-									borderRadius: 2,
-									"&:before": { display: "none" },
-								}}
-							>
-								<AccordionSummary expandIcon={<span>▾</span>}>
-									<Typography fontWeight={600}>
-										Attack / Heal Actions
-									</Typography>
-								</AccordionSummary>
-								<AccordionDetails>
-									<CombatControls
-										characters={characters}
-										quickActionByActor={quickActionByActor}
-										handleQuickActionChange={handleQuickActionChange}
-										handleQuickAmountKeyDown={handleQuickAmountKeyDown}
-										applyQuickAction={applyQuickAction}
-									/>
-								</AccordionDetails>
-							</Accordion>
-						)}
 						{isLoading && characters.length === 0 && (
 							<Typography color="text.secondary">
 								Loading...
@@ -848,19 +628,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 							<AccordionDetails>
 								<CombatLog
 									ledgerEntries={ledgerEntries}
-									characters={characters}
-									logActorId={logActorId}
-									setLogActorId={setLogActorId}
-									logTargetId={logTargetId}
-									setLogTargetId={setLogTargetId}
-									logActionType={logActionType}
-									setLogActionType={setLogActionType}
-									logHPChange={logHPChange}
-									setLogHPChange={setLogHPChange}
-									logDescription={logDescription}
-									setLogDescription={setLogDescription}
-									addLogEntry={addLogEntry}
-									encounterId={encounterId}
 									formatLogTime={formatLogTime}
 									characterNameByID={characterNameByID}
 								/>

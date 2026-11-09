@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"go-initiative-tracker/dao"
 	"net/http"
 	"strings"
 )
@@ -46,6 +47,7 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logCombatEvent(dao.EncounterLedgerInsert{EncounterID: encounterID, ActorID: activeCharacterID, ActionType: "turn"})
 	events.publish(encounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
 }
@@ -123,6 +125,11 @@ func apiSetReactionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Only spending a reaction is worth a log line; restoring it (a correction)
+	// is not an in-fiction event.
+	if req.ReactionUsed {
+		logCombatEvent(dao.EncounterLedgerInsert{EncounterID: req.EncounterID, ActorID: req.CharacterID, ActionType: "reaction"})
+	}
 	events.publish(req.EncounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "reaction_used": req.ReactionUsed})
 }
@@ -178,6 +185,7 @@ func apiNextTurnHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logCombatEvent(dao.EncounterLedgerInsert{EncounterID: encounterID, ActorID: activeCharacterID, ActionType: "turn"})
 	events.publish(encounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
 }
