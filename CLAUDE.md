@@ -45,22 +45,22 @@ the server. The frontend calls everything under `/api/...`, and the Vite proxy
 `/api/characters` hits the backend's `/characters`. Keep this in mind when adding
 routes: register at root in `backend/main.go`, call with `/api` from the frontend.
 
-**Backend layering.** `backend/main.go` holds all HTTP handlers, OAuth flow, CORS
-middleware (`loggingMiddleware`), and bootstrap. Data access is isolated in
+**Backend layering.** `backend/main.go` holds routing, CORS middleware
+(`loggingMiddleware`) and bootstrap; handlers live in topic files
+(`*_handlers.go`, `auth.go`). Data access is isolated in
 `backend/dao/` — one file per table/concern, each exposing an **interface + impl +
 `NewXxxDAO(db)` constructor**. Handlers talk only to DAO interfaces (package-level
 vars wired in `initializeApp`). Combat ordering/turn logic lives in the DAO layer
 (`encounter_character_dao.go`: `StartCombat`, `AdvanceTurn`, `ResetCombat` run inside
 transactions, ordering by `initiative DESC, character_id ASC`).
 
-**Server-side mutable global state (important gotcha).** `main.go` keeps
-package-level globals — `selectedEncounterID`, `characters`, `encounters`. The
-"selected encounter" is process-wide, **not** per-user or per-session. Several
-handlers read/write these globals (e.g. `apiCharactersHandler` sets
-`selectedEncounterID` from a query param, `saveCharacterHandler` appends to the
-`characters` slice). Treat this as shared state when reasoning about concurrent
-requests; prefer passing IDs explicitly (many endpoints accept `encounter_id` in the
-body/query) over relying on the global.
+**No server-side selection state.** The backend holds no "selected encounter":
+every encounter-scoped endpoint takes `encounter_id` explicitly (body or query),
+so concurrent users never see each other's selection. Keep it that way — don't
+reintroduce package-level mutable state for per-user context. Handlers live in
+topic files (`characters_handlers.go`, `combat_handlers.go`, …); `main.go` is
+bootstrap + routing. Access checks go through `requireEncounterOwner` /
+`requireEncounterAccess` in `authz.go`.
 
 **Auth model.** Discord OAuth2 (`/login/discord` → `/auth/discord/callback`) sets
 HttpOnly cookies `discord_user`, `discord_id`, `discord_avatar` — there is no JWT or
@@ -69,8 +69,8 @@ row's `owner_id` (see `*ByOwner` DAO methods and `getDiscordIDFromRequest`). Whe
 logged out, list endpoints fall back to returning all rows. `secureCookies` is gated
 by `SECURE_COOKIES=true`.
 
-**Frontend.** `App.tsx` is a single-page view switcher (`characters | encounters |
-combat | npcs`) with no router — state, not URLs. Components in `src/components/`,
+**Frontend.** `App.tsx` routes with `react-router-dom` (`/characters`,
+`/encounters`, `/combat/:encounterId`, `/npcs`, `/friends`). Components in `src/components/`,
 data-fetching in `src/hooks/` (`useCharacters`, `useEncounters`, `useCombatLog`,
 `useNpcTemplates`). All network calls go through `src/lib/http.ts`
 (`apiGet`/`apiGetArray`/`apiPost`), which sends `credentials: "include"` (for the
@@ -98,10 +98,10 @@ databases that already have the change. goose tracks applied versions in
 
 Backend tests use `httptest` for handlers and **go-sqlmock** for the DAO layer (no
 real DB). `TestMain` in `main_test.go` installs a shared mock `db` and calls
-`initializeApp`, expecting the two bootstrap `SELECT`s — when adding handlers/DAO
-methods that change startup queries, update those `mock.ExpectQuery` expectations or
-tests will fail. There is no frontend test runner; the frontend CI gate is
-lint + `tsc -b` + build.
+`initializeApp` (which runs no queries). Handler tests swap the DAOs onto a fresh
+sqlmock with `newFullMock` / `newEncounterMock` and set ordered expectations.
+Frontend unit tests use vitest (`npm test`); the frontend CI gate is lint +
+`tsc -b` + build.
 
 ## Configuration
 
