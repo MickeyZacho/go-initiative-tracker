@@ -319,22 +319,46 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 
 	const name = character.Name || "Character";
 
+	// Bring the creature whose turn it is into view when the turn reaches it, so
+	// the DM never hunts for the current row in a long list.
+	const rowRef = React.useRef<HTMLDivElement>(null);
+	React.useEffect(() => {
+		if (!character.IsActive || !rowRef.current) return;
+		const reduceMotion = window.matchMedia?.(
+			"(prefers-reduced-motion: reduce)",
+		).matches;
+		rowRef.current.scrollIntoView?.({
+			block: "nearest",
+			behavior: reduceMotion ? "auto" : "smooth",
+		});
+	}, [character.IsActive]);
+
 	return (
 		<Paper
+			ref={rowRef}
 			variant="outlined"
 			className={`character-row${character.IsActive ? " active" : ""}`}
+			aria-current={character.IsActive ? "true" : undefined}
 			sx={{
 				px: { xs: 1.5, sm: 2 },
 				py: 1.25,
-				borderLeftWidth: 5,
+				// Leave room above the list so scrollIntoView doesn't tuck the row
+				// under the sticky app bar.
+				scrollMarginTop: 96,
+				scrollMarginBottom: 96,
+				borderLeftWidth: character.IsActive ? 8 : 5,
+				borderWidth: character.IsActive ? 2 : 1,
 				borderColor: character.IsActive ? "primary.main" : "divider",
+				boxShadow: character.IsActive
+					? (t) => `0 0 0 3px ${tint("primary", 0.25)(t)}`
+					: "none",
 				borderLeftColor: isDown
 					? "text.disabled"
 					: character.IsActive
 						? "primary.main"
 						: tint("primary", 0.35),
 				bgcolor: character.IsActive
-					? tint("primary", 0.08)
+					? tint("primary", 0.14)
 					: "background.paper",
 				filter: isDown ? "grayscale(1)" : "none",
 				opacity: isDown ? 0.75 : 1,
@@ -352,7 +376,23 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 			>
 				{/* Name */}
 				<Box sx={{ flex: "1 1 150px", minWidth: 0 }}>
-					<StatLabel>Name</StatLabel>
+					<StatLabel>
+						Name
+						{character.IsActive && (
+							<Chip
+								label="▶ Their turn"
+								size="small"
+								color="primary"
+								sx={{
+									ml: 1,
+									height: 18,
+									fontSize: "0.7rem",
+									fontWeight: 700,
+									verticalAlign: "middle",
+								}}
+							/>
+						)}
+					</StatLabel>
 					<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
 						{isDown && (
 							<Tooltip title="Down (0 HP)">
