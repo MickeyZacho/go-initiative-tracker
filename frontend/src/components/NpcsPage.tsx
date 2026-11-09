@@ -10,6 +10,7 @@ import {
 	Typography,
 } from "@mui/material";
 import { apiGetArray, apiPost } from "../lib/http";
+import { useMe } from "../hooks/useMe";
 
 interface StatBlock {
 	Strength: number;
@@ -27,6 +28,7 @@ interface NpcTemplate {
 	BaseStats: StatBlock;
 	ArmorClass: number;
 	MaxHP: number;
+	OwnerID?: string;
 }
 
 interface EncounterOption {
@@ -93,7 +95,7 @@ export default function NpcsPage() {
 		try {
 			const data = await apiGetArray<EncounterOption>("/encounters");
 			setEncounters(data);
-			// Default the target to the first encounter so "Create Character"
+			// Default the target to the first encounter so "Add to encounter"
 			// works without an extra click when one exists.
 			setTargetEncounterId((current) =>
 				current > 0 ? current : (data[0]?.ID ?? 0),
@@ -159,16 +161,31 @@ export default function NpcsPage() {
 		}
 	};
 
-	const handleUpdate = async (npc: NpcTemplate) => {
+	// Edit a template field in place (local only); persisted on blur.
+	const updateNpcLocal = (id: number, patch: Partial<NpcTemplate>) => {
+		setNpcs((prev) =>
+			prev.map((n) => (n.ID === id ? { ...n, ...patch } : n)),
+		);
+	};
+
+	// Auto-save on blur, matching the Characters page. Reload only on failure,
+	// to put the server's values back.
+	const handleBlurSave = async (npc: NpcTemplate) => {
 		try {
 			await saveNpc(npc);
-			await loadNpcs();
 		} catch (err) {
 			setError(
 				err instanceof Error ? err.message : "Failed to update npc",
 			);
+			await loadNpcs();
 		}
 	};
+
+	// Shared (seed) templates and other users' templates are read-only; the
+	// backend only updates rows whose owner matches the caller.
+	const me = useMe();
+	const canEdit = (npc: NpcTemplate) =>
+		(npc.OwnerID ?? "") === (me.loggedIn ? me.discordID : "");
 
 	const handleDelete = async (id: number) => {
 		if (!window.confirm("Delete this npc template?")) {
@@ -296,7 +313,7 @@ export default function NpcsPage() {
 						helperText={
 							encounters.length === 0
 								? "Create an encounter first"
-								: "Target for “Create Character”"
+								: "Target for “Add to encounter”"
 						}
 						sx={{ minWidth: 220 }}
 					>
@@ -309,72 +326,158 @@ export default function NpcsPage() {
 				</Stack>
 			</Paper>
 			{/* Cards rather than an 11-column table, so the list fits a tablet or
-			    phone without horizontal scrolling. */}
+			    phone without horizontal scrolling. Your own templates edit in place
+			    and save when a field loses focus. */}
 			<Stack spacing={1}>
-				{npcs.map((npc) => (
-					<Paper key={npc.ID} variant="outlined" sx={{ p: 1.5 }}>
-						<Box
-							sx={{
-								display: "flex",
-								flexWrap: "wrap",
-								alignItems: "center",
-								columnGap: 2,
-								rowGap: 1,
-							}}
-						>
-							<Box sx={{ flex: "1 1 200px", minWidth: 0 }}>
-								<Typography fontWeight={600}>{npc.Name}</Typography>
-								{npc.Description && (
-									<Typography variant="body2" color="text.secondary">
-										{npc.Description}
+				{npcs.map((npc) => {
+					const editable = canEdit(npc);
+					const numberField = (
+						label: string,
+						value: number,
+						onChange: (v: number) => void,
+						width = 72,
+					) => (
+						<TextField
+							label={label}
+							type="number"
+							size="small"
+							variant="standard"
+							value={value}
+							onChange={(e) => onChange(Number(e.target.value))}
+							onBlur={() => handleBlurSave(npc)}
+							sx={{ width }}
+						/>
+					);
+					return (
+						<Paper key={npc.ID} variant="outlined" sx={{ p: 1.5 }}>
+							<Box
+								sx={{
+									display: "flex",
+									flexWrap: "wrap",
+									alignItems: "flex-end",
+									columnGap: 2,
+									rowGap: 1,
+								}}
+							>
+								<Box sx={{ flex: "1 1 220px", minWidth: 0 }}>
+									{editable ? (
+										<Stack spacing={0.5}>
+											<TextField
+												label="Name"
+												size="small"
+												variant="standard"
+												fullWidth
+												value={npc.Name}
+												onChange={(e) =>
+													updateNpcLocal(npc.ID, { Name: e.target.value })
+												}
+												onBlur={() => handleBlurSave(npc)}
+											/>
+											<TextField
+												label="Description"
+												size="small"
+												variant="standard"
+												fullWidth
+												value={npc.Description}
+												onChange={(e) =>
+													updateNpcLocal(npc.ID, {
+														Description: e.target.value,
+													})
+												}
+												onBlur={() => handleBlurSave(npc)}
+											/>
+										</Stack>
+									) : (
+										<>
+											<Typography fontWeight={600}>
+												{npc.Name}
+												<Typography
+													component="span"
+													variant="caption"
+													color="text.secondary"
+													sx={{ ml: 1 }}
+												>
+													(shared, read-only)
+												</Typography>
+											</Typography>
+											{npc.Description && (
+												<Typography variant="body2" color="text.secondary">
+													{npc.Description}
+												</Typography>
+											)}
+										</>
+									)}
+								</Box>
+								{editable ? (
+									<Stack direction="row" spacing={1.5}>
+										{numberField("AC", npc.ArmorClass, (v) =>
+											updateNpcLocal(npc.ID, { ArmorClass: v }),
+										)}
+										{numberField("Max HP", npc.MaxHP, (v) =>
+											updateNpcLocal(npc.ID, { MaxHP: v }),
+										)}
+									</Stack>
+								) : (
+									<Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>
+										<b>AC</b> {npc.ArmorClass} · <b>HP</b> {npc.MaxHP}
 									</Typography>
 								)}
-							</Box>
-							<Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>
-								<b>AC</b> {npc.ArmorClass} · <b>HP</b> {npc.MaxHP}
-							</Typography>
-							<Box sx={{ whiteSpace: "nowrap" }}>
-								<Button size="small" onClick={() => handleUpdate(npc)}>
-									Update
-								</Button>
-								<Button
-									size="small"
-									color="error"
-									onClick={() => handleDelete(npc.ID)}
-								>
-									Delete
-								</Button>
-								<Button
-									size="small"
-									disabled={targetEncounterId <= 0}
-									onClick={() => createCharacterFromTemplate(npc)}
-								>
-									Create Character
-								</Button>
-							</Box>
-						</Box>
-						<Box
-							sx={{
-								display: "grid",
-								gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
-								gap: 0.5,
-								mt: 1,
-								maxWidth: 420,
-							}}
-						>
-							{STAT_KEYS.map((stat) => (
-								<Box key={stat} sx={{ textAlign: "center" }}>
-									<Typography variant="caption" color="text.secondary">
-										{STAT_ABBR[stat]}
-									</Typography>
-									<Typography variant="body2">
-										{npc.BaseStats[stat]}
-									</Typography>
+								<Box sx={{ whiteSpace: "nowrap" }}>
+									<Button
+										size="small"
+										disabled={targetEncounterId <= 0}
+										onClick={() => createCharacterFromTemplate(npc)}
+									>
+										Add to encounter
+									</Button>
+									{editable && (
+										<Button
+											size="small"
+											color="error"
+											onClick={() => handleDelete(npc.ID)}
+										>
+											Delete
+										</Button>
+									)}
 								</Box>
-							))}
-						</Box>
-					</Paper>
-				))}
+							</Box>
+							<Box
+								sx={{
+									display: "grid",
+									gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+									gap: 1,
+									mt: 1,
+									maxWidth: 460,
+								}}
+							>
+								{STAT_KEYS.map((stat) =>
+									editable ? (
+										<Box key={stat}>
+											{numberField(
+												STAT_ABBR[stat],
+												npc.BaseStats[stat],
+												(v) =>
+													updateNpcLocal(npc.ID, {
+														BaseStats: { ...npc.BaseStats, [stat]: v },
+													}),
+												64,
+											)}
+										</Box>
+									) : (
+										<Box key={stat} sx={{ textAlign: "center" }}>
+											<Typography variant="caption" color="text.secondary">
+												{STAT_ABBR[stat]}
+											</Typography>
+											<Typography variant="body2">
+												{npc.BaseStats[stat]}
+											</Typography>
+										</Box>
+									),
+								)}
+							</Box>
+						</Paper>
+					);
+				})}
 			</Stack>
 		</Stack>
 	);
