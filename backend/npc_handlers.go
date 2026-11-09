@@ -114,6 +114,8 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		TemplateID  int `json:"npc_template_id"`
 		EncounterID int `json:"encounter_id"`
+		// Count is how many copies to add (default 1).
+		Count int `json:"count"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
@@ -127,17 +129,23 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		writeJSONError(w, http.StatusBadRequest, "No encounter selected")
 		return
 	}
+	if req.Count == 0 {
+		req.Count = 1
+	}
+	if req.Count < 1 || req.Count > dao.MaxTemplateCopies {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Count must be between 1 and %d", dao.MaxTemplateCopies))
+		return
+	}
 	if !requireEncounterAccess(w, r, req.EncounterID) {
 		return
 	}
 
-	character, err := npcTemplateDAO.AddCharacterToEncounterFromTemplate(req.TemplateID, req.EncounterID)
+	characters, err := npcTemplateDAO.AddCharactersToEncounterFromTemplate(req.TemplateID, req.EncounterID, req.Count)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to create character from template")
 		return
 	}
 	events.publish(req.EncounterID, "character")
-	// Optionally, insert the character into the characters table here
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"status": "success", "character": character})
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "characters": characters})
 }

@@ -402,3 +402,51 @@ func TestGetRound(t *testing.T) {
 		t.Errorf("round = %d, want 3", round)
 	}
 }
+
+func TestAbilityModifier(t *testing.T) {
+	cases := map[int]int{1: -5, 7: -2, 8: -1, 9: -1, 10: 0, 11: 0, 12: 1, 14: 2, 15: 2, 20: 5}
+	for score, want := range cases {
+		if got := AbilityModifier(score); got != want {
+			t.Errorf("AbilityModifier(%d) = %d, want %d", score, got, want)
+		}
+	}
+}
+
+func TestAddCharactersFromTemplate_LoneFirstCopyKeepsPlainName(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	prevRoll := RollD20
+	RollD20 = func() int { return 7 }
+	defer func() { RollD20 = prevRoll }()
+	dao := NewNpcTemplateDAO(db)
+
+	mock.ExpectQuery("FROM npc_templates WHERE id").WithArgs(2).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id"}).
+			AddRow(2, "Ogre", "", "(19,8,16,5,7,7)", 11, 59, ""))
+	mock.ExpectBegin()
+	mock.ExpectQuery("FROM encounters WHERE id").WithArgs(3).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	mock.ExpectQuery("SELECT COUNT").WithArgs(3, 2).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("INSERT INTO characters").
+		WithArgs("Ogre", 11, 0, 59, "dm1", "npc", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(80))
+	// d20 7 + DEX 8 (-1) = 6.
+	mock.ExpectExec("INSERT INTO encounter_characters").WithArgs(3, 80, 6, 59).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	created, err := dao.AddCharactersToEncounterFromTemplate(2, 3, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(created) != 1 || created[0].Name != "Ogre" || created[0].Initiative != 6 {
+		t.Errorf("unexpected result: %+v", created)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}

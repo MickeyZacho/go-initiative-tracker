@@ -793,17 +793,71 @@ func TestCreateCharacterFromTemplateAllowsOwner(t *testing.T) {
 	m.ExpectQuery("FROM npc_templates WHERE id").WithArgs(2).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id"}).
 			AddRow(2, "Goblin", "", "(8,14,10,10,8,8)", 13, 7, "dm1"))
-	// Owner is resolved from the encounter again inside the template flow.
-	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
-		WillReturnRows(encounterRow(1, "dm1"))
-	m.ExpectQuery("INSERT INTO characters").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(50))
-	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 50).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	prevRoll := dao.RollD20
+	dao.RollD20 = func() int { return 10 }
+	defer func() { dao.RollD20 = prevRoll }()
 
-	rr, req := postJSON("/npcs/templates/create-character", `{"npc_template_id":2,"encounter_id":1}`)
+	// Inside one transaction: resolve the owner, count existing copies (one
+	// Goblin already present), then create two numbered copies with initiative
+	// d20 (10) + DEX 14 modifier (+2) = 12.
+	m.ExpectBegin()
+	m.ExpectQuery("SELECT COALESCE\\(owner_id, ''\\) FROM encounters").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	m.ExpectQuery("SELECT COUNT").WithArgs(1, 2).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	m.ExpectQuery("INSERT INTO characters").
+		WithArgs("Goblin 2", 13, 0, 7, "dm1", "npc", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(50))
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 50, 12, 7).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	m.ExpectQuery("INSERT INTO characters").
+		WithArgs("Goblin 3", 13, 0, 7, "dm1", "npc", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(51))
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 51, 12, 7).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	m.ExpectCommit()
+
+	rr, req := postJSON("/npcs/templates/create-character", `{"npc_template_id":2,"encounter_id":1,"count":2}`)
 	authed(req, "dm1")
 	apiCreateCharacterFromTemplateHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestCreateCharacterFromTemplateRejectsBadCount(t *testing.T) {
+	for _, body := range []string{
+		`{"npc_template_id":2,"encounter_id":1,"count":-1}`,
+		`{"npc_template_id":2,"encounter_id":1,"count":21}`,
+	} {
+		rr, req := postJSON("/npcs/templates/create-character", body)
+		apiCreateCharacterFromTemplateHandler(rr, req)
+		assertStatus(t, rr, http.StatusBadRequest)
+	}
+}
+
+func TestRollNpcInitiativeAllowsOwner(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+	prevRoll := dao.RollD20
+	dao.RollD20 = func() int { return 15 }
+	defer func() { dao.RollD20 = prevRoll }()
+
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectBegin()
+	m.ExpectQuery("SELECT ec.character_id").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"character_id", "dex"}).AddRow(4, 14).AddRow(9, 8))
+	// 15 + 2 (DEX 14) and 15 - 1 (DEX 8).
+	m.ExpectExec("UPDATE encounter_characters SET initiative").WithArgs(17, 1, 4).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectExec("UPDATE encounter_characters SET initiative").WithArgs(14, 1, 9).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectCommit()
+
+	rr, req := postJSON("/encounters/combat/roll-npc-initiative", `{"encounter_id":1}`)
+	authed(req, "dm1")
+	apiRollNpcInitiativeHandler(rr, req)
 
 	assertStatus(t, rr, http.StatusOK)
 	assertMet(t, m)

@@ -174,8 +174,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		void fetchLedger(encounterId);
 		void fetchCombatState(encounterId);
 	});
-	// Add NPC to encounter
-	const addNpcToEncounter = async () => {
+	// Add one or more copies of an NPC template to the encounter. The backend
+	// numbers them and rolls their initiative.
+	const addNpcToEncounter = async (count: number) => {
 		if (!encounterId || !selectedAddNpcId) {
 			return;
 		}
@@ -186,6 +187,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				{
 					encounter_id: encounterId,
 					npc_template_id: selectedAddNpcId,
+					count,
 				},
 				"Failed to add NPC to encounter",
 			);
@@ -479,6 +481,12 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		void runCombatAction("/encounters/combat/setup", "Failed to end combat");
 	};
 
+	const rollNpcInitiative = () =>
+		void runCombatAction(
+			"/encounters/combat/roll-npc-initiative",
+			"Failed to roll initiative",
+		);
+
 	const activeCharacter = characters.find((c) => c.IsActive) ?? null;
 
 	const availableLibraryCharacters = libraryCharacters.filter(
@@ -612,6 +620,8 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								onStart={startCombat}
 								onNext={nextCharacter}
 								onReset={endCombat}
+								hasNpcs={characters.some((c) => c.Type === "npc")}
+								onRollNpcInitiative={rollNpcInitiative}
 							/>
 						)}
 						{/* Add existing characters / NPCs — tucked behind a single

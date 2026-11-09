@@ -215,3 +215,29 @@ func apiCombatStateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "round": round})
 }
+
+// apiRollNpcInitiativeHandler rolls initiative for every NPC in the encounter
+// (d20 + DEX modifier from its template), so the DM only types the players'
+// rolls. POST /encounters/combat/roll-npc-initiative { encounter_id }
+func apiRollNpcInitiativeHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+	encounterID, err := encounterIDFromRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if !requireEncounterAccess(w, r, encounterID) {
+		return
+	}
+	rolled, err := encounterCharacterDAO.RollNpcInitiative(encounterID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Failed to roll initiative")
+		return
+	}
+	events.publish(encounterID, "combat")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "rolled": rolled})
+}

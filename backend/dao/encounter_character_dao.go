@@ -25,6 +25,9 @@ type EncounterCharacterDAO interface {
 	AdvanceTurn(encounterID int) (int, error)
 	SetActiveCharacter(encounterID, characterID int) error
 	SetReactionUsed(encounterID, characterID int, used bool) error
+	// RollNpcInitiative re-rolls initiative (d20 + DEX modifier) for every NPC
+	// in the encounter and returns how many were rolled. PCs roll their own.
+	RollNpcInitiative(encounterID int) (int, error)
 }
 
 type encounterCharacterDAOImpl struct {
@@ -299,4 +302,48 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 	}
 
 	return nextActiveID, nil
+}
+
+func (dao *encounterCharacterDAOImpl) RollNpcInitiative(encounterID int) (int, error) {
+	tx, err := dao.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	// NPCs without a template (quick-added customs) roll a flat d20.
+	rows, err := tx.Query(
+		"SELECT ec.character_id, COALESCE((t.base_stats).dexterity, 10) FROM encounter_characters ec JOIN characters c ON c.id = ec.character_id LEFT JOIN npc_templates t ON t.id = c.npc_template_id WHERE ec.encounter_id = $1 AND c.type = 'npc' ORDER BY ec.character_id",
+		encounterID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	type npc struct{ id, dex int }
+	var npcs []npc
+	for rows.Next() {
+		var n npc
+		if err := rows.Scan(&n.id, &n.dex); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		npcs = append(npcs, n)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	for _, n := range npcs {
+		if _, err := tx.Exec(
+			"UPDATE encounter_characters SET initiative = $1 WHERE encounter_id = $2 AND character_id = $3",
+			RollD20()+AbilityModifier(n.dex), encounterID, n.id,
+		); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(npcs), nil
 }

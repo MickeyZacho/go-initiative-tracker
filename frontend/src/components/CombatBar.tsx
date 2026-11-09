@@ -8,6 +8,8 @@ export interface CombatBarProps {
 	onStart: () => void;
 	onNext: () => void;
 	onReset: () => void;
+	hasNpcs: boolean;
+	onRollNpcInitiative: () => void;
 }
 
 // The DM's primary control surface: round, whose turn it is, and the buttons to
@@ -21,6 +23,8 @@ export function CombatBar({
 	onStart,
 	onNext,
 	onReset,
+	hasNpcs,
+	onRollNpcInitiative,
 }: CombatBarProps) {
 	const started = round > 0;
 	return (
@@ -76,14 +80,27 @@ export function CombatBar({
 						</Button>
 					</>
 				) : (
-					<Button
-						variant="contained"
-						size="large"
-						onClick={onStart}
-						disabled={busy || !hasCombatants}
-					>
-						Start combat
-					</Button>
+					<>
+						{/* Before the fight: roll every NPC at once (d20 + DEX), so
+						    only the players' rolls need typing in. */}
+						{hasNpcs && (
+							<Button
+								size="small"
+								onClick={onRollNpcInitiative}
+								disabled={busy}
+							>
+								🎲 Roll NPC initiative
+							</Button>
+						)}
+						<Button
+							variant="contained"
+							size="large"
+							onClick={onStart}
+							disabled={busy || !hasCombatants}
+						>
+							Start combat
+						</Button>
+					</>
 				)}
 			</Stack>
 		</Paper>
