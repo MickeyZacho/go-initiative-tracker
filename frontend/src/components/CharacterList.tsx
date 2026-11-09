@@ -114,7 +114,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const [actionError, setActionError] = useState<string>("");
 	const [selectedAddCharacterId, setSelectedAddCharacterId] =
 		useState<number>(0);
-	const [, setSelected] = useState<number | null>(null);
 	// Secondary combat surfaces are collapsed by default so the initiative list
 	// stays the focus; users open them on demand.
 	const [showAddControls, setShowAddControls] = useState<boolean>(false);
@@ -230,10 +229,10 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[encounterId, fetchCharacters],
 	);
 
-	// Persist the clicked character as the active turn holder so the server's
-	// turn pointer moves with the selection (a subsequent "next turn" continues
-	// from here, not the previous active character). The row updates IsActive
-	// locally for instant feedback; this just syncs the server.
+	// Hand the turn to a specific character (the row's "give turn" button), so
+	// the server's turn pointer moves and a subsequent "next turn" continues from
+	// there. The row updates IsActive locally for instant feedback; this syncs
+	// the server and re-pulls on failure.
 	const setActiveCharacter = useCallback(
 		async (characterID: number) => {
 			if (!encounterId || !characterID) return;
@@ -244,17 +243,16 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						encounter_id: encounterId,
 						character_id: characterID,
 					},
-					"Failed to select character",
+					"Failed to give turn",
 				);
 			} catch (err) {
 				setActionError(
-					err instanceof Error
-						? err.message
-						: "Failed to select character",
+					err instanceof Error ? err.message : "Failed to give turn",
 				);
+				await fetchCharacters(encounterId);
 			}
 		},
-		[encounterId],
+		[encounterId, fetchCharacters],
 	);
 
 	const addCondition = useCallback(
@@ -530,8 +528,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 										<CharacterRow
 											character={character}
 											setCharacters={setCharacters}
-											setSelected={setSelected}
-											onSelect={setActiveCharacter}
+											onGiveTurn={setActiveCharacter}
 											onSave={saveCharacter}
 											onRemove={() => removeCharacter(character.ID)}
 											conditionCatalog={conditionCatalog}

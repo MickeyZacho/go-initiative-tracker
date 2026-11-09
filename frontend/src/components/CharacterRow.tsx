@@ -23,8 +23,8 @@ type EditableFieldName =
 interface CharacterRowProps {
 	character: Character;
 	setCharacters: React.Dispatch<React.SetStateAction<Character[]>>;
-	setSelected: (id: number) => void;
-	onSelect: (id: number) => void;
+	// Explicitly hand the turn to this creature (moves the server's turn pointer).
+	onGiveTurn: (id: number) => void;
 	onSave: (character: Character) => void;
 	onRemove: () => void;
 	conditionCatalog: ConditionInfo[];
@@ -85,7 +85,6 @@ const EditableField: React.FC<{
 			onChange={(e) => onChange(e.target.value)}
 			onBlur={onBlur}
 			onKeyDown={onKeyDown}
-			onClick={(e) => e.stopPropagation()}
 			inputProps={{ "aria-label": ariaLabel }}
 			sx={{
 				width,
@@ -103,10 +102,7 @@ const EditableField: React.FC<{
 			role="button"
 			tabIndex={0}
 			aria-label={`${ariaLabel}: ${value}. Click to edit`}
-			onClick={(e) => {
-				e.stopPropagation();
-				onStartEdit();
-			}}
+			onClick={onStartEdit}
 			onFocus={onStartEdit}
 			sx={{
 				display: "inline-block",
@@ -133,8 +129,7 @@ const EditableField: React.FC<{
 export const CharacterRow: React.FC<CharacterRowProps> = ({
 	character,
 	setCharacters,
-	setSelected,
-	onSelect,
+	onGiveTurn,
 	onSave,
 	onRemove,
 	conditionCatalog,
@@ -230,9 +225,11 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		}
 	};
 
-	const handleRowClick = () => {
-		// Only replace the objects whose IsActive actually flips; keep identity
-		// for every other row so React/the compiler can skip re-rendering them.
+	// Giving the turn is a deliberate action, not a side effect of clicking the
+	// row: a stray click while editing HP must never move initiative for everyone.
+	// Flip IsActive locally for instant feedback (keeping identity for rows that
+	// don't change), then persist.
+	const giveTurn = () => {
 		setCharacters((prev) =>
 			prev.map((c) => {
 				const shouldBeActive = c.ID === character.ID;
@@ -241,8 +238,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					: { ...c, IsActive: shouldBeActive };
 			}),
 		);
-		setSelected(character.ID);
-		onSelect(character.ID);
+		onGiveTurn(character.ID);
 	};
 
 	// Shared props for the click-to-edit fields.
@@ -261,11 +257,9 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		<Paper
 			variant="outlined"
 			className={`character-row${character.IsActive ? " active" : ""}`}
-			onClick={handleRowClick}
 			sx={{
 				px: { xs: 1.5, sm: 2 },
 				py: 1.25,
-				cursor: "pointer",
 				borderLeftWidth: 5,
 				borderColor: character.IsActive ? "primary.main" : "divider",
 				borderLeftColor: isDown
@@ -392,10 +386,9 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 								? "Reaction used — click to restore"
 								: "Reaction available — click to mark used"
 						}
-						onClick={(e) => {
-							e.stopPropagation();
-							onSetReaction(character.ID, !character.ReactionUsed);
-						}}
+						onClick={() =>
+							onSetReaction(character.ID, !character.ReactionUsed)
+						}
 						sx={{
 							fontWeight: 600,
 							textDecoration: character.ReactionUsed
@@ -405,47 +398,56 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					/>
 				</Box>
 
-				{/* Delete */}
-				<Tooltip title="Remove from encounter">
-					<IconButton
-						size="small"
-						aria-label={`Remove ${name}`}
-						onClick={(e) => {
-							e.stopPropagation();
-							onRemove();
-						}}
-						sx={{
-							ml: "auto",
-							color: "text.disabled",
-							"&:hover": { color: "error.main", bgcolor: tint("error", 0.1) },
-						}}
-					>
-						<svg
-							aria-hidden="true"
-							focusable="false"
-							width="16"
-							height="16"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeLinecap="round"
-							strokeLinejoin="round"
+				{/* Give turn (hidden on the creature whose turn it already is) */}
+				<Box sx={{ ml: "auto", display: "flex", alignItems: "center" }}>
+					{!character.IsActive && (
+						<Tooltip title="Give this creature the turn">
+							<IconButton
+								size="small"
+								aria-label={`Give ${name} the turn`}
+								onClick={giveTurn}
+								sx={{ color: "text.secondary", fontSize: "0.9rem" }}
+							>
+								▶
+							</IconButton>
+						</Tooltip>
+					)}
+					{/* Delete */}
+					<Tooltip title="Remove from encounter">
+						<IconButton
+							size="small"
+							aria-label={`Remove ${name}`}
+							onClick={onRemove}
+							sx={{
+								color: "text.disabled",
+								"&:hover": { color: "error.main", bgcolor: tint("error", 0.1) },
+							}}
 						>
-							<polyline points="3 6 5 6 21 6" />
-							<path d="M19 6l-1 14H6L5 6" />
-							<path d="M10 11v6" />
-							<path d="M14 11v6" />
-							<path d="M9 6V4h6v2" />
-						</svg>
-					</IconButton>
-				</Tooltip>
+							<svg
+								aria-hidden="true"
+								focusable="false"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+							>
+								<polyline points="3 6 5 6 21 6" />
+								<path d="M19 6l-1 14H6L5 6" />
+								<path d="M10 11v6" />
+								<path d="M14 11v6" />
+								<path d="M9 6V4h6v2" />
+							</svg>
+						</IconButton>
+					</Tooltip>
+				</Box>
 			</Box>
 
-			{/* Conditions strip. Clicks here must not select the row, so stop
-			    propagation on the whole strip. */}
+			{/* Conditions strip */}
 			<Box
-				onClick={(e) => e.stopPropagation()}
 				sx={{
 					display: "flex",
 					alignItems: "center",
@@ -455,7 +457,6 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					pt: 1,
 					borderTop: "1px dashed",
 					borderColor: "divider",
-					cursor: "default",
 				}}
 			>
 				<Typography variant="caption" color="primary" sx={{ fontWeight: 600 }}>
