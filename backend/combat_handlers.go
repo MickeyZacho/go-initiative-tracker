@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go-initiative-tracker/dao"
 	"net/http"
@@ -135,6 +136,52 @@ func apiSetReactionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	events.publish(req.EncounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "reaction_used": req.ReactionUsed})
+}
+
+// apiSetVisibilityHandler hides a combatant (optionally scheduling the round it
+// arrives in) or reveals it now. Hidden combatants are invisible to players and
+// skip their turns. DM only.
+// POST /encounters/combat/visibility { encounter_id, character_id, hidden, reveal_round }
+func apiSetVisibilityHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+
+	var req struct {
+		EncounterID int `json:"encounter_id"`
+		CharacterID int `json:"character_id"`
+		dao.Staging
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if req.EncounterID <= 0 || req.CharacterID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid encounter or character id")
+		return
+	}
+	staging, err := req.Staging.Normalize()
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !requireEncounterOwner(w, r, req.EncounterID) {
+		return
+	}
+
+	if err := encounterCharacterDAO.SetVisibility(req.EncounterID, req.CharacterID, staging); err != nil {
+		if errors.Is(err, dao.ErrNotInEncounter) {
+			writeJSONError(w, http.StatusNotFound, "Character is not a hidden combatant in this encounter")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "Failed to update visibility")
+		return
+	}
+
+	events.publish(req.EncounterID, "combat")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "hidden": staging.Hidden, "reveal_round": staging.RevealRound})
 }
 
 func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {

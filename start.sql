@@ -80,6 +80,8 @@ CREATE TABLE encounter_characters (
 	temp_hp INTEGER NOT NULL DEFAULT 0, -- migration 00008
 	death_save_successes INTEGER NOT NULL DEFAULT 0, -- migration 00009
 	death_save_failures INTEGER NOT NULL DEFAULT 0,
+	hidden BOOLEAN NOT NULL DEFAULT FALSE, -- migration 00011: staged, invisible to players, no turns
+	reveal_round INTEGER, -- auto-reveal when this round begins; NULL = manual
 	PRIMARY KEY (encounter_id, character_id)
 );
 

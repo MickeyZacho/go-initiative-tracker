@@ -119,7 +119,7 @@ func apiEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if role == roleMember {
-		redactLedgerForPlayers(entries)
+		entries = redactLedgerForPlayers(entries)
 	}
 
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "entries": entries})

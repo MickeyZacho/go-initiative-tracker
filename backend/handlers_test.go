@@ -558,7 +558,7 @@ func TestAddCharacterAllowsOwner(t *testing.T) {
 	defer restore()
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
-	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5).
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5, false, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	rr, req := postJSON("/add-character-to-encounter", `{"encounter_id":1,"character_id":5}`)
@@ -574,7 +574,7 @@ func TestAddCharacterDuplicateConflict(t *testing.T) {
 	defer restore()
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
-	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5).
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5, false, nil).
 		WillReturnError(errString("duplicate key value violates unique constraint"))
 
 	rr, req := postJSON("/add-character-to-encounter", `{"encounter_id":1,"character_id":5}`)
@@ -677,7 +677,7 @@ func TestEncounterLedgerReadAllowsOwner(t *testing.T) {
 	m.ExpectQuery("FROM encounter_ledger").WithArgs(1, 50).WillReturnRows(
 		sqlmock.NewRows([]string{
 			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
-			"target_name", "action_type", "hp_change", "description", "created_at",
+			"target_name", "action_type", "hp_change", "description", "created_at", "actor_hidden",
 		}),
 	)
 
@@ -740,7 +740,7 @@ func TestSaveCharacterInEncounterLogsDamageThroughTempHP(t *testing.T) {
 	m.ExpectQuery("UPDATE characters c SET").
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
 	m.ExpectExec("INSERT INTO encounter_characters").
-		WithArgs(1, 5, 0, 10, false, 0).
+		WithArgs(1, 5, 0, 10, false, 0, false, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	// After: 10 HP + 0 temp — a 7-point hit, 5 of it soaked by temp HP.
 	m.ExpectQuery("INSERT INTO encounter_ledger").
@@ -771,7 +771,7 @@ func TestSaveCharacterInEncounterGrantingTempHPIsNotLogged(t *testing.T) {
 	m.ExpectQuery("UPDATE characters c SET").
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
 	m.ExpectExec("INSERT INTO encounter_characters").
-		WithArgs(1, 5, 0, 12, false, 8).
+		WithArgs(1, 5, 0, 12, false, 8, false, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	// No ledger insert expected.
 
@@ -897,12 +897,12 @@ func TestCreateCharacterFromTemplateAllowsOwner(t *testing.T) {
 	m.ExpectQuery("INSERT INTO characters").
 		WithArgs("Goblin 2", 13, 0, 7, "dm1", "npc", 2).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(50))
-	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 50, 12, 7).
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 50, 12, 7, false, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	m.ExpectQuery("INSERT INTO characters").
 		WithArgs("Goblin 3", 13, 0, 7, "dm1", "npc", 2).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(51))
-	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 51, 12, 7).
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 51, 12, 7, false, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	m.ExpectCommit()
 
@@ -1229,3 +1229,63 @@ func TestEncounterEventsRejectsBadEncounterID(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+// --- Hidden combatants -------------------------------------------------------
+
+func TestSetVisibilityHidesForOwner(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectBegin()
+	m.ExpectExec("UPDATE encounter_characters SET hidden = TRUE").WithArgs(2, 1, 5).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectCommit()
+
+	rr, req := postJSON("/encounters/combat/visibility", `{"encounter_id":1,"character_id":5,"reveal_round":2}`)
+	authed(req, "dm1")
+	apiSetVisibilityHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestSetVisibilityRejectsRoundZero(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+
+	rr, req := postJSON("/encounters/combat/visibility", `{"encounter_id":1,"character_id":5,"hidden":true,"reveal_round":0}`)
+	authed(req, "dm1")
+	apiSetVisibilityHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusBadRequest)
+	assertMet(t, m)
+}
+
+func TestSetVisibilityRejectsMember(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	expectMember(m, 1, "dm1", "player2")
+
+	rr, req := postJSON("/encounters/combat/visibility", `{"encounter_id":1,"character_id":5,"hidden":false}`)
+	authed(req, "player2")
+	apiSetVisibilityHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusForbidden)
+}
+
+func TestAddCharacterHiddenPassesStaging(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5, true, 3).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	rr, req := postJSON("/add-character-to-encounter", `{"encounter_id":1,"character_id":5,"reveal_round":3}`)
+	authed(req, "dm1")
+	addCharacterToEncounterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}

@@ -14,6 +14,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import BoltIcon from "@mui/icons-material/Bolt";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import type { Character, ConditionInfo } from "./CharacterList";
 import { tint } from "../theme";
@@ -37,6 +38,8 @@ interface CharacterRowProps {
 	onGiveTurn: (id: number) => void;
 	onSave: (character: Character) => void;
 	onRemove: () => void;
+	// Take the creature out of the fight and out of the players' sight (DM only).
+	onHide?: () => void;
 	conditionCatalog: ConditionInfo[];
 	onAddCondition: (
 		characterID: number,
@@ -246,6 +249,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	onGiveTurn,
 	onSave,
 	onRemove,
+	onHide,
 	conditionCatalog,
 	onAddCondition,
 	onRemoveCondition,
@@ -729,6 +733,18 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 								sx={{ color: "text.secondary" }}
 							>
 								<PlayArrowIcon fontSize="small" />
+							</IconButton>
+						</Tooltip>
+					)}
+					{!playerView && onHide && (
+						<Tooltip title="Hide from players (no turns until revealed)">
+							<IconButton
+								size="small"
+								aria-label={`Hide ${name}`}
+								onClick={onHide}
+								sx={{ color: "text.disabled" }}
+							>
+								<VisibilityOffIcon fontSize="small" />
 							</IconButton>
 						</Tooltip>
 					)}

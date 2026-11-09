@@ -16,6 +16,7 @@ import {
 	Collapse,
 	FormControlLabel,
 	Switch,
+	TextField,
 } from "@mui/material";
 import { AddCharacterControl } from "./AddCharacterControl";
 import { AddNpcControl } from "./AddNpcControl";
@@ -25,6 +26,7 @@ import {
 } from "./AddCustomCharacterControl";
 import { CombatLog } from "./CombatLog";
 import { CombatBar } from "./CombatBar";
+import { HiddenCombatants } from "./HiddenCombatants";
 import type { SelectChangeEvent } from "@mui/material/Select";
 
 import { useEncounters } from "../hooks/useEncounters";
@@ -80,6 +82,10 @@ export interface Character {
 	// Player view: set on NPCs whose AC/HP/to-hit are hidden from players.
 	Redacted?: boolean;
 	HealthStatus?: string;
+	// DM only: staged combatant, invisible to players and skipped in turn order
+	// until revealed. RevealRound is the round it arrives automatically.
+	Hidden?: boolean;
+	RevealRound?: number | null;
 }
 
 // (Encounter and LedgerEntry interfaces removed; now provided by hooks or not needed)
@@ -134,6 +140,18 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	// Secondary combat surfaces are collapsed by default so the initiative list
 	// stays the focus; users open them on demand.
 	const [showAddControls, setShowAddControls] = useState<boolean>(false);
+	// Staging applied to whatever is added next: hidden, optionally arriving
+	// automatically at a given round.
+	const [addHidden, setAddHidden] = useState(false);
+	const [arrivalRound, setArrivalRound] = useState("");
+	const staging = () => {
+		if (!addHidden) return { hidden: false, reveal_round: null };
+		const n = Math.floor(Number(arrivalRound));
+		return {
+			hidden: true,
+			reveal_round: arrivalRound.trim() !== "" && n >= 1 ? n : null,
+		};
+	};
 
 	// Compose error and loading states from hooks
 	const isLoading = encountersLoading || charactersLoading;
@@ -199,6 +217,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					encounter_id: encounterId,
 					npc_template_id: selectedAddNpcId,
 					count,
+					...staging(),
 				},
 				"Failed to add NPC to encounter",
 			);
@@ -428,6 +447,34 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		}
 	};
 
+	// Hide a combatant (optionally scheduling its arrival round) or reveal it
+	// now. Revealing rolls initiative server-side if none was set.
+	const setVisibility = async (
+		character: Character,
+		hidden: boolean,
+		revealRound: number | null = null,
+	) => {
+		if (!encounterId) return;
+		setActionError("");
+		try {
+			await apiPost(
+				"/encounters/combat/visibility",
+				{
+					encounter_id: encounterId,
+					character_id: character.ID,
+					hidden,
+					reveal_round: revealRound,
+				},
+				hidden ? "Failed to hide combatant" : "Failed to reveal combatant",
+			);
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setActionError(
+				err instanceof Error ? err.message : "Failed to update visibility",
+			);
+		}
+	};
+
 	const addExistingCharacterToEncounter = async () => {
 		if (!encounterId || !selectedAddCharacterId) {
 			return;
@@ -438,6 +485,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				{
 					encounter_id: encounterId,
 					character_id: selectedAddCharacterId,
+					...staging(),
 				},
 				"Failed to add character to encounter",
 			);
@@ -471,6 +519,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					isActive: false,
 					type: draft.type,
 					encounter_id: encounterId,
+					...staging(),
 				},
 				"Failed to add custom character",
 			);
@@ -547,8 +596,11 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	const visibleCharacters = previewAsPlayer
 		? redactForPlayers(characters)
 		: characters;
+	// Hidden combatants live in their own staging panel, not the turn order.
+	const inPlay = visibleCharacters.filter((c) => !c.Hidden);
+	const waiting = playerView ? [] : characters.filter((c) => c.Hidden);
 
-	const activeCharacter = characters.find((c) => c.IsActive) ?? null;
+	const activeCharacter = inPlay.find((c) => c.IsActive) ?? null;
 
 	const availableLibraryCharacters = libraryCharacters.filter(
 		(libChar) => !characters.some((encChar) => encChar.ID === libChar.ID),
@@ -655,7 +707,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			)}
 			{/* Column header for the rows. Hidden on phones, where each row
 			    carries its own labels; padding mirrors CharacterRow's. */}
-			{visibleCharacters.length > 0 && (
+			{inPlay.length > 0 && (
 				<Box
 					aria-hidden
 					sx={{
@@ -689,7 +741,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			<Stack spacing={1}>
 				{/* Same order as the backend's turn logic (initiative DESC,
 				    character_id ASC) so ties display in the order they act. */}
-				{[...visibleCharacters]
+				{[...inPlay]
 					.sort((a, b) => b.Initiative - a.Initiative || a.ID - b.ID)
 					.map((character) => (
 						<div key={character.ID} style={{ width: "100%" }}>
@@ -699,6 +751,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								onGiveTurn={setActiveCharacter}
 								onSave={saveCharacter}
 								onRemove={() => removeCharacter(character)}
+								onHide={() => void setVisibility(character, true)}
 								conditionCatalog={conditionCatalog}
 								onAddCondition={addCondition}
 								onRemoveCondition={removeCondition}
@@ -709,11 +762,20 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						</div>
 					))}
 			</Stack>
+			{!playerView && (
+				<HiddenCombatants
+					waiting={waiting}
+					round={round}
+					onReveal={(c) => void setVisibility(c, false)}
+					onSchedule={(c, r) => void setVisibility(c, true, r)}
+					onRemove={(c) => void removeCharacter(c)}
+				/>
+			)}
 			{encounterId > 0 && (
 				<CombatBar
 					round={round}
 					activeName={activeCharacter?.Name ?? null}
-					hasCombatants={characters.length > 0}
+					hasCombatants={inPlay.length > 0}
 					busy={combatBusy}
 					onStart={startCombat}
 					onNext={nextCharacter}
@@ -745,6 +807,48 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						</Button>
 						<Collapse in={showAddControls}>
 							<Stack spacing={2} mt={1}>
+								<Stack
+									direction="row"
+									spacing={2}
+									alignItems="center"
+									flexWrap="wrap"
+									useFlexGap
+								>
+									<FormControlLabel
+										sx={{ mr: 0 }}
+										control={
+											<Switch
+												size="small"
+												checked={addHidden}
+												onChange={(e) => setAddHidden(e.target.checked)}
+											/>
+										}
+										label={<Typography variant="body2">Add hidden</Typography>}
+										title="Stage what you add next: invisible to players and out of the turn order until revealed"
+									/>
+									{addHidden && (
+										<TextField
+											label="Arrives round"
+											type="number"
+											size="small"
+											value={arrivalRound}
+											placeholder="Manual"
+											onChange={(e) => setArrivalRound(e.target.value)}
+											slotProps={{
+												htmlInput: { min: 1 },
+												inputLabel: { shrink: true },
+											}}
+											sx={{ width: 130 }}
+										/>
+									)}
+									{addHidden && (
+										<Typography variant="caption" color="text.secondary">
+											{arrivalRound.trim()
+												? "Revealed automatically when that round begins"
+												: "Revealed when you click Reveal"}
+										</Typography>
+									)}
+								</Stack>
 								<Stack
 									direction="row"
 									spacing={2}

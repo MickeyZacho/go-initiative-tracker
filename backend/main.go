@@ -191,6 +191,7 @@ func main() {
 	http.Handle("/encounters/combat/death-saves", loggingMiddleware(http.HandlerFunc(apiSetDeathSavesHandler)))
 	http.Handle("/encounters/combat/state", loggingMiddleware(http.HandlerFunc(apiCombatStateHandler)))
 	http.Handle("/encounters/combat/reaction", loggingMiddleware(http.HandlerFunc(apiSetReactionHandler)))
+	http.Handle("/encounters/combat/visibility", loggingMiddleware(http.HandlerFunc(apiSetVisibilityHandler)))
 	http.Handle("/encounters/conditions/catalog", loggingMiddleware(http.HandlerFunc(apiConditionCatalogHandler)))
 	http.Handle("/encounters/conditions/add", loggingMiddleware(http.HandlerFunc(apiAddConditionHandler)))
 	http.Handle("/encounters/conditions/remove", loggingMiddleware(http.HandlerFunc(apiRemoveConditionHandler)))

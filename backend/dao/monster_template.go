@@ -40,7 +40,7 @@ type NpcTemplateDAO interface {
 	Create(template NpcTemplate) (int, error)
 	UpdateByOwner(template NpcTemplate, ownerID string) (bool, error)
 	DeleteByOwner(id int, ownerID string) (bool, error)
-	AddCharactersToEncounterFromTemplate(templateID, encounterID, count int) ([]Character, error)
+	AddCharactersToEncounterFromTemplate(templateID, encounterID, count int, staging Staging) ([]Character, error)
 }
 
 type npcTemplateDAOImpl struct {
@@ -177,7 +177,7 @@ const MaxTemplateCopies = 20
 //     encounter ("Goblin 3", "Goblin 4") so a pack is distinguishable; a lone
 //     first copy keeps the plain template name;
 //   - starts at full HP with initiative rolled as d20 + DEX modifier.
-func (dao *npcTemplateDAOImpl) AddCharactersToEncounterFromTemplate(templateID, encounterID, count int) ([]Character, error) {
+func (dao *npcTemplateDAOImpl) AddCharactersToEncounterFromTemplate(templateID, encounterID, count int, staging Staging) ([]Character, error) {
 	if count < 1 || count > MaxTemplateCopies {
 		return nil, fmt.Errorf("count must be between 1 and %d", MaxTemplateCopies)
 	}
@@ -220,6 +220,8 @@ func (dao *npcTemplateDAOImpl) AddCharactersToEncounterFromTemplate(templateID, 
 			OwnerID:       ownerID,
 			Type:          "npc",
 			NpcTemplateID: &t.ID,
+			Hidden:        staging.Hidden,
+			RevealRound:   staging.RevealRound,
 		}
 		if err := tx.QueryRow(
 			"INSERT INTO characters (name, armor_class, to_hit_modifier, max_hp, owner_id, type, npc_template_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
@@ -228,8 +230,8 @@ func (dao *npcTemplateDAOImpl) AddCharactersToEncounterFromTemplate(templateID, 
 			return nil, err
 		}
 		if _, err := tx.Exec(
-			"INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp) VALUES ($1, $2, $3, $4)",
-			encounterID, c.ID, c.Initiative, c.CurrentHP,
+			"INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp, hidden, reveal_round) VALUES ($1, $2, $3, $4, $5, $6)",
+			encounterID, c.ID, c.Initiative, c.CurrentHP, staging.Hidden, staging.RevealRound,
 		); err != nil {
 			return nil, err
 		}

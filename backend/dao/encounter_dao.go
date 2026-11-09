@@ -12,7 +12,7 @@ type EncounterDAO interface {
 	CreateEncounter(encounter Encounter) (int, error)
 	DeleteEncounter(id int) error
 	DeleteEncounterByOwner(id int, ownerID string) (bool, error)
-	AddCharacterToEncounter(encounterID, characterID int) error
+	AddCharacterToEncounter(encounterID, characterID int, staging Staging) error
 	RemoveCharacterFromEncounter(encounterID, characterID int) error
 	GetByID(id int) (Encounter, error)
 	GetEncountersByOwnerDiscordID(discordID string) ([]Encounter, error)
@@ -102,8 +102,8 @@ func (dao *encounterDAOImpl) DeleteEncounterByOwner(id int, ownerID string) (boo
 	return rows > 0, err
 }
 
-func (dao *encounterDAOImpl) AddCharacterToEncounter(encounterID, characterID int) error {
-	_, err := dao.db.Exec("INSERT INTO encounter_characters (encounter_id, character_id) VALUES ($1, $2)", encounterID, characterID)
+func (dao *encounterDAOImpl) AddCharacterToEncounter(encounterID, characterID int, staging Staging) error {
+	_, err := dao.db.Exec("INSERT INTO encounter_characters (encounter_id, character_id, hidden, reveal_round) VALUES ($1, $2, $3, $4)", encounterID, characterID, staging.Hidden, staging.RevealRound)
 	return err
 }
 

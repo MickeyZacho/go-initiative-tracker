@@ -16,6 +16,31 @@ type EncounterCharacter struct {
 	// Death saving throws (0-3 each).
 	DeathSaveSuccesses int
 	DeathSaveFailures  int
+	// Staging is only written when the row is first inserted; edits through
+	// Upsert never change a combatant's visibility (use SetVisibility).
+	Staging Staging
+}
+
+// Staging controls whether a combatant enters the encounter hidden. A hidden
+// combatant is invisible to players and skipped in turn order until revealed,
+// either by the DM or automatically when RevealRound begins.
+type Staging struct {
+	Hidden      bool `json:"hidden"`
+	RevealRound *int `json:"reveal_round"`
+}
+
+// Normalize makes a scheduled reveal imply hidden and rejects rounds below 1.
+func (s Staging) Normalize() (Staging, error) {
+	if s.RevealRound != nil {
+		if *s.RevealRound < 1 {
+			return s, fmt.Errorf("reveal round must be 1 or later")
+		}
+		s.Hidden = true
+	}
+	if !s.Hidden {
+		s.RevealRound = nil
+	}
+	return s, nil
 }
 
 type EncounterCharacterDAO interface {
@@ -34,6 +59,9 @@ type EncounterCharacterDAO interface {
 	RollNpcInitiative(encounterID int) (int, error)
 	// SetDeathSaves records a downed PC's death saving throws (0-3 each).
 	SetDeathSaves(encounterID, characterID, successes, failures int) error
+	// SetVisibility hides a combatant (optionally scheduling its reveal) or
+	// reveals it now, rolling its initiative if none was set.
+	SetVisibility(encounterID, characterID int, staging Staging) error
 }
 
 type encounterCharacterDAOImpl struct {
@@ -63,8 +91,8 @@ func (dao *encounterCharacterDAOImpl) Update(enc EncounterCharacter) error {
 
 func (dao *encounterCharacterDAOImpl) Upsert(enc EncounterCharacter) error {
 	_, err := dao.db.Exec(
-		"INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp, is_active, temp_hp) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (encounter_id, character_id) DO UPDATE SET initiative = EXCLUDED.initiative, current_hp = EXCLUDED.current_hp, is_active = EXCLUDED.is_active, temp_hp = EXCLUDED.temp_hp, death_save_successes = CASE WHEN EXCLUDED.current_hp > 0 THEN 0 ELSE encounter_characters.death_save_successes END, death_save_failures = CASE WHEN EXCLUDED.current_hp > 0 THEN 0 ELSE encounter_characters.death_save_failures END",
-		enc.EncounterID, enc.CharacterID, enc.Initiative, enc.CurrentHP, enc.IsActive, enc.TempHP,
+		"INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp, is_active, temp_hp, hidden, reveal_round) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (encounter_id, character_id) DO UPDATE SET initiative = EXCLUDED.initiative, current_hp = EXCLUDED.current_hp, is_active = EXCLUDED.is_active, temp_hp = EXCLUDED.temp_hp, death_save_successes = CASE WHEN EXCLUDED.current_hp > 0 THEN 0 ELSE encounter_characters.death_save_successes END, death_save_failures = CASE WHEN EXCLUDED.current_hp > 0 THEN 0 ELSE encounter_characters.death_save_failures END",
+		enc.EncounterID, enc.CharacterID, enc.Initiative, enc.CurrentHP, enc.IsActive, enc.TempHP, enc.Staging.Hidden, enc.Staging.RevealRound,
 	)
 	return err
 }
@@ -76,6 +104,10 @@ func (dao *encounterCharacterDAOImpl) StartCombat(encounterID int) (int, error) 
 	}
 	defer tx.Rollback()
 
+	// Anything scheduled to arrive in round 1 joins before the order is read.
+	if _, err = revealCombatants(tx, encounterID, "ec.reveal_round <= $2", 1); err != nil {
+		return 0, err
+	}
 	order, err := loadTurnOrder(tx, encounterID)
 	if err != nil {
 		return 0, err
@@ -221,6 +253,35 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 		}
 	}
 	nextIndex, wrapped := nextTurnIndex(order, currentIndex)
+
+	// Advance the round clock. With nobody active, this Next is effectively the
+	// start of combat, so make sure we're in at least round 1. Otherwise a new
+	// round begins whenever the turn wraps back to the top of the order.
+	roundQ := ""
+	switch {
+	case currentIndex < 0:
+		roundQ = "UPDATE encounters SET round = GREATEST(round, 1) WHERE id = $1 RETURNING round"
+	case wrapped:
+		roundQ = "UPDATE encounters SET round = round + 1 WHERE id = $1 RETURNING round"
+	}
+	if roundQ != "" {
+		var round int
+		if err = tx.QueryRow(roundQ, encounterID).Scan(&round); err != nil {
+			return 0, err
+		}
+		// Combatants scheduled for this round arrive now. If any did, re-read the
+		// order: a newcomer with high initiative may act first this round.
+		revealed, err := revealCombatants(tx, encounterID, "ec.reveal_round <= $2", round)
+		if err != nil {
+			return 0, err
+		}
+		if revealed > 0 {
+			if order, err = loadTurnOrder(tx, encounterID); err != nil {
+				return 0, err
+			}
+			nextIndex, _ = nextTurnIndex(order, -1)
+		}
+	}
 	nextActiveID := order[nextIndex].id
 
 	if _, err = tx.Exec(
@@ -235,20 +296,6 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 		encounterID, nextActiveID,
 	); err != nil {
 		return 0, err
-	}
-
-	// Advance the round clock. With nobody active, this Next is effectively the
-	// start of combat, so make sure we're in at least round 1. Otherwise a new
-	// round begins whenever the turn wraps back to the top of the order.
-	switch {
-	case currentIndex < 0:
-		if _, err = tx.Exec("UPDATE encounters SET round = GREATEST(round, 1) WHERE id = $1", encounterID); err != nil {
-			return 0, err
-		}
-	case wrapped:
-		if _, err = tx.Exec("UPDATE encounters SET round = round + 1 WHERE id = $1", encounterID); err != nil {
-			return 0, err
-		}
 	}
 
 	// Tick down the outgoing creature's timed conditions as its turn ends (when we
@@ -328,10 +375,11 @@ type turnSlot struct {
 }
 
 // loadTurnOrder reads the encounter's combatants in initiative order
-// (initiative DESC, character_id ASC). It errors when there are none.
+// (initiative DESC, character_id ASC), leaving out hidden ones, which don't
+// take turns until revealed. It errors when there are none.
 func loadTurnOrder(tx *sql.Tx, encounterID int) ([]turnSlot, error) {
 	rows, err := tx.Query(
-		"SELECT ec.character_id, c.type, COALESCE(ec.current_hp, c.max_hp) FROM encounter_characters ec JOIN characters c ON c.id = ec.character_id WHERE ec.encounter_id = $1 ORDER BY COALESCE(ec.initiative, 0) DESC, ec.character_id ASC",
+		"SELECT ec.character_id, c.type, COALESCE(ec.current_hp, c.max_hp) FROM encounter_characters ec JOIN characters c ON c.id = ec.character_id WHERE ec.encounter_id = $1 AND NOT ec.hidden ORDER BY COALESCE(ec.initiative, 0) DESC, ec.character_id ASC",
 		encounterID,
 	)
 	if err != nil {
@@ -392,4 +440,86 @@ func (dao *encounterCharacterDAOImpl) SetDeathSaves(encounterID, characterID, su
 		return fmt.Errorf("character not in encounter")
 	}
 	return nil
+}
+
+func (dao *encounterCharacterDAOImpl) SetVisibility(encounterID, characterID int, staging Staging) error {
+	staging, err := staging.Normalize()
+	if err != nil {
+		return err
+	}
+	tx, err := dao.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if staging.Hidden {
+		// A hidden creature can't hold the turn.
+		res, err := tx.Exec(
+			"UPDATE encounter_characters SET hidden = TRUE, reveal_round = $1, is_active = FALSE WHERE encounter_id = $2 AND character_id = $3",
+			staging.RevealRound, encounterID, characterID,
+		)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return ErrNotInEncounter
+		}
+		return tx.Commit()
+	}
+
+	revealed, err := revealCombatants(tx, encounterID, "ec.character_id = $2", characterID)
+	if err != nil {
+		return err
+	}
+	if revealed == 0 {
+		return ErrNotInEncounter
+	}
+	return tx.Commit()
+}
+
+// ErrNotInEncounter reports a character id that isn't a (matching) combatant.
+var ErrNotInEncounter = fmt.Errorf("character not in encounter")
+
+// revealCombatants brings hidden combatants matching cond (which may reference
+// $2 = arg) into the fight. One with no initiative set (NULL or 0) rolls
+// d20 + DEX now, the same roll RollNpcInitiative uses; a preset is kept.
+// Returns how many were revealed.
+func revealCombatants(tx *sql.Tx, encounterID int, cond string, arg int) (int, error) {
+	rows, err := tx.Query(
+		"SELECT ec.character_id, COALESCE(ec.initiative, 0), COALESCE((c.stats).dexterity, (t.base_stats).dexterity, 10) FROM encounter_characters ec JOIN characters c ON c.id = ec.character_id LEFT JOIN npc_templates t ON t.id = c.npc_template_id WHERE ec.encounter_id = $1 AND ec.hidden AND "+cond+" ORDER BY ec.character_id",
+		encounterID, arg,
+	)
+	if err != nil {
+		return 0, err
+	}
+	type arrival struct{ id, initiative, dex int }
+	var arrivals []arrival
+	for rows.Next() {
+		var a arrival
+		if err := rows.Scan(&a.id, &a.initiative, &a.dex); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		arrivals = append(arrivals, a)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	for _, a := range arrivals {
+		if a.initiative == 0 {
+			a.initiative = RollD20() + AbilityModifier(a.dex)
+		}
+		if _, err := tx.Exec(
+			"UPDATE encounter_characters SET hidden = FALSE, reveal_round = NULL, initiative = $1 WHERE encounter_id = $2 AND character_id = $3",
+			a.initiative, encounterID, a.id,
+		); err != nil {
+			return 0, err
+		}
+	}
+	return len(arrivals), nil
 }

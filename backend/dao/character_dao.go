@@ -35,6 +35,11 @@ type Character struct {
 	// HealthStatus ("Healthy", "Wounded", "Bloodied", "Down") stands in for HP.
 	Redacted     bool   `json:",omitempty"`
 	HealthStatus string `json:",omitempty"`
+	// Hidden combatants are staged by the DM: never sent to players and skipped
+	// in turn order. RevealRound, when set, is the round they arrive in.
+	// Encounter-scoped only.
+	Hidden      bool `json:",omitempty"`
+	RevealRound *int `json:",omitempty"`
 }
 
 type CharacterDAO interface {
@@ -111,7 +116,7 @@ func (dao *characterDAOImpl) GetCharacterByID(id int) (Character, error) {
 
 func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Character, error) {
 	rows, err := dao.db.Query(
-		"SELECT c.id, c.name, c.armor_class, c.to_hit_modifier, c.max_hp, COALESCE(ec.current_hp, c.max_hp), COALESCE(ec.initiative, 0), COALESCE(ec.is_active, false), COALESCE(c.owner_id, ''), c.type, c.npc_template_id, COALESCE(ec.reaction_used, false), COALESCE(ec.temp_hp, 0), COALESCE(ec.death_save_successes, 0), COALESCE(ec.death_save_failures, 0) FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1",
+		"SELECT c.id, c.name, c.armor_class, c.to_hit_modifier, c.max_hp, COALESCE(ec.current_hp, c.max_hp), COALESCE(ec.initiative, 0), COALESCE(ec.is_active, false), COALESCE(c.owner_id, ''), c.type, c.npc_template_id, COALESCE(ec.reaction_used, false), COALESCE(ec.temp_hp, 0), COALESCE(ec.death_save_successes, 0), COALESCE(ec.death_save_failures, 0), ec.hidden, ec.reveal_round FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1",
 		encounterID,
 	)
 	if err != nil {
@@ -121,7 +126,7 @@ func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Char
 	var characters []Character
 	for rows.Next() {
 		var c Character
-		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID, &c.Type, &c.NpcTemplateID, &c.ReactionUsed, &c.TempHP, &c.DeathSaveSuccesses, &c.DeathSaveFailures)
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID, &c.Type, &c.NpcTemplateID, &c.ReactionUsed, &c.TempHP, &c.DeathSaveSuccesses, &c.DeathSaveFailures, &c.Hidden, &c.RevealRound)
 		if err != nil {
 			return nil, err
 		}

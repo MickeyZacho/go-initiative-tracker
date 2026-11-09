@@ -14,7 +14,8 @@ export function healthStatus(current: number, max: number): HealthStatus {
 }
 
 export function redactForPlayers(characters: Character[]): Character[] {
-	return characters.map((c) =>
+	// Hidden (staged) combatants never reach players at all.
+	return characters.filter((c) => !c.Hidden).map((c) =>
 		c.Type !== "npc" || c.Redacted
 			? c
 			: {

@@ -43,4 +43,13 @@ describe("redactForPlayers", () => {
 		expect(pc.Redacted).toBeUndefined();
 		expect(pc.ArmorClass).toBe(15);
 	});
+
+	it("drops hidden combatants entirely", () => {
+		const out = redactForPlayers([
+			base,
+			{ ...base, ID: 2, Hidden: true, RevealRound: 3 },
+			{ ...base, ID: 3, Type: "pc", Hidden: true },
+		]);
+		expect(out.map((c) => c.ID)).toEqual([1]);
+	});
 });

@@ -57,6 +57,7 @@ func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	// Players get the player view: NPC numbers are hidden server-side.
 	if role == roleMember {
+		characters = dropHiddenForPlayers(characters)
 		redactNpcsForPlayers(characters)
 	}
 	if characters == nil {
@@ -183,6 +184,11 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		dao.Character
 		EncounterID int `json:"encounter_id"`
+		// Staging for a brand-new character added straight into the encounter.
+		// Declared here (not via dao.Staging) so they shadow Character's own
+		// Hidden/RevealRound rather than colliding with them.
+		Hidden      bool `json:"hidden"`
+		RevealRound *int `json:"reveal_round"`
 	}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
@@ -190,6 +196,12 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	char := payload.Character
+	staging, err := dao.Staging{Hidden: payload.Hidden, RevealRound: payload.RevealRound}.Normalize()
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	isNew := char.ID == 0
 
 	if char.MaxHP < 1 {
 		writeJSONError(w, http.StatusBadRequest, "Invalid max HP value")
@@ -294,6 +306,12 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			IsActive:    char.IsActive,
 			TempHP:      char.TempHP,
 		}
+		// Visibility is only chosen on creation; later edits go through
+		// /encounters/combat/visibility (Upsert never changes it on conflict).
+		if isNew {
+			encChar.Staging = staging
+			char.Hidden, char.RevealRound = staging.Hidden, staging.RevealRound
+		}
 		err = encounterCharacterDAO.Upsert(encChar)
 		if err != nil {
 			log.Printf("Error upserting encounter character: %v", err)
@@ -343,6 +361,7 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		EncounterID int `json:"encounter_id"`
 		CharacterID int `json:"character_id"`
+		dao.Staging
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
@@ -357,11 +376,16 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "encounter_id is required")
 		return
 	}
+	staging, err := req.Staging.Normalize()
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	// The roster belongs to the DM.
 	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
-	err := encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID)
+	err = encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID, staging)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
 			writeJSONError(w, http.StatusConflict, "Character is already in this encounter")

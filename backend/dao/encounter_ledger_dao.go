@@ -18,6 +18,9 @@ type EncounterLedgerEntry struct {
 	HPChange    int    `json:"hp_change"`
 	Description string `json:"description"`
 	CreatedAt   string `json:"created_at"`
+	// ActorHidden is true while the actor is a hidden combatant; the player
+	// view drops such entries so the log can't leak who is waiting offstage.
+	ActorHidden bool `json:"-"`
 }
 
 type EncounterLedgerInsert struct {
@@ -47,7 +50,7 @@ func (dao *encounterLedgerDAOImpl) ListByEncounterID(encounterID int, limit int)
 		limit = 50
 	}
 	rows, err := dao.db.Query(
-		`SELECT l.id, l.encounter_id, COALESCE(l.actor_id, 0), COALESCE(a.name, ''), COALESCE(a.type, ''), COALESCE(l.target_id, 0), COALESCE(t.name, ''), COALESCE(l.action_type, ''), COALESCE(l.hp_change, 0), COALESCE(l.description, ''), TO_CHAR(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM encounter_ledger l LEFT JOIN characters a ON a.id = l.actor_id LEFT JOIN characters t ON t.id = l.target_id WHERE l.encounter_id = $1 ORDER BY l.created_at DESC, l.id DESC LIMIT $2`,
+		`SELECT l.id, l.encounter_id, COALESCE(l.actor_id, 0), COALESCE(a.name, ''), COALESCE(a.type, ''), COALESCE(l.target_id, 0), COALESCE(t.name, ''), COALESCE(l.action_type, ''), COALESCE(l.hp_change, 0), COALESCE(l.description, ''), TO_CHAR(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), COALESCE(ec.hidden, FALSE) FROM encounter_ledger l LEFT JOIN characters a ON a.id = l.actor_id LEFT JOIN characters t ON t.id = l.target_id LEFT JOIN encounter_characters ec ON ec.encounter_id = l.encounter_id AND ec.character_id = l.actor_id WHERE l.encounter_id = $1 ORDER BY l.created_at DESC, l.id DESC LIMIT $2`,
 		encounterID,
 		limit,
 	)
@@ -71,6 +74,7 @@ func (dao *encounterLedgerDAOImpl) ListByEncounterID(encounterID int, limit int)
 			&entry.HPChange,
 			&entry.Description,
 			&entry.CreatedAt,
+			&entry.ActorHidden,
 		); scanErr != nil {
 			return nil, scanErr
 		}

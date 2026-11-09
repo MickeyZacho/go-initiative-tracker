@@ -85,6 +85,9 @@ func TestStartCombatAllowsOwner(t *testing.T) {
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
 	m.ExpectBegin()
+	// Nobody is scheduled to arrive in round 1.
+	m.ExpectQuery("AND ec.hidden AND").WithArgs(1, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"character_id", "initiative", "dex"}))
 	m.ExpectQuery("SELECT ec.character_id, c.type").WithArgs(1).
 		WillReturnRows(sqlmock.NewRows([]string{"character_id", "type", "current_hp"}).AddRow(7, "pc", 10))
 	m.ExpectExec("UPDATE encounter_characters SET is_active = FALSE").WithArgs(1).
@@ -342,10 +345,12 @@ func TestCharactersListRedactsNpcsForMember(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "armor_class", "to_hit_modifier", "max_hp", "current_hp",
 			"initiative", "is_active", "owner_id", "type", "npc_template_id", "reaction_used", "temp_hp",
-			"death_save_successes", "death_save_failures",
+			"death_save_successes", "death_save_failures", "hidden", "reveal_round",
 		}).
-			AddRow(1, "Aria", 16, 5, 30, 30, 18, false, "player2", "pc", nil, false, 0, 0, 0).
-			AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false, 0, 0, 0))
+			AddRow(1, "Aria", 16, 5, 30, 30, 18, false, "player2", "pc", nil, false, 0, 0, 0, false, nil).
+			AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false, 0, 0, 0, false, nil).
+			// Staged by the DM: players must not see it at all.
+			AddRow(3, "Ambusher", 14, 5, 20, 20, 0, false, "dm1", "npc", nil, false, 0, 0, 0, true, 3))
 	m.ExpectQuery("FROM encounter_character_conditions").WithArgs(1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "encounter_id", "character_id", "condition", "duration_rounds", "level", "note"}))
 
@@ -360,7 +365,7 @@ func TestCharactersListRedactsNpcsForMember(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(chars) != 2 {
-		t.Fatalf("got %d characters, want 2", len(chars))
+		t.Fatalf("got %d characters, want 2 (hidden combatant must be dropped)", len(chars))
 	}
 	pc, npc := chars[0], chars[1]
 	if pc.Redacted || pc.ArmorClass != 16 || pc.CurrentHP != 30 {
@@ -383,8 +388,8 @@ func TestCharactersListOwnerSeesNpcStats(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "armor_class", "to_hit_modifier", "max_hp", "current_hp",
 			"initiative", "is_active", "owner_id", "type", "npc_template_id", "reaction_used", "temp_hp",
-			"death_save_successes", "death_save_failures",
-		}).AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false, 0, 0, 0))
+			"death_save_successes", "death_save_failures", "hidden", "reveal_round",
+		}).AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false, 0, 0, 0, true, nil))
 	m.ExpectQuery("FROM encounter_character_conditions").WithArgs(1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "encounter_id", "character_id", "condition", "duration_rounds", "level", "note"}))
 
@@ -397,7 +402,7 @@ func TestCharactersListOwnerSeesNpcStats(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &chars); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(chars) != 1 || chars[0].Redacted || chars[0].ArmorClass != 15 {
+	if len(chars) != 1 || chars[0].Redacted || chars[0].ArmorClass != 15 || !chars[0].Hidden {
 		t.Errorf("owner should see full NPC stats, got %+v", chars)
 	}
 }
@@ -409,10 +414,11 @@ func TestEncounterLedgerRedactsNpcHPForMember(t *testing.T) {
 	m.ExpectQuery("FROM encounter_ledger").WithArgs(1, 50).WillReturnRows(
 		sqlmock.NewRows([]string{
 			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
-			"target_name", "action_type", "hp_change", "description", "created_at",
+			"target_name", "action_type", "hp_change", "description", "created_at", "actor_hidden",
 		}).
-			AddRow(1, 1, 2, "Goblin 1", "npc", 0, "", "damage", -5, "", "2026-01-01T00:00:00Z").
-			AddRow(2, 1, 1, "Aria", "pc", 0, "", "damage", -4, "", "2026-01-01T00:00:01Z"),
+			AddRow(1, 1, 2, "Goblin 1", "npc", 0, "", "damage", -5, "", "2026-01-01T00:00:00Z", false).
+			AddRow(3, 1, 9, "Ambusher", "npc", 0, "", "damage", -2, "", "2026-01-01T00:00:00Z", true).
+			AddRow(2, 1, 1, "Aria", "pc", 0, "", "damage", -4, "", "2026-01-01T00:00:01Z", false),
 	)
 
 	rr, req := getReq("/encounters/ledger?encounter_id=1")

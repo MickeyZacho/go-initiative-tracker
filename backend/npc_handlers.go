@@ -116,6 +116,7 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		EncounterID int `json:"encounter_id"`
 		// Count is how many copies to add (default 1).
 		Count int `json:"count"`
+		dao.Staging
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
@@ -136,12 +137,17 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Count must be between 1 and %d", dao.MaxTemplateCopies))
 		return
 	}
+	staging, err := req.Staging.Normalize()
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	// Adding monsters is the DM's call.
 	if !requireEncounterOwner(w, r, req.EncounterID) {
 		return
 	}
 
-	characters, err := npcTemplateDAO.AddCharactersToEncounterFromTemplate(req.TemplateID, req.EncounterID, req.Count)
+	characters, err := npcTemplateDAO.AddCharactersToEncounterFromTemplate(req.TemplateID, req.EncounterID, req.Count, staging)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to create character from template")
 		return
