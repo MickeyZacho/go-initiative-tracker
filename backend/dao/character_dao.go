@@ -12,6 +12,9 @@ type Character struct {
 	ToHitModifier int
 	MaxHP         int
 	CurrentHP     int
+	// TempHP is per-encounter temporary HP; it absorbs damage first. Only
+	// populated by the encounter-scoped query.
+	TempHP        int
 	Initiative    int
 	IsActive      bool
 	OwnerID       string
@@ -105,7 +108,7 @@ func (dao *characterDAOImpl) GetCharacterByID(id int) (Character, error) {
 
 func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Character, error) {
 	rows, err := dao.db.Query(
-		"SELECT c.id, c.name, c.armor_class, c.to_hit_modifier, c.max_hp, COALESCE(ec.current_hp, c.max_hp), COALESCE(ec.initiative, 0), COALESCE(ec.is_active, false), COALESCE(c.owner_id, ''), c.type, c.npc_template_id, COALESCE(ec.reaction_used, false) FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1",
+		"SELECT c.id, c.name, c.armor_class, c.to_hit_modifier, c.max_hp, COALESCE(ec.current_hp, c.max_hp), COALESCE(ec.initiative, 0), COALESCE(ec.is_active, false), COALESCE(c.owner_id, ''), c.type, c.npc_template_id, COALESCE(ec.reaction_used, false), COALESCE(ec.temp_hp, 0) FROM characters c JOIN encounter_characters ec ON c.id = ec.character_id WHERE ec.encounter_id = $1",
 		encounterID,
 	)
 	if err != nil {
@@ -115,7 +118,7 @@ func (dao *characterDAOImpl) GetCharactersByEncounterID(encounterID int) ([]Char
 	var characters []Character
 	for rows.Next() {
 		var c Character
-		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID, &c.Type, &c.NpcTemplateID, &c.ReactionUsed)
+		err := rows.Scan(&c.ID, &c.Name, &c.ArmorClass, &c.ToHitModifier, &c.MaxHP, &c.CurrentHP, &c.Initiative, &c.IsActive, &c.OwnerID, &c.Type, &c.NpcTemplateID, &c.ReactionUsed, &c.TempHP)
 		if err != nil {
 			return nil, err
 		}

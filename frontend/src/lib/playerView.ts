@@ -25,6 +25,7 @@ export function redactForPlayers(characters: Character[]): Character[] {
 					ToHitModifier: 0,
 					CurrentHP: 0,
 					MaxHP: 0,
+					TempHP: 0,
 				},
 	);
 }

@@ -77,6 +77,7 @@ CREATE TABLE encounter_characters (
 	current_hp INTEGER,
 	is_active BOOLEAN DEFAULT FALSE,
 	reaction_used BOOLEAN NOT NULL DEFAULT FALSE,
+	temp_hp INTEGER NOT NULL DEFAULT 0, -- migration 00008
 	PRIMARY KEY (encounter_id, character_id)
 );
 

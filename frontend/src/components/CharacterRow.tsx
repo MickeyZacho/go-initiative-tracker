@@ -20,7 +20,8 @@ type EditableFieldName =
 	| "CurrentHP"
 	| "MaxHP"
 	| "Initiative"
-	| "ToHitModifier";
+	| "ToHitModifier"
+	| "TempHP";
 
 interface CharacterRowProps {
 	character: Character;
@@ -257,14 +258,31 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		}
 		let newValue: string | number = editing.value;
 		if (field === "CurrentHP") {
+			const temp = character.TempHP ?? 0;
 			const next = applyHpInput(
 				editing.value,
-				character.CurrentHP,
+				{ current: character.CurrentHP, temp },
 				character.MaxHP,
 			);
 			setEditing({ field: null, value: "" });
-			if (next === null || next === character.CurrentHP) return;
-			newValue = next;
+			if (
+				next === null ||
+				(next.current === character.CurrentHP && next.temp === temp)
+			)
+				return;
+			const updated = {
+				...character,
+				CurrentHP: next.current,
+				TempHP: next.temp,
+			};
+			setCharacters((prev) =>
+				prev.map((c) => (c.ID === character.ID ? updated : c)),
+			);
+			onSave(updated);
+			return;
+		} else if (field === "TempHP") {
+			// Temp HP doesn't go negative; blank/garbage means none.
+			newValue = Math.max(0, Math.floor(Number(editing.value)) || 0);
 		} else if (field !== "Name") {
 			newValue = Number(editing.value);
 			if (isNaN(newValue)) newValue = 0;
@@ -481,6 +499,28 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 						</Box>
 					)}
 				</Box>
+
+				{/* Temporary HP: soaks damage before HP (the -N input drains it
+				    first). Hidden for redacted NPCs. */}
+				{!redacted && (
+					<Box sx={{ textAlign: "center" }}>
+						<StatLabel>Temp</StatLabel>
+						<Box
+							sx={{
+								color:
+									(character.TempHP ?? 0) > 0 ? "info.main" : "text.disabled",
+							}}
+						>
+							<EditableField
+								{...fieldProps("TempHP", character.TempHP ?? 0)}
+								type="number"
+								width={56}
+								ariaLabel={`${name} temporary HP`}
+								hint="Temporary HP — absorbs damage first, doesn't stack"
+							/>
+						</Box>
+					</Box>
+				)}
 
 				{/* Initiative */}
 				<Box sx={{ textAlign: "center" }}>

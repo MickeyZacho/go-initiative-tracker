@@ -12,6 +12,7 @@ type EncounterCharacter struct {
 	CurrentHP    int
 	IsActive     bool
 	ReactionUsed bool
+	TempHP       int
 }
 
 type EncounterCharacterDAO interface {
@@ -41,9 +42,9 @@ func NewEncounterCharacterDAO(db *sql.DB) EncounterCharacterDAO {
 func (dao *encounterCharacterDAOImpl) GetByEncounterAndCharacter(encounterID, characterID int) (EncounterCharacter, error) {
 	var ec EncounterCharacter
 	err := dao.db.QueryRow(
-		"SELECT encounter_id, character_id, initiative, current_hp, is_active, reaction_used FROM encounter_characters WHERE encounter_id = $1 AND character_id = $2",
+		"SELECT encounter_id, character_id, initiative, current_hp, is_active, reaction_used, temp_hp FROM encounter_characters WHERE encounter_id = $1 AND character_id = $2",
 		encounterID, characterID,
-	).Scan(&ec.EncounterID, &ec.CharacterID, &ec.Initiative, &ec.CurrentHP, &ec.IsActive, &ec.ReactionUsed)
+	).Scan(&ec.EncounterID, &ec.CharacterID, &ec.Initiative, &ec.CurrentHP, &ec.IsActive, &ec.ReactionUsed, &ec.TempHP)
 	return ec, err
 }
 
@@ -57,8 +58,8 @@ func (dao *encounterCharacterDAOImpl) Update(enc EncounterCharacter) error {
 
 func (dao *encounterCharacterDAOImpl) Upsert(enc EncounterCharacter) error {
 	_, err := dao.db.Exec(
-		"INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp, is_active) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (encounter_id, character_id) DO UPDATE SET initiative = EXCLUDED.initiative, current_hp = EXCLUDED.current_hp, is_active = EXCLUDED.is_active",
-		enc.EncounterID, enc.CharacterID, enc.Initiative, enc.CurrentHP, enc.IsActive,
+		"INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp, is_active, temp_hp) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (encounter_id, character_id) DO UPDATE SET initiative = EXCLUDED.initiative, current_hp = EXCLUDED.current_hp, is_active = EXCLUDED.is_active, temp_hp = EXCLUDED.temp_hp",
+		enc.EncounterID, enc.CharacterID, enc.Initiative, enc.CurrentHP, enc.IsActive, enc.TempHP,
 	)
 	return err
 }

@@ -35,6 +35,7 @@ func redactNpcsForPlayers(chars []dao.Character) {
 		c.ToHitModifier = 0
 		c.CurrentHP = 0
 		c.MaxHP = 0
+		c.TempHP = 0
 	}
 }
 

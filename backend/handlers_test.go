@@ -701,8 +701,8 @@ func TestSaveCharacterInEncounterLogsDamage(t *testing.T) {
 	// Previous HP lookup for the delta.
 	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used",
-		}).AddRow(1, 5, 0, 12, false, false))
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp",
+		}).AddRow(1, 5, 0, 12, false, false, 0))
 	// The character update itself.
 	m.ExpectQuery("UPDATE characters c SET").
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
@@ -712,9 +712,9 @@ func TestSaveCharacterInEncounterLogsDamage(t *testing.T) {
 	m.ExpectQuery("INSERT INTO encounter_ledger").
 		WithArgs(1, 5, 0, "damage", -7, "").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "encounter_id", "actor_id", "actor_name", "target_id",
+			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
 			"target_name", "action_type", "hp_change", "description", "created_at",
-		}).AddRow(1, 1, 5, "Hero", 0, "", "damage", -7, "", "2026-07-18T00:00:00Z"))
+		}).AddRow(1, 1, 5, "Hero", "pc", 0, "", "damage", -7, "", "2026-07-18T00:00:00Z"))
 
 	rr, req := postJSON("/save-character",
 		`{"id":5,"name":"Hero","maxHP":12,"currentHP":5,"encounter_id":1}`)
@@ -726,6 +726,63 @@ func TestSaveCharacterInEncounterLogsDamage(t *testing.T) {
 }
 
 // --- NPC templates ----------------------------------------------------------
+
+func TestSaveCharacterInEncounterLogsDamageThroughTempHP(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	// Before: 12 HP + 5 temp.
+	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp",
+		}).AddRow(1, 5, 0, 12, false, false, 5))
+	m.ExpectQuery("UPDATE characters c SET").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	m.ExpectExec("INSERT INTO encounter_characters").
+		WithArgs(1, 5, 0, 10, false, 0).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// After: 10 HP + 0 temp — a 7-point hit, 5 of it soaked by temp HP.
+	m.ExpectQuery("INSERT INTO encounter_ledger").
+		WithArgs(1, 5, 0, "damage", -7, "").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
+			"target_name", "action_type", "hp_change", "description", "created_at",
+		}).AddRow(1, 1, 5, "Hero", "pc", 0, "", "damage", -7, "", "2026-07-18T00:00:00Z"))
+
+	rr, req := postJSON("/save-character",
+		`{"id":5,"name":"Hero","maxHP":12,"currentHP":10,"tempHP":0,"encounter_id":1}`)
+	authed(req, "dm1")
+	saveCharacterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestSaveCharacterInEncounterGrantingTempHPIsNotLogged(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp",
+		}).AddRow(1, 5, 0, 12, false, false, 0))
+	m.ExpectQuery("UPDATE characters c SET").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	m.ExpectExec("INSERT INTO encounter_characters").
+		WithArgs(1, 5, 0, 12, false, 8).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// No ledger insert expected.
+
+	rr, req := postJSON("/save-character",
+		`{"id":5,"name":"Hero","maxHP":12,"currentHP":12,"tempHP":8,"encounter_id":1}`)
+	authed(req, "dm1")
+	saveCharacterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
 
 func TestNpcTemplatesList(t *testing.T) {
 	m, restore := newFullMock(t)

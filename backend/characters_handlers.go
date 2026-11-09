@@ -201,6 +201,9 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	if char.CurrentHP > char.MaxHP {
 		char.CurrentHP = char.MaxHP
 	}
+	if char.TempHP < 0 {
+		char.TempHP = 0
+	}
 	discordID := getDiscordIDFromRequest(r)
 
 	// Saving into an encounter requires access to that encounter. The DM can
@@ -229,10 +232,10 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Remember the character's HP before this save so we can log the delta as a
-	// damage/heal entry on the combat log. Only meaningful on the encounter path
-	// (previousHP stays -1 otherwise, which suppresses logging).
-	previousHP := -1
+	// Remember the character's HP (and temp HP) before this save so we can log
+	// the change as a damage/heal entry on the combat log. Only meaningful on the
+	// encounter path (previousHP stays -1 otherwise, which suppresses logging).
+	previousHP, previousTemp := -1, 0
 
 	switch {
 	case char.ID == 0:
@@ -254,7 +257,7 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	case payload.EncounterID > 0:
 		// Editing a character through an encounter the caller has access to.
 		if prev, prevErr := encounterCharacterDAO.GetByEncounterAndCharacter(payload.EncounterID, char.ID); prevErr == nil {
-			previousHP = prev.CurrentHP
+			previousHP, previousTemp = prev.CurrentHP, prev.TempHP
 		}
 		ownerID, updated, err := characterDAO.UpdateCharacterInEncounter(char, payload.EncounterID)
 		if err != nil {
@@ -289,6 +292,7 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			Initiative:  char.Initiative,
 			CurrentHP:   char.CurrentHP,
 			IsActive:    char.IsActive,
+			TempHP:      char.TempHP,
 		}
 		err = encounterCharacterDAO.Upsert(encChar)
 		if err != nil {
@@ -296,20 +300,28 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to save encounter values")
 			return
 		}
-		// An HP change is the raw material of the combat log: log the delta as a
-		// damage (HP down) or heal (HP up) entry. Edits that leave HP untouched
-		// (name, AC, initiative) produce no entry.
-		if previousHP >= 0 && char.CurrentHP != previousHP {
-			actionType := "heal"
-			if char.CurrentHP < previousHP {
-				actionType = "damage"
+		// An HP change is the raw material of the combat log. Damage is the drop
+		// in total HP (temp + current), since temp HP soaks hits first; healing is
+		// a rise in current HP. Granting temp HP isn't healing, and edits that
+		// leave HP untouched (name, AC, initiative) produce no entry.
+		if previousHP >= 0 {
+			before, after := previousHP+previousTemp, char.CurrentHP+char.TempHP
+			switch {
+			case after < before:
+				logCombatEvent(dao.EncounterLedgerInsert{
+					EncounterID: payload.EncounterID,
+					ActorID:     char.ID,
+					ActionType:  "damage",
+					HPChange:    after - before,
+				})
+			case char.CurrentHP > previousHP:
+				logCombatEvent(dao.EncounterLedgerInsert{
+					EncounterID: payload.EncounterID,
+					ActorID:     char.ID,
+					ActionType:  "heal",
+					HPChange:    char.CurrentHP - previousHP,
+				})
 			}
-			logCombatEvent(dao.EncounterLedgerInsert{
-				EncounterID: payload.EncounterID,
-				ActorID:     char.ID,
-				ActionType:  actionType,
-				HPChange:    char.CurrentHP - previousHP,
-			})
 		}
 		events.publish(payload.EncounterID, "character")
 	}

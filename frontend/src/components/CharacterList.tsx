@@ -65,6 +65,8 @@ export interface Character {
 	ToHitModifier?: number;
 	MaxHP: number;
 	CurrentHP: number;
+	// Per-encounter temporary HP; damage drains it before CurrentHP.
+	TempHP?: number;
 	Initiative: number;
 	IsActive: boolean;
 	OwnerID: string;
@@ -238,6 +240,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					armorClass: Number(character.ArmorClass),
 					maxHP: Number(character.MaxHP),
 					currentHP: Number(character.CurrentHP),
+					tempHP: Number(character.TempHP ?? 0),
 					initiative: Number(character.Initiative),
 					toHitModifier: Number(character.ToHitModifier ?? 0),
 					isActive: Boolean(character.IsActive),
