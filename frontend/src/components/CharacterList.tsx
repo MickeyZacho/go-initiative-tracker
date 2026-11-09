@@ -490,7 +490,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								value={String(encounterId)}
 								label="Encounter"
 								onChange={handleEncounterChange}
-								sx={{ fontWeight: 500, color: "#1976d2" }}
+								sx={{ fontWeight: 500, color: "primary.main" }}
 							>
 								{encounters.map((enc) => (
 									<MenuItem

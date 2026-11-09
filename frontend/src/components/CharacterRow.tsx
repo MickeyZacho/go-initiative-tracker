@@ -1,5 +1,17 @@
 import React from "react";
+import {
+	Box,
+	Button,
+	Chip,
+	IconButton,
+	InputBase,
+	Paper,
+	TextField,
+	Tooltip,
+	Typography,
+} from "@mui/material";
 import type { Character, ConditionInfo } from "./CharacterList";
+import { tint } from "../theme";
 
 type EditableFieldName =
 	| "Name"
@@ -26,69 +38,97 @@ interface CharacterRowProps {
 	onSetReaction: (characterID: number, used: boolean) => void;
 }
 
+// Small caption above each stat, so the row reads like a stat line on any width.
+function StatLabel({ children }: { children: React.ReactNode }) {
+	return (
+		<Typography
+			component="div"
+			variant="caption"
+			color="primary"
+			sx={{ fontWeight: 600, lineHeight: 1.2, mb: 0.25 }}
+		>
+			{children}
+		</Typography>
+	);
+}
+
+// Click-to-edit value: shows the value with a dashed underline, swaps to an
+// input while editing. Enter commits, Escape cancels (handled by onKeyDown).
 const EditableField: React.FC<{
 	value: string | number;
 	type: "text" | "number";
 	isEditing: boolean;
-	onClick: () => void;
-	onFocus: () => void;
+	onStartEdit: () => void;
 	onChange: (v: string) => void;
 	onBlur: () => void;
 	onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-	style?: React.CSSProperties;
-	autoFocus?: boolean;
-}> = React.memo(
-	({
-		value,
-		type,
-		isEditing,
-		onClick,
-		onFocus,
-		onChange,
-		onBlur,
-		onKeyDown,
-		style,
-		autoFocus,
-	}) => (
-		<>
-			{isEditing ? (
-				<input
-					type={type}
-					value={String(value)}
-					autoFocus={autoFocus}
-					onChange={(e) => onChange(e.target.value)}
-					onBlur={onBlur}
-					onKeyDown={onKeyDown}
-					style={style}
-				/>
-			) : (
-				<span
-					style={{
-						...style,
-						border: "1px solid transparent",
-						background: "none",
-						cursor: "pointer",
-						transition: "border 0.2s, background 0.2s",
-						borderBottom: "1px dashed #1976d2",
-					}}
-					tabIndex={0}
-					onClick={onClick}
-					onFocus={onFocus}
-					onMouseEnter={(e) =>
-						((e.currentTarget as HTMLSpanElement).style.background =
-							"#e3f2fd")
-					}
-					onMouseLeave={(e) =>
-						((e.currentTarget as HTMLSpanElement).style.background =
-							"none")
-					}
-				>
-					{value}
-				</span>
-			)}
-		</>
-	)
-);
+	width: number;
+	ariaLabel: string;
+	strong?: boolean;
+}> = ({
+	value,
+	type,
+	isEditing,
+	onStartEdit,
+	onChange,
+	onBlur,
+	onKeyDown,
+	width,
+	ariaLabel,
+	strong,
+}) =>
+	isEditing ? (
+		<InputBase
+			type={type}
+			value={String(value)}
+			autoFocus
+			onChange={(e) => onChange(e.target.value)}
+			onBlur={onBlur}
+			onKeyDown={onKeyDown}
+			onClick={(e) => e.stopPropagation()}
+			inputProps={{ "aria-label": ariaLabel }}
+			sx={{
+				width,
+				px: 0.75,
+				border: 1,
+				borderColor: "primary.main",
+				borderRadius: 1,
+				fontWeight: strong ? 600 : 500,
+				fontSize: strong ? "1.05rem" : "1rem",
+			}}
+		/>
+	) : (
+		<Box
+			component="span"
+			role="button"
+			tabIndex={0}
+			aria-label={`${ariaLabel}: ${value}. Click to edit`}
+			onClick={(e) => {
+				e.stopPropagation();
+				onStartEdit();
+			}}
+			onFocus={onStartEdit}
+			sx={{
+				display: "inline-block",
+				minWidth: 28,
+				maxWidth: width + 40,
+				px: 0.75,
+				borderRadius: 1,
+				borderBottom: "1px dashed",
+				borderColor: "primary.main",
+				cursor: "text",
+				fontWeight: strong ? 600 : 500,
+				fontSize: strong ? "1.05rem" : "1rem",
+				whiteSpace: "nowrap",
+				overflow: "hidden",
+				textOverflow: "ellipsis",
+				verticalAlign: "bottom",
+				"&:hover": { bgcolor: "action.hover" },
+			}}
+		>
+			{value}
+		</Box>
+	);
 
 export const CharacterRow: React.FC<CharacterRowProps> = ({
 	character,
@@ -106,7 +146,6 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		field: EditableFieldName | null;
 		value: string;
 	}>({ field: null, value: "" });
-	const [deleteHovered, setDeleteHovered] = React.useState(false);
 	// Add-condition form state; the picker is hidden behind a "+" toggle so the
 	// row stays uncluttered until the user wants to apply a condition.
 	const [addingCondition, setAddingCondition] = React.useState(false);
@@ -115,6 +154,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	const [newLevel, setNewLevel] = React.useState("1");
 
 	const conditions = character.Conditions ?? [];
+	const isDown = character.CurrentHP === 0;
 	// Only offer conditions not already applied — except leveled ones (Exhaustion),
 	// which stay in the picker so the DM can raise or lower the level. Adding one
 	// again upserts the existing row rather than stacking a second chip.
@@ -160,10 +200,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		resetConditionForm();
 	};
 
-	const handleFieldClick = (
-		field: EditableFieldName,
-		value: string | number
-	) => {
+	const startEdit = (field: EditableFieldName, value: string | number) => {
 		setEditing({ field, value: String(value) });
 	};
 
@@ -179,7 +216,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		}
 		const updated = { ...character, [field]: newValue };
 		setCharacters((prev) =>
-			prev.map((c) => (c.ID === character.ID ? updated : c))
+			prev.map((c) => (c.ID === character.ID ? updated : c)),
 		);
 		setEditing({ field: null, value: "" });
 		onSave(updated);
@@ -193,462 +230,296 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		}
 	};
 
-	const handleRowClick = (e: React.MouseEvent<HTMLDivElement>) => {
-		const tag = (e.target as HTMLElement).tagName;
-		if (tag === "INPUT") return;
+	const handleRowClick = () => {
 		// Only replace the objects whose IsActive actually flips; keep identity
-		// for every other row so React/the compiler can skip re-rendering (and
-		// repainting) them. Rebuilding the whole list repaints the entire card,
-		// which flickers unrelated elements like the collapsed combat log.
+		// for every other row so React/the compiler can skip re-rendering them.
 		setCharacters((prev) =>
 			prev.map((c) => {
 				const shouldBeActive = c.ID === character.ID;
 				return c.IsActive === shouldBeActive
 					? c
 					: { ...c, IsActive: shouldBeActive };
-			})
+			}),
 		);
 		setSelected(character.ID);
 		onSelect(character.ID);
 	};
 
+	// Shared props for the click-to-edit fields.
+	const fieldProps = (field: EditableFieldName, current: string | number) => ({
+		value: editing.field === field ? editing.value : current,
+		isEditing: editing.field === field,
+		onStartEdit: () => startEdit(field, current),
+		onChange: (v: string) => setEditing((ed) => ({ ...ed, value: v })),
+		onBlur: () => handleFieldBlur(field),
+		onKeyDown: handleFieldKeyDown,
+	});
+
+	const name = character.Name || "Character";
+
 	return (
-		<div
+		<Paper
+			variant="outlined"
 			className={`character-row${character.IsActive ? " active" : ""}`}
-			style={{
-				display: "flex",
-				flexDirection: "column",
-				alignItems: "stretch",
-				borderRadius: 8,
-				borderTop: "1px solid " + (character.IsActive ? "#1976d2" : "#e0e0e0"),
-				borderRight: "1px solid " + (character.IsActive ? "#1976d2" : "#e0e0e0"),
-				borderBottom: "1px solid " + (character.IsActive ? "#1976d2" : "#e0e0e0"),
-				borderLeft: character.CurrentHP === 0
-					? "5px solid #9e9e9e"
-					: character.IsActive
-						? "5px solid #1565c0"
-						: "5px solid #90caf9",
-				background: character.CurrentHP === 0
-					? "#f0f0f0"
-					: character.IsActive ? "#f0f7ff" : "#fff",
-				boxShadow: character.IsActive
-					? "0 2px 8px rgba(25,118,210,0.08)"
-					: "none",
-				filter: character.CurrentHP === 0 ? "grayscale(1)" : "none",
-				transition: "background 0.2s, border-color 0.2s, filter 0.2s",
-				cursor: "pointer",
-				padding: "0.75rem 1rem",
-				minHeight: 56,
-				width: "100%",
-				boxSizing: "border-box",
-			}}
 			onClick={handleRowClick}
+			sx={{
+				px: { xs: 1.5, sm: 2 },
+				py: 1.25,
+				cursor: "pointer",
+				borderLeftWidth: 5,
+				borderColor: character.IsActive ? "primary.main" : "divider",
+				borderLeftColor: isDown
+					? "text.disabled"
+					: character.IsActive
+						? "primary.main"
+						: tint("primary", 0.35),
+				bgcolor: character.IsActive
+					? tint("primary", 0.08)
+					: "background.paper",
+				filter: isDown ? "grayscale(1)" : "none",
+				opacity: isDown ? 0.75 : 1,
+				transition: "background-color 0.2s, border-color 0.2s, opacity 0.2s",
+			}}
 		>
-			<div
-				style={{
+			<Box
+				sx={{
 					display: "flex",
-					alignItems: "center",
-					width: "100%",
+					flexWrap: "wrap",
+					alignItems: "flex-end",
+					columnGap: { xs: 1.5, sm: 2.5 },
+					rowGap: 1,
 				}}
 			>
-			{/* Name */}
-			<div style={{ flex: 2 }}>
-				<label
-					style={{
-						fontWeight: 500,
-						color: "#1976d2",
-						marginBottom: 4,
-						display: "block",
-					}}
-				>
-					Name
-				</label>
-				<div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-				{character.CurrentHP === 0 && (
-					<span
-						style={{
-							display: "inline-flex",
-							alignItems: "center",
-							justifyContent: "center",
-							width: 22,
-							height: 22,
-							borderRadius: 4,
-							background: "#616161",
-							color: "#e0e0e0",
-							fontWeight: 700,
-							fontSize: "0.85rem",
-							flexShrink: 0,
+				{/* Name */}
+				<Box sx={{ flex: "1 1 150px", minWidth: 0 }}>
+					<StatLabel>Name</StatLabel>
+					<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+						{isDown && (
+							<Tooltip title="Down (0 HP)">
+								<Box
+									component="span"
+									aria-label="Down"
+									sx={{
+										display: "inline-flex",
+										alignItems: "center",
+										justifyContent: "center",
+										width: 22,
+										height: 22,
+										borderRadius: 1,
+										bgcolor: "text.secondary",
+										color: "background.paper",
+										fontWeight: 700,
+										fontSize: "0.85rem",
+										flexShrink: 0,
+									}}
+								>
+									✕
+								</Box>
+							</Tooltip>
+						)}
+						<EditableField
+							{...fieldProps("Name", character.Name)}
+							type="text"
+							width={150}
+							ariaLabel="Name"
+							strong
+						/>
+					</Box>
+				</Box>
+
+				{/* Armor Class */}
+				<Box sx={{ textAlign: "center" }}>
+					<StatLabel>AC</StatLabel>
+					<EditableField
+						{...fieldProps("ArmorClass", character.ArmorClass)}
+						type="number"
+						width={56}
+						ariaLabel={`${name} AC`}
+					/>
+				</Box>
+
+				{/* HP */}
+				<Box sx={{ textAlign: "center" }}>
+					<StatLabel>HP</StatLabel>
+					<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+						<EditableField
+							{...fieldProps("CurrentHP", character.CurrentHP)}
+							type="number"
+							width={56}
+							ariaLabel={`${name} current HP`}
+						/>
+						<Typography component="span" color="text.secondary">
+							/
+						</Typography>
+						<EditableField
+							{...fieldProps("MaxHP", character.MaxHP)}
+							type="number"
+							width={56}
+							ariaLabel={`${name} max HP`}
+						/>
+					</Box>
+				</Box>
+
+				{/* Initiative */}
+				<Box sx={{ textAlign: "center" }}>
+					<StatLabel>Init</StatLabel>
+					<EditableField
+						{...fieldProps("Initiative", character.Initiative)}
+						type="number"
+						width={56}
+						ariaLabel={`${name} initiative`}
+					/>
+				</Box>
+
+				{/* Reaction toggle. A creature has one reaction per round; click to
+				    mark it spent, click again to restore. The backend also clears it
+				    automatically at the start of the creature's turn. */}
+				<Box sx={{ textAlign: "center" }}>
+					<StatLabel>Reaction</StatLabel>
+					<Chip
+						size="small"
+						label={character.ReactionUsed ? "⚡ Used" : "⚡ Ready"}
+						color={character.ReactionUsed ? "default" : "primary"}
+						variant={character.ReactionUsed ? "outlined" : "filled"}
+						aria-pressed={character.ReactionUsed}
+						aria-label={
+							character.ReactionUsed
+								? `${name} reaction used — click to restore`
+								: `${name} reaction available — click to mark used`
+						}
+						title={
+							character.ReactionUsed
+								? "Reaction used — click to restore"
+								: "Reaction available — click to mark used"
+						}
+						onClick={(e) => {
+							e.stopPropagation();
+							onSetReaction(character.ID, !character.ReactionUsed);
+						}}
+						sx={{
+							fontWeight: 600,
+							textDecoration: character.ReactionUsed
+								? "line-through"
+								: "none",
+						}}
+					/>
+				</Box>
+
+				{/* Delete */}
+				<Tooltip title="Remove from encounter">
+					<IconButton
+						size="small"
+						aria-label={`Remove ${name}`}
+						onClick={(e) => {
+							e.stopPropagation();
+							onRemove();
+						}}
+						sx={{
+							ml: "auto",
+							color: "text.disabled",
+							"&:hover": { color: "error.main", bgcolor: tint("error", 0.1) },
 						}}
 					>
-						✕
-					</span>
-				)}
-				<EditableField
-					value={
-						editing.field === "Name"
-							? editing.value
-							: character.Name
-					}
-					type="text"
-					isEditing={editing.field === "Name"}
-					onClick={() => handleFieldClick("Name", character.Name)}
-					onFocus={() => handleFieldClick("Name", character.Name)}
-					onChange={(v) => setEditing((ed) => ({ ...ed, value: v }))}
-					onBlur={() => handleFieldBlur("Name")}
-					onKeyDown={handleFieldKeyDown}
-					style={{
-						width: 120,
-						padding: "4px 8px",
-						fontWeight: 600,
-						fontSize: "1.1rem",
-						color: character.IsActive ? "#1976d2" : "#333",
-						borderRadius: 4,
-					}}
-					autoFocus={editing.field === "Name"}
-				/>
-				</div>
-			</div>
-			{/* Armor Class */}
-			<div style={{ flex: 1, textAlign: "center" }}>
-				<label
-					style={{
-						fontWeight: 500,
-						color: "#1976d2",
-						marginBottom: 4,
-						display: "block",
-					}}
-				>
-					AC
-				</label>
-				<EditableField
-					value={
-						editing.field === "ArmorClass"
-							? editing.value
-							: character.ArmorClass
-					}
-					type="number"
-					isEditing={editing.field === "ArmorClass"}
-					onClick={() =>
-						handleFieldClick("ArmorClass", character.ArmorClass)
-					}
-					onFocus={() =>
-						handleFieldClick("ArmorClass", character.ArmorClass)
-					}
-					onChange={(v) => setEditing((ed) => ({ ...ed, value: v }))}
-					onBlur={() => handleFieldBlur("ArmorClass")}
-					onKeyDown={handleFieldKeyDown}
-					style={{
-						width: 60,
-						padding: "4px 8px",
-						fontWeight: 500,
-						borderRadius: 4,
-					}}
-					autoFocus={editing.field === "ArmorClass"}
-				/>
-			</div>
-			{/* HP */}
-			<div
-				style={{
-					flex: 1,
-					textAlign: "center",
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "center",
-					flexDirection: "column",
-				}}
-			>
-				<label
-					style={{
-						fontWeight: 500,
-						color: "#1976d2",
-						marginBottom: 4,
-						display: "block",
-					}}
-				>
-					HP
-				</label>
-				<div
-					style={{
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-					}}
-				>
-					<EditableField
-						value={
-							editing.field === "CurrentHP"
-								? editing.value
-								: character.CurrentHP
-						}
-						type="number"
-						isEditing={editing.field === "CurrentHP"}
-						onClick={() =>
-							handleFieldClick("CurrentHP", character.CurrentHP)
-						}
-						onFocus={() =>
-							handleFieldClick("CurrentHP", character.CurrentHP)
-						}
-						onChange={(v) =>
-							setEditing((ed) => ({ ...ed, value: v }))
-						}
-						onBlur={() => handleFieldBlur("CurrentHP")}
-						onKeyDown={handleFieldKeyDown}
-						style={{
-							width: 60,
-							padding: "4px 8px",
-							fontWeight: 500,
-							borderRadius: 4,
-							marginRight: 8,
-						}}
-						autoFocus={editing.field === "CurrentHP"}
-					/>
-					<span style={{ margin: "0 8px" }}>/</span>
-					<EditableField
-						value={
-							editing.field === "MaxHP"
-								? editing.value
-								: character.MaxHP
-						}
-						type="number"
-						isEditing={editing.field === "MaxHP"}
-						onClick={() =>
-							handleFieldClick("MaxHP", character.MaxHP)
-						}
-						onFocus={() =>
-							handleFieldClick("MaxHP", character.MaxHP)
-						}
-						onChange={(v) =>
-							setEditing((ed) => ({ ...ed, value: v }))
-						}
-						onBlur={() => handleFieldBlur("MaxHP")}
-						onKeyDown={handleFieldKeyDown}
-						style={{
-							width: 60,
-							padding: "4px 8px",
-							fontWeight: 500,
-							borderRadius: 4,
-							marginLeft: 8,
-						}}
-						autoFocus={editing.field === "MaxHP"}
-					/>
-				</div>
-			</div>
-			{/* Initiative */}
-			<div style={{ flex: 1, textAlign: "center" }}>
-				<label
-					style={{
-						fontWeight: 500,
-						color: "#1976d2",
-						marginBottom: 4,
-						display: "block",
-					}}
-				>
-					Initiative
-				</label>
-				<EditableField
-					value={
-						editing.field === "Initiative"
-							? editing.value
-							: character.Initiative
-					}
-					type="number"
-					isEditing={editing.field === "Initiative"}
-					onClick={() =>
-						handleFieldClick("Initiative", character.Initiative)
-					}
-					onFocus={() =>
-						handleFieldClick("Initiative", character.Initiative)
-					}
-					onChange={(v) => setEditing((ed) => ({ ...ed, value: v }))}
-					onBlur={() => handleFieldBlur("Initiative")}
-					onKeyDown={handleFieldKeyDown}
-					style={{
-						width: 60,
-						padding: "4px 8px",
-						fontWeight: 500,
-						borderRadius: 4,
-					}}
-					autoFocus={editing.field === "Initiative"}
-				/>
-			</div>
-			{/* Reaction toggle. A creature has one reaction per round; click to mark
-			    it spent, click again to restore. The backend also clears it
-			    automatically at the start of the creature's turn. */}
-			<div style={{ flex: 1, textAlign: "center" }}>
-				<label
-					style={{
-						fontWeight: 500,
-						color: "#1976d2",
-						marginBottom: 4,
-						display: "block",
-					}}
-				>
-					Reaction
-				</label>
-				<button
-					type="button"
-					aria-label={
-						character.ReactionUsed
-							? `${character.Name || "Character"} reaction used — click to restore`
-							: `${character.Name || "Character"} reaction available — click to mark used`
-					}
-					aria-pressed={character.ReactionUsed}
-					title={
-						character.ReactionUsed
-							? "Reaction used — click to restore"
-							: "Reaction available — click to mark used"
-					}
-					onClick={(e) => {
-						e.stopPropagation();
-						onSetReaction(character.ID, !character.ReactionUsed);
-					}}
-					style={{
-						display: "inline-flex",
-						alignItems: "center",
-						gap: 4,
-						border: "1px solid " + (character.ReactionUsed ? "#e0e0e0" : "#1976d2"),
-						background: character.ReactionUsed ? "#f5f5f5" : "#e3f2fd",
-						color: character.ReactionUsed ? "#9e9e9e" : "#1976d2",
-						borderRadius: 12,
-						padding: "2px 10px",
-						fontSize: "0.8rem",
-						fontWeight: 600,
-						cursor: "pointer",
-						transition: "background 0.2s, color 0.2s, border-color 0.2s",
-						textDecoration: character.ReactionUsed ? "line-through" : "none",
-					}}
-				>
-					{character.ReactionUsed ? "⚡ Used" : "⚡ Ready"}
-				</button>
-			</div>
-			{/* Delete */}
-			<button
-				type="button"
-				aria-label={`Remove ${character.Name || "character"}`}
-				title="Remove from encounter"
-				onClick={(e) => { e.stopPropagation(); onRemove(); }}
-				onMouseEnter={() => setDeleteHovered(true)}
-				onMouseLeave={() => setDeleteHovered(false)}
-				style={{
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "center",
-					width: 32,
-					height: 32,
-					borderRadius: "50%",
-					border: "none",
-					background: deleteHovered ? "rgba(211,47,47,0.1)" : "transparent",
-					color: deleteHovered ? "#d32f2f" : "#bdbdbd",
-					cursor: "pointer",
-					transition: "background 0.2s, color 0.2s",
-					padding: 0,
-					marginLeft: 8,
-					flexShrink: 0,
-				}}
-			>
-				<svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-					<polyline points="3 6 5 6 21 6" />
-					<path d="M19 6l-1 14H6L5 6" />
-					<path d="M10 11v6" />
-					<path d="M14 11v6" />
-					<path d="M9 6V4h6v2" />
-				</svg>
-			</button>
-			</div>
+						<svg
+							aria-hidden="true"
+							focusable="false"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						>
+							<polyline points="3 6 5 6 21 6" />
+							<path d="M19 6l-1 14H6L5 6" />
+							<path d="M10 11v6" />
+							<path d="M14 11v6" />
+							<path d="M9 6V4h6v2" />
+						</svg>
+					</IconButton>
+				</Tooltip>
+			</Box>
+
 			{/* Conditions strip. Clicks here must not select the row, so stop
 			    propagation on the whole strip. */}
-			<div
+			<Box
 				onClick={(e) => e.stopPropagation()}
-				style={{
+				sx={{
 					display: "flex",
 					alignItems: "center",
 					flexWrap: "wrap",
-					gap: 6,
-					marginTop: 8,
-					paddingTop: 8,
-					borderTop: "1px dashed #e0e0e0",
+					gap: 0.75,
+					mt: 1,
+					pt: 1,
+					borderTop: "1px dashed",
+					borderColor: "divider",
+					cursor: "default",
 				}}
 			>
-				<span
-					style={{
-						fontWeight: 500,
-						color: "#1976d2",
-						fontSize: "0.8rem",
-					}}
-				>
+				<Typography variant="caption" color="primary" sx={{ fontWeight: 600 }}>
 					Conditions:
-				</span>
+				</Typography>
 				{conditions.length === 0 && !addingCondition && (
-					<span style={{ color: "#9e9e9e", fontSize: "0.8rem" }}>
+					<Typography variant="caption" color="text.disabled">
 						none
-					</span>
+					</Typography>
 				)}
 				{conditions.map((cond) => {
-					// For a leveled condition the chip's tooltip explains what that
-					// level does (e.g. exhaustion 5 = speed 0); notes come first when
-					// the DM wrote one.
+					// For a leveled condition the tooltip explains what that level
+					// does (e.g. exhaustion 5 = speed 0); notes come first when the DM
+					// wrote one.
 					const levelEffect =
 						cond.Level != null
 							? conditionCatalog.find((i) => i.Name === cond.Condition)
 									?.LevelEffects?.[cond.Level - 1]
 							: undefined;
 					const tooltip =
-						[cond.Note, levelEffect].filter(Boolean).join(" — ") || undefined;
+						[cond.Note, levelEffect].filter(Boolean).join(" — ") || "";
+					const label =
+						cond.Condition +
+						(cond.Level != null ? ` ${cond.Level}` : "") +
+						(cond.DurationRounds != null ? ` (${cond.DurationRounds})` : "");
 					return (
-					<span
-						key={cond.ID}
-						title={tooltip}
-						style={{
-							display: "inline-flex",
-							alignItems: "center",
-							gap: 4,
-							background: "#ede7f6",
-							color: "#4527a0",
-							borderRadius: 12,
-							padding: "2px 8px",
-							fontSize: "0.8rem",
-							fontWeight: 600,
-						}}
-					>
-						{cond.Condition}
-						{cond.Level != null && <span>&nbsp;{cond.Level}</span>}
-						{cond.DurationRounds != null && (
-							<span style={{ fontWeight: 400 }}>
-								({cond.DurationRounds})
-							</span>
-						)}
-						<button
-							type="button"
-							aria-label={`Remove ${cond.Condition}`}
-							onClick={() => onRemoveCondition(cond.ID)}
-							style={{
-								border: "none",
-								background: "none",
-								color: "#7e57c2",
-								cursor: "pointer",
-								padding: 0,
-								lineHeight: 1,
-								fontSize: "0.9rem",
-							}}
-						>
-							✕
-						</button>
-					</span>
+						<Tooltip key={cond.ID} title={tooltip}>
+							<Chip
+								size="small"
+								label={label}
+								onDelete={() => onRemoveCondition(cond.ID)}
+								slotProps={{
+									root: { "aria-label": label },
+								}}
+								sx={{
+									fontWeight: 600,
+									bgcolor: tint("secondary", 0.14),
+									color: "secondary.main",
+									"& .MuiChip-deleteIcon": { color: "secondary.main" },
+								}}
+							/>
+						</Tooltip>
 					);
 				})}
 				{addingCondition ? (
-					<span
-						style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+					<Box
+						sx={{
+							display: "inline-flex",
+							alignItems: "center",
+							flexWrap: "wrap",
+							gap: 0.75,
+						}}
 					>
-						<select
+						<TextField
+							select
+							size="small"
 							value={newCondition}
 							onChange={(e) => handleConditionChange(e.target.value)}
 							autoFocus
-							style={{
-								fontSize: "0.8rem",
-								padding: "2px 4px",
-								borderRadius: 4,
+							slotProps={{
+								select: { native: true },
+								htmlInput: { "aria-label": "Condition" },
 							}}
+							sx={{ minWidth: 130 }}
 						>
 							<option value="">Select…</option>
 							{availableConditions.map((info) => (
@@ -656,17 +527,18 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 									{info.Name}
 								</option>
 							))}
-						</select>
+						</TextField>
 						{maxLevel > 0 && (
-							<select
+							<TextField
+								select
+								size="small"
 								value={newLevel}
 								onChange={(e) => setNewLevel(e.target.value)}
-								title="Exhaustion level"
-								style={{
-									fontSize: "0.8rem",
-									padding: "2px 4px",
-									borderRadius: 4,
+								slotProps={{
+									select: { native: true },
+									htmlInput: { "aria-label": "Level" },
 								}}
+								sx={{ maxWidth: 220 }}
 							>
 								{Array.from({ length: maxLevel }, (_, i) => i + 1).map(
 									(lvl) => (
@@ -679,74 +551,46 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 										</option>
 									),
 								)}
-							</select>
+							</TextField>
 						)}
-						<input
+						<TextField
 							type="number"
-							min={1}
+							size="small"
 							value={newDuration}
 							onChange={(e) => setNewDuration(e.target.value)}
 							placeholder="∞"
 							title="Duration in rounds (blank = until removed)"
-							style={{
-								width: 48,
-								fontSize: "0.8rem",
-								padding: "2px 4px",
-								borderRadius: 4,
+							slotProps={{
+								htmlInput: { min: 1, "aria-label": "Duration in rounds" },
 							}}
+							sx={{ width: 72 }}
 						/>
-						<button
-							type="button"
+						<Button
+							size="small"
+							variant="contained"
 							onClick={submitCondition}
 							disabled={!newCondition}
-							style={{
-								border: "none",
-								background: "#1976d2",
-								color: "#fff",
-								borderRadius: 4,
-								padding: "2px 8px",
-								fontSize: "0.8rem",
-								cursor: newCondition ? "pointer" : "not-allowed",
-								opacity: newCondition ? 1 : 0.6,
-							}}
 						>
 							Add
-						</button>
-						<button
-							type="button"
-							onClick={resetConditionForm}
-							style={{
-								border: "none",
-								background: "none",
-								color: "#757575",
-								cursor: "pointer",
-								fontSize: "0.8rem",
-							}}
-						>
+						</Button>
+						<Button size="small" onClick={resetConditionForm}>
 							Cancel
-						</button>
-					</span>
+						</Button>
+					</Box>
 				) : (
 					availableConditions.length > 0 && (
-						<button
-							type="button"
+						<Chip
+							size="small"
+							variant="outlined"
+							color="primary"
+							label="+ Condition"
 							aria-label="Add condition"
 							onClick={() => setAddingCondition(true)}
-							style={{
-								border: "1px dashed #90caf9",
-								background: "none",
-								color: "#1976d2",
-								borderRadius: 12,
-								padding: "1px 8px",
-								fontSize: "0.8rem",
-								cursor: "pointer",
-							}}
-						>
-							+ Condition
-						</button>
+							sx={{ borderStyle: "dashed" }}
+						/>
 					)
 				)}
-			</div>
-		</div>
+			</Box>
+		</Paper>
 	);
 };

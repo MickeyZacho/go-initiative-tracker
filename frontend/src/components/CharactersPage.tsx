@@ -14,6 +14,7 @@ import {
 	Typography,
 } from "@mui/material";
 import { apiGetArray, apiPost } from "../lib/http";
+import { tint } from "../theme";
 
 interface Character {
 	ID: number;
@@ -320,8 +321,8 @@ export default function CharactersPage() {
 							<TableRow>
 								<TableCell
 									colSpan={6}
-									style={{
-										background: "#e3f2fd",
+									sx={{
+										bgcolor: tint("primary", 0.12),
 										fontWeight: 700,
 									}}
 								>
@@ -334,8 +335,8 @@ export default function CharactersPage() {
 							<TableRow>
 								<TableCell
 									colSpan={6}
-									style={{
-										background: "#fce4ec",
+									sx={{
+										bgcolor: tint("secondary", 0.12),
 										fontWeight: 700,
 									}}
 								>

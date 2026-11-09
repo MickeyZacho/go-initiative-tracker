@@ -6,11 +6,6 @@ import {
 	MenuItem,
 	Paper,
 	Stack,
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableRow,
 	TextField,
 	Typography,
 } from "@mui/material";
@@ -38,6 +33,23 @@ interface EncounterOption {
 	ID: number;
 	Name: string;
 }
+
+const STAT_KEYS: (keyof StatBlock)[] = [
+	"Strength",
+	"Dexterity",
+	"Constitution",
+	"Intelligence",
+	"Wisdom",
+	"Charisma",
+];
+const STAT_ABBR: Record<keyof StatBlock, string> = {
+	Strength: "STR",
+	Dexterity: "DEX",
+	Constitution: "CON",
+	Intelligence: "INT",
+	Wisdom: "WIS",
+	Charisma: "CHA",
+};
 
 const emptyStatBlock: StatBlock = {
 	Strength: 10,
@@ -296,72 +308,74 @@ export default function NpcsPage() {
 					</TextField>
 				</Stack>
 			</Paper>
-			<Paper sx={{ p: 1, overflowX: "auto" }}>
-				<Table size="small" sx={{ minWidth: 900 }}>
-					<TableHead>
-						<TableRow>
-							<TableCell>Name</TableCell>
-							<TableCell>Description</TableCell>
-							<TableCell>AC</TableCell>
-							<TableCell>Max HP</TableCell>
-							<TableCell>Strength</TableCell>
-							<TableCell>Dexterity</TableCell>
-							<TableCell>Constitution</TableCell>
-							<TableCell>Intelligence</TableCell>
-							<TableCell>Wisdom</TableCell>
-							<TableCell>Charisma</TableCell>
-							<TableCell align="right">Actions</TableCell>
-						</TableRow>
-					</TableHead>
-					<TableBody>
-						{npcs.map((npc) => (
-							<TableRow key={npc.ID}>
-								<TableCell>{npc.Name}</TableCell>
-								<TableCell>{npc.Description}</TableCell>
-								<TableCell>{npc.ArmorClass}</TableCell>
-								<TableCell>{npc.MaxHP}</TableCell>
-								<TableCell>{npc.BaseStats.Strength}</TableCell>
-								<TableCell>{npc.BaseStats.Dexterity}</TableCell>
-								<TableCell>
-									{npc.BaseStats.Constitution}
-								</TableCell>
-								<TableCell>
-									{npc.BaseStats.Intelligence}
-								</TableCell>
-								<TableCell>{npc.BaseStats.Wisdom}</TableCell>
-								<TableCell>{npc.BaseStats.Charisma}</TableCell>
-								<TableCell
-									align="right"
-									sx={{ whiteSpace: "nowrap" }}
+			{/* Cards rather than an 11-column table, so the list fits a tablet or
+			    phone without horizontal scrolling. */}
+			<Stack spacing={1}>
+				{npcs.map((npc) => (
+					<Paper key={npc.ID} variant="outlined" sx={{ p: 1.5 }}>
+						<Box
+							sx={{
+								display: "flex",
+								flexWrap: "wrap",
+								alignItems: "center",
+								columnGap: 2,
+								rowGap: 1,
+							}}
+						>
+							<Box sx={{ flex: "1 1 200px", minWidth: 0 }}>
+								<Typography fontWeight={600}>{npc.Name}</Typography>
+								{npc.Description && (
+									<Typography variant="body2" color="text.secondary">
+										{npc.Description}
+									</Typography>
+								)}
+							</Box>
+							<Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>
+								<b>AC</b> {npc.ArmorClass} · <b>HP</b> {npc.MaxHP}
+							</Typography>
+							<Box sx={{ whiteSpace: "nowrap" }}>
+								<Button size="small" onClick={() => handleUpdate(npc)}>
+									Update
+								</Button>
+								<Button
+									size="small"
+									color="error"
+									onClick={() => handleDelete(npc.ID)}
 								>
-									<Button
-										size="small"
-										onClick={() => handleUpdate(npc)}
-									>
-										Update
-									</Button>
-									<Button
-										size="small"
-										color="error"
-										onClick={() => handleDelete(npc.ID)}
-									>
-										Delete
-									</Button>
-									<Button
-										size="small"
-										disabled={targetEncounterId <= 0}
-										onClick={() =>
-											createCharacterFromTemplate(npc)
-										}
-									>
-										Create Character
-									</Button>
-								</TableCell>
-							</TableRow>
-						))}
-					</TableBody>
-				</Table>
-			</Paper>
+									Delete
+								</Button>
+								<Button
+									size="small"
+									disabled={targetEncounterId <= 0}
+									onClick={() => createCharacterFromTemplate(npc)}
+								>
+									Create Character
+								</Button>
+							</Box>
+						</Box>
+						<Box
+							sx={{
+								display: "grid",
+								gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+								gap: 0.5,
+								mt: 1,
+								maxWidth: 420,
+							}}
+						>
+							{STAT_KEYS.map((stat) => (
+								<Box key={stat} sx={{ textAlign: "center" }}>
+									<Typography variant="caption" color="text.secondary">
+										{STAT_ABBR[stat]}
+									</Typography>
+									<Typography variant="body2">
+										{npc.BaseStats[stat]}
+									</Typography>
+								</Box>
+							))}
+						</Box>
+					</Paper>
+				))}
+			</Stack>
 		</Stack>
 	);
 }

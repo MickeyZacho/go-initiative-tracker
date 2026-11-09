@@ -14,6 +14,7 @@ import {
 import NpcsPage from "./components/NpcsPage";
 import FriendsPage from "./components/FriendsPage";
 import Footer from "./components/Footer";
+import ColorModeToggle from "./components/ColorModeToggle";
 
 const NAV_ITEMS = [
 	{ label: "Characters", path: "/characters" },
@@ -85,7 +86,10 @@ function App() {
 								</Button>
 							))}
 						</Stack>
-						<AuthButtons />
+						<Stack direction="row" spacing={1} alignItems="center">
+							<ColorModeToggle />
+							<AuthButtons />
+						</Stack>
 					</Toolbar>
 				</Container>
 			</AppBar>
