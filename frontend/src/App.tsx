@@ -1,13 +1,11 @@
-import { CharacterList } from "./components/CharacterList";
 import AuthButtons from "./components/AuthButtons";
-import CharactersPage from "./components/CharactersPage";
-import EncountersPage from "./components/EncountersPage";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import {
 	AppBar,
 	Box,
 	Container,
 	IconButton,
+	LinearProgress,
 	Menu,
 	MenuItem,
 	Stack,
@@ -25,10 +23,21 @@ import {
 	useNavigate,
 	useParams,
 } from "react-router-dom";
-import NpcsPage from "./components/NpcsPage";
-import FriendsPage from "./components/FriendsPage";
 import Footer from "./components/Footer";
 import ColorModeToggle from "./components/ColorModeToggle";
+
+// Each page is its own chunk, loaded on first visit, so the entry bundle is
+// only the shell (React, MUI core, router, app bar). Keep these imports out of
+// other modules, or the page gets pulled back into the main chunk.
+const CharacterList = lazy(() =>
+	import("./components/CharacterList").then((m) => ({
+		default: m.CharacterList,
+	})),
+);
+const CharactersPage = lazy(() => import("./components/CharactersPage"));
+const EncountersPage = lazy(() => import("./components/EncountersPage"));
+const NpcsPage = lazy(() => import("./components/NpcsPage"));
+const FriendsPage = lazy(() => import("./components/FriendsPage"));
 
 const NAV_ITEMS = [
 	{ label: "Characters", path: "/characters" },
@@ -150,34 +159,37 @@ function App() {
 					flexGrow: 1,
 				}}
 			>
-				<Routes>
-					<Route
-						path="/"
-						element={<Navigate to="/characters" replace />}
-					/>
-					<Route path="/characters" element={<CharactersPage />} />
-					<Route
-						path="/encounters"
-						element={
-							<EncountersPage
-								onOpenEncounter={(id) =>
-									navigate(`/combat/${id}`)
-								}
-							/>
-						}
-					/>
-					<Route path="/combat" element={<CombatRoute />} />
-					<Route
-						path="/combat/:encounterId"
-						element={<CombatRoute />}
-					/>
-					<Route path="/npcs" element={<NpcsPage />} />
-					<Route path="/friends" element={<FriendsPage />} />
-					<Route
-						path="*"
-						element={<Navigate to="/characters" replace />}
-					/>
-				</Routes>
+				{/* Thin bar while a page chunk loads (first visit only). */}
+				<Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}>
+					<Routes>
+						<Route
+							path="/"
+							element={<Navigate to="/characters" replace />}
+						/>
+						<Route path="/characters" element={<CharactersPage />} />
+						<Route
+							path="/encounters"
+							element={
+								<EncountersPage
+									onOpenEncounter={(id) =>
+										navigate(`/combat/${id}`)
+									}
+								/>
+							}
+						/>
+						<Route path="/combat" element={<CombatRoute />} />
+						<Route
+							path="/combat/:encounterId"
+							element={<CombatRoute />}
+						/>
+						<Route path="/npcs" element={<NpcsPage />} />
+						<Route path="/friends" element={<FriendsPage />} />
+						<Route
+							path="*"
+							element={<Navigate to="/characters" replace />}
+						/>
+					</Routes>
+				</Suspense>
 			</Container>
 			<Footer />
 		</Box>
