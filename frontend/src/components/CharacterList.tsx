@@ -353,16 +353,30 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[encounterId, setCharacters, fetchCharacters],
 	);
 
-	const removeCharacter = async (characterID: number) => {
-		await apiPost(
-			"/remove-character-from-encounter",
-			{
-				encounter_id: encounterId,
-				character_id: characterID,
-			},
-			"Failed to remove character",
-		);
-		await fetchCharacters(encounterId);
+	// Removing drops the creature's HP, initiative and conditions for this
+	// encounter, and the trash icon sits among the other row controls, so ask
+	// first — the other pages already confirm their deletes.
+	const removeCharacter = async (character: Character) => {
+		const name = character.Name || "this character";
+		if (!window.confirm(`Remove ${name} from the encounter?`)) {
+			return;
+		}
+		setActionError("");
+		try {
+			await apiPost(
+				"/remove-character-from-encounter",
+				{
+					encounter_id: encounterId,
+					character_id: character.ID,
+				},
+				"Failed to remove character",
+			);
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setActionError(
+				err instanceof Error ? err.message : "Failed to remove character",
+			);
+		}
 	};
 
 	const addExistingCharacterToEncounter = async () => {
@@ -580,7 +594,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 											setCharacters={setCharacters}
 											onGiveTurn={setActiveCharacter}
 											onSave={saveCharacter}
-											onRemove={() => removeCharacter(character.ID)}
+											onRemove={() => removeCharacter(character)}
 											conditionCatalog={conditionCatalog}
 											onAddCondition={addCondition}
 											onRemoveCondition={removeCondition}
