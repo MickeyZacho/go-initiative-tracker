@@ -85,8 +85,8 @@ func TestStartCombatAllowsOwner(t *testing.T) {
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
 	m.ExpectBegin()
-	m.ExpectQuery("SELECT character_id FROM encounter_characters").WithArgs(1).
-		WillReturnRows(sqlmock.NewRows([]string{"character_id"}).AddRow(7))
+	m.ExpectQuery("SELECT ec.character_id, c.type").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"character_id", "type", "current_hp"}).AddRow(7, "pc", 10))
 	m.ExpectExec("UPDATE encounter_characters SET is_active = FALSE").WithArgs(1).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	m.ExpectExec("UPDATE encounter_characters SET is_active = TRUE").WithArgs(1, 7).

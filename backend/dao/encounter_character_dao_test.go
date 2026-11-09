@@ -11,7 +11,7 @@ import (
 // The DAO relies on SQL to order combatants; these constants mirror the exact
 // statements so the tests lock in the ordering contract and argument wiring.
 const (
-	selectOrderedQ = "SELECT character_id FROM encounter_characters WHERE encounter_id = $1 ORDER BY COALESCE(initiative, 0) DESC, character_id ASC"
+	selectOrderedQ = "SELECT ec.character_id, c.type, COALESCE(ec.current_hp, c.max_hp) FROM encounter_characters ec JOIN characters c ON c.id = ec.character_id WHERE ec.encounter_id = $1 ORDER BY COALESCE(ec.initiative, 0) DESC, ec.character_id ASC"
 	selectActiveQ  = "SELECT COALESCE(MAX(character_id), 0) FROM encounter_characters WHERE encounter_id = $1 AND is_active = TRUE"
 	updateAllOffQ  = "UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1"
 	// Activating a character also refreshes its reaction: a creature's reaction
@@ -32,10 +32,11 @@ const (
 
 func q(s string) string { return regexp.QuoteMeta(s) }
 
+// orderedRows builds turn-order rows for healthy PCs.
 func orderedRows(ids ...int) *sqlmock.Rows {
-	rows := sqlmock.NewRows([]string{"character_id"})
+	rows := sqlmock.NewRows([]string{"character_id", "type", "current_hp"})
 	for _, id := range ids {
-		rows.AddRow(id)
+		rows.AddRow(id, "pc", 10)
 	}
 	return rows
 }
@@ -448,5 +449,93 @@ func TestAddCharactersFromTemplate_LoneFirstCopyKeepsPlainName(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestAdvanceTurn_SkipsDownedNpcsButNotDownedPcs(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	dao := NewEncounterCharacterDAO(db)
+
+	// Order [5 active, 2 dead goblin, 8 PC at 0 HP]: skip 2, land on 8 (a
+	// downed PC still gets a turn for death saves).
+	mock.ExpectBegin()
+	mock.ExpectQuery(q(selectOrderedQ)).WithArgs(7).WillReturnRows(
+		sqlmock.NewRows([]string{"character_id", "type", "current_hp"}).
+			AddRow(5, "pc", 10).AddRow(2, "npc", 0).AddRow(8, "pc", 0))
+	mock.ExpectQuery(q(selectActiveQ)).WithArgs(7).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(5))
+	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 8).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(q(tickConditionsQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(q(expireConditionsQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	next, err := dao.AdvanceTurn(7)
+	if err != nil {
+		t.Fatalf("AdvanceTurn returned error: %v", err)
+	}
+	if next != 8 {
+		t.Errorf("next character = %d, want 8", next)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestNextTurnIndex(t *testing.T) {
+	order := []turnSlot{{id: 1}, {id: 2, skipped: true}, {id: 3}}
+	cases := []struct {
+		current, want int
+		wrapped       bool
+	}{
+		{-1, 0, false}, // start of combat
+		{0, 2, false},  // skip the dead one
+		{2, 0, true},   // wrap = new round
+	}
+	for _, c := range cases {
+		got, wrapped := nextTurnIndex(order, c.current)
+		if got != c.want || wrapped != c.wrapped {
+			t.Errorf("nextTurnIndex(%d) = (%d, %v), want (%d, %v)", c.current, got, wrapped, c.want, c.wrapped)
+		}
+	}
+	// Skipping the dead creature at the end of the order still counts as a wrap.
+	tail := []turnSlot{{id: 1}, {id: 2}, {id: 3, skipped: true}}
+	if got, wrapped := nextTurnIndex(tail, 1); got != 0 || !wrapped {
+		t.Errorf("nextTurnIndex(tail, 1) = (%d, %v), want (0, true)", got, wrapped)
+	}
+	// Everyone down: still advance one slot.
+	allDown := []turnSlot{{id: 1, skipped: true}, {id: 2, skipped: true}}
+	if got, wrapped := nextTurnIndex(allDown, 0); got != 1 || wrapped {
+		t.Errorf("nextTurnIndex(allDown, 0) = (%d, %v), want (1, false)", got, wrapped)
+	}
+}
+
+func TestStartCombat_SkipsDownedNpcAtTop(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	dao := NewEncounterCharacterDAO(db)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(q(selectOrderedQ)).WithArgs(7).WillReturnRows(
+		sqlmock.NewRows([]string{"character_id", "type", "current_hp"}).
+			AddRow(3, "npc", 0).AddRow(4, "pc", 12))
+	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 4).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(q(roundStartQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	active, err := dao.StartCombat(7)
+	if err != nil {
+		t.Fatalf("StartCombat returned error: %v", err)
+	}
+	if active != 4 {
+		t.Errorf("active = %d, want 4", active)
 	}
 }

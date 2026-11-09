@@ -70,27 +70,13 @@ func (dao *encounterCharacterDAOImpl) StartCombat(encounterID int) (int, error) 
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.Query(
-		"SELECT character_id FROM encounter_characters WHERE encounter_id = $1 ORDER BY COALESCE(initiative, 0) DESC, character_id ASC",
-		encounterID,
-	)
+	order, err := loadTurnOrder(tx, encounterID)
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
-
-	var orderedIDs []int
-	for rows.Next() {
-		var id int
-		if scanErr := rows.Scan(&id); scanErr != nil {
-			return 0, scanErr
-		}
-		orderedIDs = append(orderedIDs, id)
-	}
-	if len(orderedIDs) == 0 {
-		return 0, fmt.Errorf("no characters in encounter")
-	}
-	activeID := orderedIDs[0]
+	// The first creature still in the fight takes the opening turn.
+	first, _ := nextTurnIndex(order, -1)
+	activeID := order[first].id
 
 	if _, err = tx.Exec(
 		"UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1",
@@ -208,25 +194,9 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.Query(
-		"SELECT character_id FROM encounter_characters WHERE encounter_id = $1 ORDER BY COALESCE(initiative, 0) DESC, character_id ASC",
-		encounterID,
-	)
+	order, err := loadTurnOrder(tx, encounterID)
 	if err != nil {
 		return 0, err
-	}
-	defer rows.Close()
-
-	var orderedIDs []int
-	for rows.Next() {
-		var id int
-		if scanErr := rows.Scan(&id); scanErr != nil {
-			return 0, scanErr
-		}
-		orderedIDs = append(orderedIDs, id)
-	}
-	if len(orderedIDs) == 0 {
-		return 0, fmt.Errorf("no characters in encounter")
 	}
 
 	currentActiveID := 0
@@ -237,18 +207,15 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 		return 0, err
 	}
 
-	nextIndex := 0
 	currentIndex := -1
-	if currentActiveID != 0 {
-		for idx, id := range orderedIDs {
-			if id == currentActiveID {
-				currentIndex = idx
-				nextIndex = (idx + 1) % len(orderedIDs)
-				break
-			}
+	for idx, slot := range order {
+		if slot.id == currentActiveID {
+			currentIndex = idx
+			break
 		}
 	}
-	nextActiveID := orderedIDs[nextIndex]
+	nextIndex, wrapped := nextTurnIndex(order, currentIndex)
+	nextActiveID := order[nextIndex].id
 
 	if _, err = tx.Exec(
 		"UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1",
@@ -272,7 +239,7 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 		if _, err = tx.Exec("UPDATE encounters SET round = GREATEST(round, 1) WHERE id = $1", encounterID); err != nil {
 			return 0, err
 		}
-	case nextIndex <= currentIndex:
+	case wrapped:
 		if _, err = tx.Exec("UPDATE encounters SET round = round + 1 WHERE id = $1", encounterID); err != nil {
 			return 0, err
 		}
@@ -346,4 +313,59 @@ func (dao *encounterCharacterDAOImpl) RollNpcInitiative(encounterID int) (int, e
 		return 0, err
 	}
 	return len(npcs), nil
+}
+
+// turnSlot is one combatant in initiative order.
+type turnSlot struct {
+	id      int
+	skipped bool // a downed NPC: dead monsters don't take turns
+}
+
+// loadTurnOrder reads the encounter's combatants in initiative order
+// (initiative DESC, character_id ASC). It errors when there are none.
+func loadTurnOrder(tx *sql.Tx, encounterID int) ([]turnSlot, error) {
+	rows, err := tx.Query(
+		"SELECT ec.character_id, c.type, COALESCE(ec.current_hp, c.max_hp) FROM encounter_characters ec JOIN characters c ON c.id = ec.character_id WHERE ec.encounter_id = $1 ORDER BY COALESCE(ec.initiative, 0) DESC, ec.character_id ASC",
+		encounterID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var order []turnSlot
+	for rows.Next() {
+		var (
+			id, hp int
+			typ    string
+		)
+		if err := rows.Scan(&id, &typ, &hp); err != nil {
+			return nil, err
+		}
+		// PCs at 0 HP keep their turn — that's when they roll death saves.
+		order = append(order, turnSlot{id: id, skipped: typ == "npc" && hp <= 0})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(order) == 0 {
+		return nil, fmt.Errorf("no characters in encounter")
+	}
+	return order, nil
+}
+
+// nextTurnIndex finds the next combatant after current (-1 = before the top)
+// that is still in the fight, and reports whether the search wrapped past the
+// end of the order (i.e. a new round began). If everyone is skipped it falls
+// back to the plain next slot so the turn still moves.
+func nextTurnIndex(order []turnSlot, current int) (int, bool) {
+	n := len(order)
+	for step := 1; step <= n; step++ {
+		pos := current + step
+		if !order[pos%n].skipped {
+			return pos % n, current >= 0 && pos >= n
+		}
+	}
+	pos := current + 1
+	return pos % n, current >= 0 && pos >= n
 }

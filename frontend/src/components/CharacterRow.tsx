@@ -395,7 +395,13 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					</StatLabel>
 					<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
 						{isDown && (
-							<Tooltip title="Down (0 HP)">
+							<Tooltip
+								title={
+									character.Type === "npc"
+										? "Down — skipped in the turn order"
+										: "Down (0 HP)"
+								}
+							>
 								<Box
 									component="span"
 									aria-label="Down"
