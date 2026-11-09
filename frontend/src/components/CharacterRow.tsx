@@ -12,6 +12,7 @@ import {
 } from "@mui/material";
 import type { Character, ConditionInfo } from "./CharacterList";
 import { tint } from "../theme";
+import { applyHpInput } from "../lib/hp";
 
 type EditableFieldName =
 	| "Name"
@@ -65,6 +66,8 @@ const EditableField: React.FC<{
 	width: number;
 	ariaLabel: string;
 	strong?: boolean;
+	placeholder?: string;
+	hint?: string;
 }> = ({
 	value,
 	type,
@@ -76,11 +79,15 @@ const EditableField: React.FC<{
 	width,
 	ariaLabel,
 	strong,
+	placeholder,
+	hint,
 }) =>
 	isEditing ? (
 		<InputBase
 			type={type}
 			value={String(value)}
+			placeholder={placeholder}
+			title={hint}
 			autoFocus
 			onChange={(e) => onChange(e.target.value)}
 			onBlur={onBlur}
@@ -104,6 +111,7 @@ const EditableField: React.FC<{
 			aria-label={`${ariaLabel}: ${value}. Click to edit`}
 			onClick={onStartEdit}
 			onFocus={onStartEdit}
+			title={hint}
 			sx={{
 				display: "inline-block",
 				minWidth: 28,
@@ -196,7 +204,9 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	};
 
 	const startEdit = (field: EditableFieldName, value: string | number) => {
-		setEditing({ field, value: String(value) });
+		// HP opens empty (current value as placeholder) so the DM can type "-7"
+		// straight away instead of clearing the old number first.
+		setEditing({ field, value: field === "CurrentHP" ? "" : String(value) });
 	};
 
 	const handleFieldBlur = (field: EditableFieldName) => {
@@ -205,7 +215,16 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 			return;
 		}
 		let newValue: string | number = editing.value;
-		if (field !== "Name") {
+		if (field === "CurrentHP") {
+			const next = applyHpInput(
+				editing.value,
+				character.CurrentHP,
+				character.MaxHP,
+			);
+			setEditing({ field: null, value: "" });
+			if (next === null || next === character.CurrentHP) return;
+			newValue = next;
+		} else if (field !== "Name") {
 			newValue = Number(editing.value);
 			if (isNaN(newValue)) newValue = 0;
 		}
@@ -338,9 +357,11 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
 						<EditableField
 							{...fieldProps("CurrentHP", character.CurrentHP)}
-							type="number"
-							width={56}
+							type="text"
+							width={64}
 							ariaLabel={`${name} current HP`}
+							placeholder={String(character.CurrentHP)}
+							hint="Type -7 for damage, +5 to heal, or a new total"
 						/>
 						<Typography component="span" color="text.secondary">
 							/
