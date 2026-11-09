@@ -36,6 +36,10 @@ function describeEntry(
 			return `${actor} gained ${entry.description || "a condition"}`;
 		case "reaction":
 			return `${actor} used a reaction`;
+		case "stable":
+			return `${actor} is stable`;
+		case "dead":
+			return `${actor} died`;
 		default:
 			return entry.description || `${actor}: ${entry.action_type}`;
 	}

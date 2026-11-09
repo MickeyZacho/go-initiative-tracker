@@ -245,3 +245,58 @@ func apiRollNpcInitiativeHandler(w http.ResponseWriter, r *http.Request) {
 	events.publish(encounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "rolled": rolled})
 }
+
+// apiSetDeathSavesHandler records a downed PC's death saving throws.
+// POST /encounters/combat/death-saves { encounter_id, character_id, successes, failures }
+// Reaching three successes logs "stable", three failures logs "dead". The
+// counters reset on their own once the character is healed above 0 HP.
+func apiSetDeathSavesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+	var req struct {
+		EncounterID int `json:"encounter_id"`
+		CharacterID int `json:"character_id"`
+		Successes   int `json:"successes"`
+		Failures    int `json:"failures"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if req.EncounterID <= 0 || req.CharacterID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid encounter or character id")
+		return
+	}
+	if req.Successes < 0 || req.Successes > 3 || req.Failures < 0 || req.Failures > 3 {
+		writeJSONError(w, http.StatusBadRequest, "Death saves must be between 0 and 3")
+		return
+	}
+	if !requireEncounterAccess(w, r, req.EncounterID) {
+		return
+	}
+	prev, err := encounterCharacterDAO.GetByEncounterAndCharacter(req.EncounterID, req.CharacterID)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "Character not in encounter")
+		return
+	}
+	if err := encounterCharacterDAO.SetDeathSaves(req.EncounterID, req.CharacterID, req.Successes, req.Failures); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not in encounter") {
+			writeJSONError(w, http.StatusNotFound, "Character not in encounter")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "Failed to update death saves")
+		return
+	}
+
+	switch {
+	case req.Failures == 3 && prev.DeathSaveFailures < 3:
+		logCombatEvent(dao.EncounterLedgerInsert{EncounterID: req.EncounterID, ActorID: req.CharacterID, ActionType: "dead"})
+	case req.Successes == 3 && prev.DeathSaveSuccesses < 3:
+		logCombatEvent(dao.EncounterLedgerInsert{EncounterID: req.EncounterID, ActorID: req.CharacterID, ActionType: "stable"})
+	}
+	events.publish(req.EncounterID, "combat")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success"})
+}

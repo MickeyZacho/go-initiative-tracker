@@ -701,8 +701,8 @@ func TestSaveCharacterInEncounterLogsDamage(t *testing.T) {
 	// Previous HP lookup for the delta.
 	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp",
-		}).AddRow(1, 5, 0, 12, false, false, 0))
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp", "death_save_successes", "death_save_failures",
+		}).AddRow(1, 5, 0, 12, false, false, 0, 0, 0))
 	// The character update itself.
 	m.ExpectQuery("UPDATE characters c SET").
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
@@ -735,8 +735,8 @@ func TestSaveCharacterInEncounterLogsDamageThroughTempHP(t *testing.T) {
 	// Before: 12 HP + 5 temp.
 	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp",
-		}).AddRow(1, 5, 0, 12, false, false, 5))
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp", "death_save_successes", "death_save_failures",
+		}).AddRow(1, 5, 0, 12, false, false, 5, 0, 0))
 	m.ExpectQuery("UPDATE characters c SET").
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
 	m.ExpectExec("INSERT INTO encounter_characters").
@@ -766,8 +766,8 @@ func TestSaveCharacterInEncounterGrantingTempHPIsNotLogged(t *testing.T) {
 		WillReturnRows(encounterRow(1, "dm1"))
 	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp",
-		}).AddRow(1, 5, 0, 12, false, false, 0))
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp", "death_save_successes", "death_save_failures",
+		}).AddRow(1, 5, 0, 12, false, false, 0, 0, 0))
 	m.ExpectQuery("UPDATE characters c SET").
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
 	m.ExpectExec("INSERT INTO encounter_characters").
@@ -782,6 +782,38 @@ func TestSaveCharacterInEncounterGrantingTempHPIsNotLogged(t *testing.T) {
 
 	assertStatus(t, rr, http.StatusOK)
 	assertMet(t, m)
+}
+
+func TestDeathSavesThirdFailureLogsDeath(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp", "death_save_successes", "death_save_failures",
+		}).AddRow(1, 5, 0, 0, false, false, 0, 1, 2))
+	m.ExpectExec("UPDATE encounter_characters SET death_save_successes").WithArgs(1, 3, 1, 5).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectQuery("INSERT INTO encounter_ledger").
+		WithArgs(1, 5, 0, "dead", 0, "").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
+			"target_name", "action_type", "hp_change", "description", "created_at",
+		}).AddRow(1, 1, 5, "Hero", "pc", 0, "", "dead", 0, "", "2026-07-18T00:00:00Z"))
+
+	rr, req := postJSON("/encounters/combat/death-saves", `{"encounter_id":1,"character_id":5,"successes":1,"failures":3}`)
+	authed(req, "dm1")
+	apiSetDeathSavesHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestDeathSavesRejectsOutOfRange(t *testing.T) {
+	rr, req := postJSON("/encounters/combat/death-saves", `{"encounter_id":1,"character_id":5,"successes":4,"failures":0}`)
+	apiSetDeathSavesHandler(rr, req)
+	assertStatus(t, rr, http.StatusBadRequest)
 }
 
 func TestNpcTemplatesList(t *testing.T) {

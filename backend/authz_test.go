@@ -342,9 +342,10 @@ func TestCharactersListRedactsNpcsForMember(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "armor_class", "to_hit_modifier", "max_hp", "current_hp",
 			"initiative", "is_active", "owner_id", "type", "npc_template_id", "reaction_used", "temp_hp",
+			"death_save_successes", "death_save_failures",
 		}).
-			AddRow(1, "Aria", 16, 5, 30, 30, 18, false, "player2", "pc", nil, false, 0).
-			AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false, 0))
+			AddRow(1, "Aria", 16, 5, 30, 30, 18, false, "player2", "pc", nil, false, 0, 0, 0).
+			AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false, 0, 0, 0))
 	m.ExpectQuery("FROM encounter_character_conditions").WithArgs(1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "encounter_id", "character_id", "condition", "duration_rounds", "level", "note"}))
 
@@ -382,7 +383,8 @@ func TestCharactersListOwnerSeesNpcStats(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "armor_class", "to_hit_modifier", "max_hp", "current_hp",
 			"initiative", "is_active", "owner_id", "type", "npc_template_id", "reaction_used", "temp_hp",
-		}).AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false, 0))
+			"death_save_successes", "death_save_failures",
+		}).AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false, 0, 0, 0))
 	m.ExpectQuery("FROM encounter_character_conditions").WithArgs(1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "encounter_id", "character_id", "condition", "duration_rounds", "level", "note"}))
 

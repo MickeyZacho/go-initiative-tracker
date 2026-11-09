@@ -67,6 +67,9 @@ export interface Character {
 	CurrentHP: number;
 	// Per-encounter temporary HP; damage drains it before CurrentHP.
 	TempHP?: number;
+	// Death saving throws while a PC is at 0 HP (0-3 each).
+	DeathSaveSuccesses?: number;
+	DeathSaveFailures?: number;
 	Initiative: number;
 	IsActive: boolean;
 	OwnerID: string;
@@ -368,6 +371,39 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	// Removing drops the creature's HP, initiative and conditions for this
 	// encounter, and the trash icon sits among the other row controls, so ask
 	// first — the other pages already confirm their deletes.
+	// Record a downed PC's death saves. Optimistic, like the reaction toggle;
+	// re-pull on failure.
+	const setDeathSaves = useCallback(
+		async (characterID: number, successes: number, failures: number) => {
+			if (!encounterId || !characterID) return;
+			setCharacters((prev) =>
+				prev.map((c) =>
+					c.ID === characterID
+						? { ...c, DeathSaveSuccesses: successes, DeathSaveFailures: failures }
+						: c,
+				),
+			);
+			try {
+				await apiPost(
+					"/encounters/combat/death-saves",
+					{
+						encounter_id: encounterId,
+						character_id: characterID,
+						successes,
+						failures,
+					},
+					"Failed to update death saves",
+				);
+			} catch (err) {
+				setActionError(
+					err instanceof Error ? err.message : "Failed to update death saves",
+				);
+				await fetchCharacters(encounterId);
+			}
+		},
+		[encounterId, setCharacters, fetchCharacters],
+	);
+
 	const removeCharacter = async (character: Character) => {
 		const name = character.Name || "this character";
 		if (!window.confirm(`Remove ${name} from the encounter?`)) {
@@ -650,6 +686,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 											onRemoveCondition={removeCondition}
 											onSetReaction={setReaction}
 											playerView={playerView}
+											onSetDeathSaves={setDeathSaves}
 										/>
 									</div>
 								))}

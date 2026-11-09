@@ -13,6 +13,7 @@ import {
 import type { Character, ConditionInfo } from "./CharacterList";
 import { tint } from "../theme";
 import { applyHpInput } from "../lib/hp";
+import { DeathSaves } from "./DeathSaves";
 
 type EditableFieldName =
 	| "Name"
@@ -41,6 +42,11 @@ interface CharacterRowProps {
 	onSetReaction: (characterID: number, used: boolean) => void;
 	// Player view: no roster/turn controls, and NPC rows are read-only.
 	playerView?: boolean;
+	onSetDeathSaves: (
+		characterID: number,
+		successes: number,
+		failures: number,
+	) => void;
 }
 
 const HEALTH_COLOR: Record<
@@ -178,6 +184,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	onRemoveCondition,
 	onSetReaction,
 	playerView = false,
+	onSetDeathSaves,
 }) => {
 	const [editing, setEditing] = React.useState<{
 		field: EditableFieldName | null;
@@ -196,6 +203,11 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	const isDown = redacted
 		? character.HealthStatus === "Down"
 		: character.CurrentHP === 0;
+	// A downed NPC (or a PC who failed three death saves) is out of the fight
+	// and fades; a dying PC stays in full color while saves are being rolled.
+	const isOut =
+		isDown &&
+		(character.Type === "npc" || (character.DeathSaveFailures ?? 0) >= 3);
 	// Players can't edit NPCs; the server enforces this too.
 	const locked = playerView && character.Type === "npc";
 	// Only offer conditions not already applied — except leveled ones (Exhaustion),
@@ -370,7 +382,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				boxShadow: character.IsActive
 					? (t) => `0 0 0 3px ${tint("primary", 0.25)(t)}`
 					: "none",
-				borderLeftColor: isDown
+				borderLeftColor: isOut
 					? "text.disabled"
 					: character.IsActive
 						? "primary.main"
@@ -378,8 +390,8 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				bgcolor: character.IsActive
 					? tint("primary", 0.14)
 					: "background.paper",
-				filter: isDown ? "grayscale(1)" : "none",
-				opacity: isDown ? 0.75 : 1,
+				filter: isOut ? "grayscale(1)" : "none",
+				opacity: isOut ? 0.75 : 1,
 				transition: "background-color 0.2s, border-color 0.2s, opacity 0.2s",
 			}}
 		>
@@ -634,6 +646,16 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					</Box>
 				)}
 			</Box>
+
+			{/* A PC at 0 HP is dying, not dead: track their death saves. */}
+			{isDown && character.Type !== "npc" && !redacted && (
+				<DeathSaves
+					name={name}
+					successes={character.DeathSaveSuccesses ?? 0}
+					failures={character.DeathSaveFailures ?? 0}
+					onChange={(s, f) => onSetDeathSaves(character.ID, s, f)}
+				/>
+			)}
 
 			{/* Conditions strip */}
 			<Box

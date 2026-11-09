@@ -13,6 +13,9 @@ type EncounterCharacter struct {
 	IsActive     bool
 	ReactionUsed bool
 	TempHP       int
+	// Death saving throws (0-3 each).
+	DeathSaveSuccesses int
+	DeathSaveFailures  int
 }
 
 type EncounterCharacterDAO interface {
@@ -29,6 +32,8 @@ type EncounterCharacterDAO interface {
 	// RollNpcInitiative re-rolls initiative (d20 + DEX modifier) for every NPC
 	// in the encounter and returns how many were rolled. PCs roll their own.
 	RollNpcInitiative(encounterID int) (int, error)
+	// SetDeathSaves records a downed PC's death saving throws (0-3 each).
+	SetDeathSaves(encounterID, characterID, successes, failures int) error
 }
 
 type encounterCharacterDAOImpl struct {
@@ -42,9 +47,9 @@ func NewEncounterCharacterDAO(db *sql.DB) EncounterCharacterDAO {
 func (dao *encounterCharacterDAOImpl) GetByEncounterAndCharacter(encounterID, characterID int) (EncounterCharacter, error) {
 	var ec EncounterCharacter
 	err := dao.db.QueryRow(
-		"SELECT encounter_id, character_id, initiative, current_hp, is_active, reaction_used, temp_hp FROM encounter_characters WHERE encounter_id = $1 AND character_id = $2",
+		"SELECT encounter_id, character_id, initiative, current_hp, is_active, reaction_used, temp_hp, death_save_successes, death_save_failures FROM encounter_characters WHERE encounter_id = $1 AND character_id = $2",
 		encounterID, characterID,
-	).Scan(&ec.EncounterID, &ec.CharacterID, &ec.Initiative, &ec.CurrentHP, &ec.IsActive, &ec.ReactionUsed, &ec.TempHP)
+	).Scan(&ec.EncounterID, &ec.CharacterID, &ec.Initiative, &ec.CurrentHP, &ec.IsActive, &ec.ReactionUsed, &ec.TempHP, &ec.DeathSaveSuccesses, &ec.DeathSaveFailures)
 	return ec, err
 }
 
@@ -58,7 +63,7 @@ func (dao *encounterCharacterDAOImpl) Update(enc EncounterCharacter) error {
 
 func (dao *encounterCharacterDAOImpl) Upsert(enc EncounterCharacter) error {
 	_, err := dao.db.Exec(
-		"INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp, is_active, temp_hp) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (encounter_id, character_id) DO UPDATE SET initiative = EXCLUDED.initiative, current_hp = EXCLUDED.current_hp, is_active = EXCLUDED.is_active, temp_hp = EXCLUDED.temp_hp",
+		"INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp, is_active, temp_hp) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (encounter_id, character_id) DO UPDATE SET initiative = EXCLUDED.initiative, current_hp = EXCLUDED.current_hp, is_active = EXCLUDED.is_active, temp_hp = EXCLUDED.temp_hp, death_save_successes = CASE WHEN EXCLUDED.current_hp > 0 THEN 0 ELSE encounter_characters.death_save_successes END, death_save_failures = CASE WHEN EXCLUDED.current_hp > 0 THEN 0 ELSE encounter_characters.death_save_failures END",
 		enc.EncounterID, enc.CharacterID, enc.Initiative, enc.CurrentHP, enc.IsActive, enc.TempHP,
 	)
 	return err
@@ -369,4 +374,22 @@ func nextTurnIndex(order []turnSlot, current int) (int, bool) {
 	}
 	pos := current + 1
 	return pos % n, current >= 0 && pos >= n
+}
+
+func (dao *encounterCharacterDAOImpl) SetDeathSaves(encounterID, characterID, successes, failures int) error {
+	res, err := dao.db.Exec(
+		"UPDATE encounter_characters SET death_save_successes = $1, death_save_failures = $2 WHERE encounter_id = $3 AND character_id = $4",
+		successes, failures, encounterID, characterID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("character not in encounter")
+	}
+	return nil
 }
