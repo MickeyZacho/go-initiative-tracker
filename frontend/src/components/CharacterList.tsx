@@ -521,8 +521,10 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						</Typography>
 						{/* Character Rows */}
 						<Stack spacing={2}>
+							{/* Same order as the backend's turn logic (initiative DESC,
+							    character_id ASC) so ties display in the order they act. */}
 							{[...characters]
-								.sort((a, b) => b.Initiative - a.Initiative)
+								.sort((a, b) => b.Initiative - a.Initiative || a.ID - b.ID)
 								.map((character) => (
 									<div key={character.ID} style={{ width: "100%" }}>
 										<CharacterRow
