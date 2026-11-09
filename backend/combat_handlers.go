@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"go-initiative-tracker/dao"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -32,7 +35,8 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	// Starting the fight is the DM's call; players can only end their turn.
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 
@@ -46,6 +50,7 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logCombatEvent(dao.EncounterLedgerInsert{EncounterID: encounterID, ActorID: activeCharacterID, ActionType: "turn"})
 	events.publish(encounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
 }
@@ -69,7 +74,8 @@ func apiSetActiveHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid encounter or character id")
 		return
 	}
-	if !requireEncounterAccess(w, r, req.EncounterID) {
+	// Handing the turn to an arbitrary creature is a DM override.
+	if !requireEncounterOwner(w, r, req.EncounterID) {
 		return
 	}
 
@@ -86,6 +92,98 @@ func apiSetActiveHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": req.CharacterID})
 }
 
+// apiSetReactionHandler toggles whether a character has spent its reaction this
+// round. Access mirrors the other combat endpoints; a change publishes a "combat"
+// event so every viewer live-refreshes. The turn-advance logic clears the flag on
+// its own when a creature's turn begins, so this only covers the manual toggle.
+func apiSetReactionHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+
+	var req struct {
+		EncounterID  int  `json:"encounter_id"`
+		CharacterID  int  `json:"character_id"`
+		ReactionUsed bool `json:"reaction_used"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if req.EncounterID <= 0 || req.CharacterID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid encounter or character id")
+		return
+	}
+	if !requireEncounterAccess(w, r, req.EncounterID) {
+		return
+	}
+
+	if err := encounterCharacterDAO.SetReactionUsed(req.EncounterID, req.CharacterID, req.ReactionUsed); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not in encounter") {
+			writeJSONError(w, http.StatusNotFound, "Character not in encounter")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "Failed to update reaction")
+		return
+	}
+
+	// Only spending a reaction is worth a log line; restoring it (a correction)
+	// is not an in-fiction event.
+	if req.ReactionUsed {
+		logCombatEvent(dao.EncounterLedgerInsert{EncounterID: req.EncounterID, ActorID: req.CharacterID, ActionType: "reaction"})
+	}
+	events.publish(req.EncounterID, "combat")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "reaction_used": req.ReactionUsed})
+}
+
+// apiSetVisibilityHandler hides a combatant (optionally scheduling the round it
+// arrives in) or reveals it now. Hidden combatants are invisible to players and
+// skip their turns. DM only.
+// POST /encounters/combat/visibility { encounter_id, character_id, hidden, reveal_round }
+func apiSetVisibilityHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+
+	var req struct {
+		EncounterID int `json:"encounter_id"`
+		CharacterID int `json:"character_id"`
+		dao.Staging
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if req.EncounterID <= 0 || req.CharacterID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid encounter or character id")
+		return
+	}
+	staging, err := req.Staging.Normalize()
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !requireEncounterOwner(w, r, req.EncounterID) {
+		return
+	}
+
+	if err := encounterCharacterDAO.SetVisibility(req.EncounterID, req.CharacterID, staging); err != nil {
+		if errors.Is(err, dao.ErrNotInEncounter) {
+			writeJSONError(w, http.StatusNotFound, "Character is not a hidden combatant in this encounter")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "Failed to update visibility")
+		return
+	}
+
+	events.publish(req.EncounterID, "combat")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "hidden": staging.Hidden, "reveal_round": staging.RevealRound})
+}
+
 func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
@@ -98,7 +196,8 @@ func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	// Ending the fight is the DM's call.
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 
@@ -137,6 +236,114 @@ func apiNextTurnHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logCombatEvent(dao.EncounterLedgerInsert{EncounterID: encounterID, ActorID: activeCharacterID, ActionType: "turn"})
 	events.publish(encounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
+}
+
+// apiCombatStateHandler returns the encounter-level combat state that isn't
+// carried on the character rows — currently the round (0 = not started).
+// GET /encounters/combat/state?encounter_id=N
+func apiCombatStateHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+	encounterID, err := strconv.Atoi(r.URL.Query().Get("encounter_id"))
+	if err != nil || encounterID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid encounter id")
+		return
+	}
+	if !requireEncounterAccess(w, r, encounterID) {
+		return
+	}
+	round, err := encounterCharacterDAO.GetRound(encounterID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Failed to load combat state")
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "round": round})
+}
+
+// apiRollNpcInitiativeHandler rolls initiative for every NPC in the encounter
+// (d20 + DEX modifier from its template), so the DM only types the players'
+// rolls. POST /encounters/combat/roll-npc-initiative { encounter_id }
+func apiRollNpcInitiativeHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+	encounterID, err := encounterIDFromRequest(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	// NPC initiative is the DM's roll.
+	if !requireEncounterOwner(w, r, encounterID) {
+		return
+	}
+	rolled, err := encounterCharacterDAO.RollNpcInitiative(encounterID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Failed to roll initiative")
+		return
+	}
+	events.publish(encounterID, "combat")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "rolled": rolled})
+}
+
+// apiSetDeathSavesHandler records a downed PC's death saving throws.
+// POST /encounters/combat/death-saves { encounter_id, character_id, successes, failures }
+// Reaching three successes logs "stable", three failures logs "dead". The
+// counters reset on their own once the character is healed above 0 HP.
+func apiSetDeathSavesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+	var req struct {
+		EncounterID int `json:"encounter_id"`
+		CharacterID int `json:"character_id"`
+		Successes   int `json:"successes"`
+		Failures    int `json:"failures"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if req.EncounterID <= 0 || req.CharacterID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid encounter or character id")
+		return
+	}
+	if req.Successes < 0 || req.Successes > 3 || req.Failures < 0 || req.Failures > 3 {
+		writeJSONError(w, http.StatusBadRequest, "Death saves must be between 0 and 3")
+		return
+	}
+	if !requireEncounterAccess(w, r, req.EncounterID) {
+		return
+	}
+	prev, err := encounterCharacterDAO.GetByEncounterAndCharacter(req.EncounterID, req.CharacterID)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "Character not in encounter")
+		return
+	}
+	if err := encounterCharacterDAO.SetDeathSaves(req.EncounterID, req.CharacterID, req.Successes, req.Failures); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not in encounter") {
+			writeJSONError(w, http.StatusNotFound, "Character not in encounter")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "Failed to update death saves")
+		return
+	}
+
+	switch {
+	case req.Failures == 3 && prev.DeathSaveFailures < 3:
+		logCombatEvent(dao.EncounterLedgerInsert{EncounterID: req.EncounterID, ActorID: req.CharacterID, ActionType: "dead"})
+	case req.Successes == 3 && prev.DeathSaveSuccesses < 3:
+		logCombatEvent(dao.EncounterLedgerInsert{EncounterID: req.EncounterID, ActorID: req.CharacterID, ActionType: "stable"})
+	}
+	events.publish(req.EncounterID, "combat")
+	json.NewEncoder(w).Encode(map[string]any{"status": "success"})
 }

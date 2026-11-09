@@ -79,7 +79,7 @@ export default function FriendsPage() {
 			{actionError && <Typography color="error">{actionError}</Typography>}
 			{notice && <Typography color="success.main">{notice}</Typography>}
 
-			<Paper sx={{ p: 2 }}>
+			<Paper variant="outlined" sx={{ p: 2 }}>
 				<Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
 					<TextField
 						label="Discord username"
@@ -97,7 +97,7 @@ export default function FriendsPage() {
 			</Paper>
 
 			{incoming.length > 0 && (
-				<Paper sx={{ p: 2 }}>
+				<Paper variant="outlined" sx={{ p: 2 }}>
 					<Typography variant="subtitle1" fontWeight={700} gutterBottom>
 						Incoming requests
 					</Typography>
@@ -137,7 +137,7 @@ export default function FriendsPage() {
 			)}
 
 			{outgoing.length > 0 && (
-				<Paper sx={{ p: 2 }}>
+				<Paper variant="outlined" sx={{ p: 2 }}>
 					<Typography variant="subtitle1" fontWeight={700} gutterBottom>
 						Sent requests
 					</Typography>
@@ -170,7 +170,7 @@ export default function FriendsPage() {
 				</Paper>
 			)}
 
-			<Paper sx={{ p: 2 }}>
+			<Paper variant="outlined" sx={{ p: 2 }}>
 				<Typography variant="subtitle1" fontWeight={700} gutterBottom>
 					Your friends
 				</Typography>

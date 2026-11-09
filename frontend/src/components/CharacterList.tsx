@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { CharacterRow } from "./CharacterRow";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import { CharacterRow, ROW_COLUMNS, ROW_HEADERS } from "./CharacterRow";
 import {
-	Card,
-	CardContent,
 	Typography,
 	Box,
 	Select,
@@ -15,19 +14,30 @@ import {
 	AccordionDetails,
 	Button,
 	Collapse,
+	FormControlLabel,
+	Switch,
+	TextField,
 } from "@mui/material";
 import { AddCharacterControl } from "./AddCharacterControl";
 import { AddNpcControl } from "./AddNpcControl";
-import { CombatControls } from "./CombatControls";
+import {
+	AddCustomCharacterControl,
+	type CustomCharacterDraft,
+} from "./AddCustomCharacterControl";
 import { CombatLog } from "./CombatLog";
+import { CombatBar } from "./CombatBar";
+import { HiddenCombatants } from "./HiddenCombatants";
 import type { SelectChangeEvent } from "@mui/material/Select";
 
 import { useEncounters } from "../hooks/useEncounters";
 import { useCharacters } from "../hooks/useCharacters";
 import { useNpcTemplates } from "../hooks/useNpcTemplates";
 import { useCombatLog } from "../hooks/useCombatLog";
+import { useCombatState } from "../hooks/useCombatState";
 import { useEncounterEvents } from "../hooks/useEncounterEvents";
 import { apiGetArray, apiPost } from "../lib/http";
+import { useMe } from "../hooks/useMe";
+import { redactForPlayers } from "../lib/playerView";
 
 export interface Condition {
 	ID: number;
@@ -56,19 +66,29 @@ export interface Character {
 	ToHitModifier?: number;
 	MaxHP: number;
 	CurrentHP: number;
+	// Per-encounter temporary HP; damage drains it before CurrentHP.
+	TempHP?: number;
+	// Death saving throws while a PC is at 0 HP (0-3 each).
+	DeathSaveSuccesses?: number;
+	DeathSaveFailures?: number;
 	Initiative: number;
 	IsActive: boolean;
 	OwnerID: string;
 	Type: string;
+	// True once the character has spent its reaction this round; reset by the
+	// backend when the character's turn begins.
+	ReactionUsed: boolean;
 	Conditions?: Condition[];
+	// Player view: set on NPCs whose AC/HP/to-hit are hidden from players.
+	Redacted?: boolean;
+	HealthStatus?: string;
+	// DM only: staged combatant, invisible to players and skipped in turn order
+	// until revealed. RevealRound is the round it arrives automatically.
+	Hidden?: boolean;
+	RevealRound?: number | null;
 }
 
 // (Encounter and LedgerEntry interfaces removed; now provided by hooks or not needed)
-
-interface QuickActionInput {
-	targetId: number;
-	amount: string;
-}
 
 interface CharacterListProps {
 	initialEncounterId?: number | null;
@@ -107,24 +127,31 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	// Combat Log
 	const { ledgerEntries, fetchLedger } = useCombatLog();
 
+	// Round counter
+	const { round, fetchCombatState } = useCombatState();
+	const [combatBusy, setCombatBusy] = useState(false);
+
 	// Local state
 	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
 	const [conditionCatalog, setConditionCatalog] = useState<ConditionInfo[]>([]);
 	const [actionError, setActionError] = useState<string>("");
 	const [selectedAddCharacterId, setSelectedAddCharacterId] =
 		useState<number>(0);
-	const [logActorId, setLogActorId] = useState<number>(0);
-	const [logTargetId, setLogTargetId] = useState<number>(0);
-	const [logActionType, setLogActionType] = useState<string>("note");
-	const [logHPChange, setLogHPChange] = useState<string>("0");
-	const [logDescription, setLogDescription] = useState<string>("");
-	const [quickActionByActor, setQuickActionByActor] = useState<
-		Record<number, QuickActionInput>
-	>({});
-	const [, setSelected] = useState<number | null>(null);
 	// Secondary combat surfaces are collapsed by default so the initiative list
 	// stays the focus; users open them on demand.
 	const [showAddControls, setShowAddControls] = useState<boolean>(false);
+	// Staging applied to whatever is added next: hidden, optionally arriving
+	// automatically at a given round.
+	const [addHidden, setAddHidden] = useState(false);
+	const [arrivalRound, setArrivalRound] = useState("");
+	const staging = () => {
+		if (!addHidden) return { hidden: false, reveal_round: null };
+		const n = Math.floor(Number(arrivalRound));
+		return {
+			hidden: true,
+			reveal_round: arrivalRound.trim() !== "" && n >= 1 ? n : null,
+		};
+	};
 
 	// Compose error and loading states from hooks
 	const isLoading = encountersLoading || charactersLoading;
@@ -162,15 +189,23 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		fetchNpcTemplates,
 	]);
 
+	// Round is per encounter; load it whenever the selected encounter changes.
+	useEffect(() => {
+		void fetchCombatState(encounterId);
+	}, [encounterId, fetchCombatState]);
+
 	// Live sync: when any viewer changes this encounter, the backend pushes an
-	// event and we re-pull characters + ledger so every viewer stays in step.
+	// event and we re-pull characters, ledger and round so every viewer stays in
+	// step.
 	useEncounterEvents(encounterId, () => {
 		if (!encounterId) return;
 		void fetchCharacters(encounterId);
 		void fetchLedger(encounterId);
+		void fetchCombatState(encounterId);
 	});
-	// Add NPC to encounter
-	const addNpcToEncounter = async () => {
+	// Add one or more copies of an NPC template to the encounter. The backend
+	// numbers them and rolls their initiative.
+	const addNpcToEncounter = async (count: number) => {
 		if (!encounterId || !selectedAddNpcId) {
 			return;
 		}
@@ -181,6 +216,8 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				{
 					encounter_id: encounterId,
 					npc_template_id: selectedAddNpcId,
+					count,
+					...staging(),
 				},
 				"Failed to add NPC to encounter",
 			);
@@ -213,74 +250,6 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		await fetchLedger(newId);
 	};
 
-	const addLogEntry = async () => {
-		if (!encounterId || !logActorId) {
-			setActionError(
-				"Select an encounter and actor before adding a log entry",
-			);
-			return;
-		}
-		setActionError("");
-		try {
-			await createLedgerEntry(
-				logActorId,
-				logTargetId,
-				logActionType,
-				Number(logHPChange) || 0,
-				logDescription.trim(),
-			);
-			setLogDescription("");
-			setLogHPChange("0");
-			await fetchLedger(encounterId);
-		} catch (err) {
-			setActionError(
-				err instanceof Error ? err.message : "Failed to add log entry",
-			);
-		}
-	};
-
-	const createLedgerEntry = useCallback(
-		async (
-			actorID: number,
-			targetID: number,
-			actionType: string,
-			hpChange: number,
-			description: string,
-		) => {
-			await apiPost(
-				"/encounters/ledger/add",
-				{
-					encounter_id: encounterId,
-					actor_id: actorID,
-					target_id: targetID,
-					action_type: actionType,
-					hp_change: hpChange,
-					description,
-				},
-				"Failed to add combat log entry",
-			);
-		},
-		[encounterId],
-	);
-
-	const handleQuickActionChange = useCallback(
-		(
-			actorID: number,
-			field: keyof QuickActionInput,
-			value: number | string,
-		) => {
-			setQuickActionByActor((prev) => ({
-				...prev,
-				[actorID]: {
-					targetId: prev[actorID]?.targetId ?? 0,
-					amount: prev[actorID]?.amount ?? "1",
-					[field]: value,
-				},
-			}));
-		},
-		[],
-	);
-
 	const saveCharacter = useCallback(
 		async (character: Character) => {
 			const idToSend = character.ID > 2147483647 ? 0 : character.ID;
@@ -292,6 +261,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					armorClass: Number(character.ArmorClass),
 					maxHP: Number(character.MaxHP),
 					currentHP: Number(character.CurrentHP),
+					tempHP: Number(character.TempHP ?? 0),
 					initiative: Number(character.Initiative),
 					toHitModifier: Number(character.ToHitModifier ?? 0),
 					isActive: Boolean(character.IsActive),
@@ -305,80 +275,10 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[encounterId, fetchCharacters],
 	);
 
-	const applyQuickAction = useCallback(
-		async (actor: Character, actionType: "attack" | "heal") => {
-			if (!encounterId) {
-				return;
-			}
-			const config = quickActionByActor[actor.ID];
-			const targetID = config?.targetId ?? 0;
-			const amount = Math.floor(Number(config?.amount ?? "0"));
-			if (!targetID || amount <= 0) {
-				setActionError(
-					"Select a target and enter an amount greater than 0",
-				);
-				return;
-			}
-			const target = characters.find((c) => c.ID === targetID);
-			if (!target) {
-				setActionError("Target character not found");
-				return;
-			}
-
-			const newHP =
-				actionType === "attack"
-					? Math.max(0, target.CurrentHP - amount)
-					: Math.min(target.MaxHP, target.CurrentHP + amount);
-			const hpChange = newHP - target.CurrentHP;
-
-			setActionError("");
-			try {
-				await saveCharacter({ ...target, CurrentHP: newHP });
-				await createLedgerEntry(
-					actor.ID,
-					target.ID,
-					actionType,
-					hpChange,
-					`${actor.Name} ${actionType === "attack" ? "attacks" : "heals"} ${target.Name}`,
-				);
-				await fetchCharacters(encounterId);
-				await fetchLedger(encounterId);
-			} catch (err) {
-				setActionError(
-					err instanceof Error ? err.message : "Action failed",
-				);
-			}
-		},
-		[
-			characters,
-			createLedgerEntry,
-			encounterId,
-			fetchCharacters,
-			fetchLedger,
-			quickActionByActor,
-			saveCharacter,
-		],
-	);
-
-	const handleQuickAmountKeyDown = useCallback(
-		(event: React.KeyboardEvent<HTMLElement>, actor: Character) => {
-			if (event.key !== "Enter") {
-				return;
-			}
-			event.preventDefault();
-			if (event.shiftKey) {
-				void applyQuickAction(actor, "heal");
-				return;
-			}
-			void applyQuickAction(actor, "attack");
-		},
-		[applyQuickAction],
-	);
-
-	// Persist the clicked character as the active turn holder so the server's
-	// turn pointer moves with the selection (a subsequent "next turn" continues
-	// from here, not the previous active character). The row updates IsActive
-	// locally for instant feedback; this just syncs the server.
+	// Hand the turn to a specific character (the row's "give turn" button), so
+	// the server's turn pointer moves and a subsequent "next turn" continues from
+	// there. The row updates IsActive locally for instant feedback; this syncs
+	// the server and re-pulls on failure.
 	const setActiveCharacter = useCallback(
 		async (characterID: number) => {
 			if (!encounterId || !characterID) return;
@@ -389,17 +289,16 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						encounter_id: encounterId,
 						character_id: characterID,
 					},
-					"Failed to select character",
+					"Failed to give turn",
 				);
 			} catch (err) {
 				setActionError(
-					err instanceof Error
-						? err.message
-						: "Failed to select character",
+					err instanceof Error ? err.message : "Failed to give turn",
 				);
+				await fetchCharacters(encounterId);
 			}
 		},
-		[encounterId],
+		[encounterId, fetchCharacters],
 	);
 
 	const addCondition = useCallback(
@@ -408,6 +307,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			condition: string,
 			durationRounds: number | null,
 			level: number | null,
+			note = "",
 		) => {
 			if (!encounterId || !characterID || !condition) return;
 			setActionError("");
@@ -420,6 +320,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						condition,
 						duration_rounds: durationRounds,
 						level,
+						note,
 					},
 					"Failed to add condition",
 				);
@@ -456,16 +357,122 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		[encounterId, fetchCharacters],
 	);
 
-	const removeCharacter = async (characterID: number) => {
-		await apiPost(
-			"/remove-character-from-encounter",
-			{
-				encounter_id: encounterId,
-				character_id: characterID,
-			},
-			"Failed to remove character",
-		);
-		await fetchCharacters(encounterId);
+	// Toggle a character's reaction between spent and available. We flip it locally
+	// first for instant feedback, then persist; the live-sync refetch (and the
+	// automatic reset on a character's turn) keep every viewer in step.
+	const setReaction = useCallback(
+		async (characterID: number, used: boolean) => {
+			if (!encounterId || !characterID) return;
+			setCharacters((prev) =>
+				prev.map((c) =>
+					c.ID === characterID ? { ...c, ReactionUsed: used } : c,
+				),
+			);
+			try {
+				await apiPost(
+					"/encounters/combat/reaction",
+					{
+						encounter_id: encounterId,
+						character_id: characterID,
+						reaction_used: used,
+					},
+					"Failed to update reaction",
+				);
+			} catch (err) {
+				setActionError(
+					err instanceof Error ? err.message : "Failed to update reaction",
+				);
+				await fetchCharacters(encounterId);
+			}
+		},
+		[encounterId, setCharacters, fetchCharacters],
+	);
+
+	// Removing drops the creature's HP, initiative and conditions for this
+	// encounter, and the trash icon sits among the other row controls, so ask
+	// first — the other pages already confirm their deletes.
+	// Record a downed PC's death saves. Optimistic, like the reaction toggle;
+	// re-pull on failure.
+	const setDeathSaves = useCallback(
+		async (characterID: number, successes: number, failures: number) => {
+			if (!encounterId || !characterID) return;
+			setCharacters((prev) =>
+				prev.map((c) =>
+					c.ID === characterID
+						? { ...c, DeathSaveSuccesses: successes, DeathSaveFailures: failures }
+						: c,
+				),
+			);
+			try {
+				await apiPost(
+					"/encounters/combat/death-saves",
+					{
+						encounter_id: encounterId,
+						character_id: characterID,
+						successes,
+						failures,
+					},
+					"Failed to update death saves",
+				);
+			} catch (err) {
+				setActionError(
+					err instanceof Error ? err.message : "Failed to update death saves",
+				);
+				await fetchCharacters(encounterId);
+			}
+		},
+		[encounterId, setCharacters, fetchCharacters],
+	);
+
+	const removeCharacter = async (character: Character) => {
+		const name = character.Name || "this character";
+		if (!window.confirm(`Remove ${name} from the encounter?`)) {
+			return;
+		}
+		setActionError("");
+		try {
+			await apiPost(
+				"/remove-character-from-encounter",
+				{
+					encounter_id: encounterId,
+					character_id: character.ID,
+				},
+				"Failed to remove character",
+			);
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setActionError(
+				err instanceof Error ? err.message : "Failed to remove character",
+			);
+		}
+	};
+
+	// Hide a combatant (optionally scheduling its arrival round) or reveal it
+	// now. Revealing rolls initiative server-side if none was set.
+	const setVisibility = async (
+		character: Character,
+		hidden: boolean,
+		revealRound: number | null = null,
+	) => {
+		if (!encounterId) return;
+		setActionError("");
+		try {
+			await apiPost(
+				"/encounters/combat/visibility",
+				{
+					encounter_id: encounterId,
+					character_id: character.ID,
+					hidden,
+					reveal_round: revealRound,
+				},
+				hidden ? "Failed to hide combatant" : "Failed to reveal combatant",
+			);
+			await fetchCharacters(encounterId);
+		} catch (err) {
+			setActionError(
+				err instanceof Error ? err.message : "Failed to update visibility",
+			);
+		}
 	};
 
 	const addExistingCharacterToEncounter = async () => {
@@ -478,6 +485,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				{
 					encounter_id: encounterId,
 					character_id: selectedAddCharacterId,
+					...staging(),
 				},
 				"Failed to add character to encounter",
 			);
@@ -489,22 +497,110 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		}
 	};
 
-	const nextCharacter = useCallback(async () => {
-		if (!encounterId || characters.length === 0) return;
+	// Create a brand-new character/NPC and drop it straight into the encounter.
+	// /save-character with id=0 + encounter_id both persists it and adds it, so we
+	// also refresh the library list to pick up the newly created character.
+	const addCustomCharacterToEncounter = async (draft: CustomCharacterDraft) => {
+		if (!encounterId) {
+			return;
+		}
 		setActionError("");
 		try {
 			await apiPost(
-				"/encounters/combat/next-turn",
-				{ encounter_id: encounterId },
-				"Failed to advance turn",
+				"/save-character",
+				{
+					id: 0,
+					name: draft.name,
+					armorClass: draft.armorClass,
+					maxHP: draft.maxHP,
+					currentHP: draft.maxHP,
+					initiative: draft.initiative,
+					toHitModifier: draft.toHitModifier,
+					isActive: false,
+					type: draft.type,
+					encounter_id: encounterId,
+					...staging(),
+				},
+				"Failed to add custom character",
 			);
 			await fetchCharacters(encounterId);
+			await fetchLibraryCharacters();
 		} catch (err) {
 			setActionError(
-				err instanceof Error ? err.message : "Failed to advance turn",
+				err instanceof Error
+					? err.message
+					: "Failed to add custom character",
 			);
 		}
-	}, [encounterId, characters.length, fetchCharacters]);
+	};
+
+	// Run one combat-control call (start / next / end), then refresh the rows,
+	// round and log. combatBusy guards against double-advancing on a fast
+	// double-click or held spacebar.
+	const runCombatAction = useCallback(
+		async (path: string, failure: string) => {
+			if (!encounterId || combatBusy) return;
+			setActionError("");
+			setCombatBusy(true);
+			try {
+				await apiPost(path, { encounter_id: encounterId }, failure);
+				await Promise.all([
+					fetchCharacters(encounterId),
+					fetchCombatState(encounterId),
+					fetchLedger(encounterId),
+				]);
+			} catch (err) {
+				setActionError(err instanceof Error ? err.message : failure);
+			} finally {
+				setCombatBusy(false);
+			}
+		},
+		[encounterId, combatBusy, fetchCharacters, fetchCombatState, fetchLedger],
+	);
+
+	const nextCharacter = useCallback(() => {
+		if (characters.length === 0) return;
+		void runCombatAction("/encounters/combat/next-turn", "Failed to advance turn");
+	}, [characters.length, runCombatAction]);
+
+	const startCombat = () =>
+		void runCombatAction("/encounters/combat/start", "Failed to start combat");
+
+	const endCombat = () => {
+		if (
+			!window.confirm(
+				"End combat? This clears whose turn it is and resets the round counter. HP and conditions are kept.",
+			)
+		) {
+			return;
+		}
+		void runCombatAction("/encounters/combat/setup", "Failed to end combat");
+	};
+
+	const rollNpcInitiative = () =>
+		void runCombatAction(
+			"/encounters/combat/roll-npc-initiative",
+			"Failed to roll initiative",
+		);
+
+	// Player view. Anyone who isn't the encounter's DM (a shared member) gets
+	// it automatically, with NPC numbers already stripped by the server; the DM
+	// can preview it locally. Logged-out viewers own logged-out encounters.
+	const me = useMe();
+	const currentEncounter = encounters.find((e) => e.ID === encounterId);
+	const isOwner =
+		!currentEncounter ||
+		currentEncounter.OwnerID === (me.loggedIn ? me.discordID : "");
+	const [previewAsPlayer, setPreviewAsPlayer] = useState(false);
+	const playerView = !isOwner || previewAsPlayer;
+	const visibleCharacters = previewAsPlayer
+		? redactForPlayers(characters)
+		: characters;
+	// Hidden combatants live in their own staging panel, not the turn order.
+	const inPlay = visibleCharacters.filter((c) => !c.Hidden);
+	const waiting = playerView ? [] : characters.filter((c) => c.Hidden);
+
+	const activeCharacter = inPlay.find((c) => c.IsActive) ?? null;
 
 	const availableLibraryCharacters = libraryCharacters.filter(
 		(libChar) => !characters.some((encChar) => encChar.ID === libChar.ID),
@@ -525,260 +621,316 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		});
 	}, []);
 
-	useEffect(() => {
-		if (characters.length === 0) {
-			setLogActorId(0);
-			setLogTargetId(0);
-			return;
-		}
-		if (!characters.some((c) => c.ID === logActorId)) {
-			setLogActorId(characters[0].ID);
-		}
-		if (
-			logTargetId !== 0 &&
-			!characters.some((c) => c.ID === logTargetId)
-		) {
-			setLogTargetId(0);
-		}
-	}, [characters, logActorId, logTargetId]);
-
-	useEffect(() => {
-		setQuickActionByActor((prev) => {
-			const next: Record<number, QuickActionInput> = {};
-			for (const actor of characters) {
-				const existing = prev[actor.ID];
-				const fallbackTarget =
-					characters.find((c) => c.ID !== actor.ID)?.ID ?? actor.ID;
-				const validTarget =
-					existing &&
-					characters.some((c) => c.ID === existing.targetId)
-						? existing.targetId
-						: fallbackTarget;
-				next[actor.ID] = {
-					targetId: validTarget,
-					amount: existing?.amount ?? "1",
-				};
-			}
-			return next;
-		});
-	}, [characters]);
-
-	// Spacebar triggers nextCharacter
+	// Spacebar advances the turn (the Next button is the visible equivalent).
+	// Ignore it while the user is typing or has a control focused, where Space
+	// already means something, and ignore auto-repeat from a held key.
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.code !== "Space" || e.repeat) return;
+			const t = e.target;
 			if (
-				e.code === "Space" &&
-				!(
-					e.target instanceof HTMLInputElement ||
-					e.target instanceof HTMLTextAreaElement
-				)
+				t instanceof HTMLInputElement ||
+				t instanceof HTMLTextAreaElement ||
+				t instanceof HTMLSelectElement ||
+				t instanceof HTMLButtonElement ||
+				(t instanceof HTMLElement &&
+					(t.isContentEditable || t.getAttribute("role") === "button"))
 			) {
-				e.preventDefault();
-				nextCharacter();
+				return;
 			}
+			e.preventDefault();
+			nextCharacter();
 		};
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [nextCharacter, characters, encounterId]);
+	}, [nextCharacter]);
 
 	return (
-		<Box display="flex" justifyContent="center" alignItems="center">
-			<Card
-				sx={{
-					width: "100%",
-					borderRadius: 3,
-					boxShadow: 3,
-					p: { xs: 1, sm: 3 },
-				}}
+		<Stack spacing={2}>
+			{/* Header line: which encounter, and the DM's player-preview
+			    switch, on one compact row. */}
+			<Stack
+				direction="row"
+				alignItems="center"
+				spacing={2}
+				useFlexGap
+				flexWrap="wrap"
 			>
-				<CardContent>
-					<Stack spacing={3}>
-						{/* Encounter Switcher */}
-						<FormControl
-							variant="outlined"
-							sx={{ minWidth: 220 }}
-						>
-							<InputLabel id="encounter-label">
-								Encounter
-							</InputLabel>
-							<Select
-								labelId="encounter-label"
-								value={String(encounterId)}
-								label="Encounter"
-								onChange={handleEncounterChange}
-								sx={{ fontWeight: 500, color: "#1976d2" }}
-							>
-								{encounters.map((enc) => (
-									<MenuItem
-										key={enc.ID}
-										value={String(enc.ID)}
-									>
-										{enc.Name}
-									</MenuItem>
-								))}
-							</Select>
-						</FormControl>
-
-						{composedError && (
-							<Typography color="error">
-								{composedError}
-							</Typography>
-						)}
-						{actionError && (
-							<Typography color="error">{actionError}</Typography>
-						)}
-						<Typography
-							variant="h4"
-							color="primary"
-							fontWeight={700}
-							letterSpacing={1}
-						>
-							Characters
-						</Typography>
-						{/* Character Rows */}
-						<Stack spacing={2}>
-							{[...characters]
-								.sort((a, b) => b.Initiative - a.Initiative)
-								.map((character) => (
-									<div key={character.ID} style={{ width: "100%" }}>
-										<CharacterRow
-											character={character}
-											setCharacters={setCharacters}
-											setSelected={setSelected}
-											onSelect={setActiveCharacter}
-											onSave={saveCharacter}
-											onRemove={() => removeCharacter(character.ID)}
-											conditionCatalog={conditionCatalog}
-											onAddCondition={addCondition}
-											onRemoveCondition={removeCondition}
-										/>
-									</div>
-								))}
-							{characters.length > 0 && (
-								<Accordion
-									disableGutters
-									elevation={0}
-									slotProps={{
-										transition: { unmountOnExit: true },
-									}}
-									sx={{
-										border: 1,
-										borderColor: "divider",
-										borderRadius: 2,
-										"&:before": { display: "none" },
-									}}
-								>
-									<AccordionSummary expandIcon={<span>▾</span>}>
-										<Typography fontWeight={600}>
-											Attack / Heal Actions
-										</Typography>
-									</AccordionSummary>
-									<AccordionDetails>
-										<CombatControls
-											characters={characters}
-											quickActionByActor={quickActionByActor}
-											handleQuickActionChange={handleQuickActionChange}
-											handleQuickAmountKeyDown={handleQuickAmountKeyDown}
-											applyQuickAction={applyQuickAction}
-										/>
-									</AccordionDetails>
-								</Accordion>
-							)}
-						</Stack>
-						{/* Add existing characters / NPCs — tucked behind a single
-						    unobtrusive toggle so it doesn't dominate the view. */}
-						<Box>
-							<Button
+				<FormControl size="small" sx={{ minWidth: 220, flex: "0 1 320px" }}>
+					<InputLabel id="encounter-label">Encounter</InputLabel>
+					<Select
+						labelId="encounter-label"
+						value={String(encounterId)}
+						label="Encounter"
+						onChange={handleEncounterChange}
+						sx={{ fontWeight: 600 }}
+					>
+						{encounters.map((enc) => (
+							<MenuItem key={enc.ID} value={String(enc.ID)}>
+								{enc.Name}
+							</MenuItem>
+						))}
+					</Select>
+				</FormControl>
+				{isOwner && encounterId > 0 && (
+					<FormControlLabel
+						sx={{ ml: "auto", mr: 0 }}
+						control={
+							<Switch
 								size="small"
-								variant="text"
-								onClick={() => setShowAddControls((prev) => !prev)}
-								sx={{ textTransform: "none" }}
-							>
-								{showAddControls ? "▾" : "▸"} Add characters & NPCs
-							</Button>
-							<Collapse in={showAddControls}>
-								<Stack spacing={2} mt={1}>
-									<Stack
-										direction="row"
-										spacing={2}
-										alignItems="center"
-										flexWrap="wrap"
-										useFlexGap
-									>
-										<AddCharacterControl
-											availableLibraryCharacters={availableLibraryCharacters}
-											selectedAddCharacterId={selectedAddCharacterId}
-											setSelectedAddCharacterId={setSelectedAddCharacterId}
-											addExistingCharacterToEncounter={addExistingCharacterToEncounter}
-											encounterId={encounterId}
-										/>
-									</Stack>
-									<Stack
-										direction="row"
-										spacing={2}
-										alignItems="center"
-										flexWrap="wrap"
-										useFlexGap
-									>
-										<AddNpcControl
-											npcTemplates={npcTemplates}
-											selectedAddNpcId={selectedAddNpcId}
-											setSelectedAddNpcId={setSelectedAddNpcId}
-											addNpcToEncounter={addNpcToEncounter}
-											encounterId={encounterId}
-										/>
-									</Stack>
-								</Stack>
-							</Collapse>
-						</Box>
-						{isLoading && characters.length === 0 && (
-							<Typography color="text.secondary">
-								Loading...
+								checked={previewAsPlayer}
+								onChange={(e) => setPreviewAsPlayer(e.target.checked)}
+							/>
+						}
+						label={
+							<Typography variant="body2" color="text.secondary">
+								Preview as player
 							</Typography>
-						)}
-						<Accordion
-							disableGutters
-							elevation={0}
-							slotProps={{ transition: { unmountOnExit: true } }}
+						}
+						title="See the encounter the way your players do: NPC AC, HP and to-hit hidden"
+					/>
+				)}
+			</Stack>
+			{!isOwner && (
+				<Typography variant="body2" color="text.secondary">
+					Player view — the DM runs this encounter. You can update your
+					characters and end your turn.
+				</Typography>
+			)}
+			{composedError && (
+				<Typography color="error">
+					{composedError}
+				</Typography>
+			)}
+			{actionError && (
+				<Typography color="error">{actionError}</Typography>
+			)}
+			{/* Column header for the rows. Hidden on phones, where each row
+			    carries its own labels; padding mirrors CharacterRow's. */}
+			{inPlay.length > 0 && (
+				<Box
+					aria-hidden
+					sx={{
+						display: { xs: "none", md: "grid" },
+						gridTemplateColumns: ROW_COLUMNS,
+						columnGap: 1,
+						pl: "20px",
+						pr: "17px",
+						mb: "-8px !important",
+					}}
+				>
+					{ROW_HEADERS.map((h, i) => (
+						<Typography
+							key={i}
+							variant="caption"
+							color="text.secondary"
 							sx={{
-								border: 1,
-								borderColor: "divider",
-								borderRadius: 2,
-								"&:before": { display: "none" },
+								fontWeight: 600,
+								textTransform: "uppercase",
+								letterSpacing: "0.06em",
+								textAlign: i === 0 ? "left" : "center",
+								pl: i === 0 ? 0.75 : 0,
 							}}
 						>
-							<AccordionSummary expandIcon={<span>▾</span>}>
-								<Typography fontWeight={600}>
-									Combat Log
-									{ledgerEntries.length > 0
-										? ` (${ledgerEntries.length})`
-										: ""}
-								</Typography>
-							</AccordionSummary>
-							<AccordionDetails>
-								<CombatLog
-									ledgerEntries={ledgerEntries}
-									characters={characters}
-									logActorId={logActorId}
-									setLogActorId={setLogActorId}
-									logTargetId={logTargetId}
-									setLogTargetId={setLogTargetId}
-									logActionType={logActionType}
-									setLogActionType={setLogActionType}
-									logHPChange={logHPChange}
-									setLogHPChange={setLogHPChange}
-									logDescription={logDescription}
-									setLogDescription={setLogDescription}
-									addLogEntry={addLogEntry}
-									encounterId={encounterId}
-									formatLogTime={formatLogTime}
-									characterNameByID={characterNameByID}
+							{h}
+						</Typography>
+					))}
+				</Box>
+			)}
+			{/* Character Rows */}
+			<Stack spacing={1}>
+				{/* Same order as the backend's turn logic (initiative DESC,
+				    character_id ASC) so ties display in the order they act. */}
+				{[...inPlay]
+					.sort((a, b) => b.Initiative - a.Initiative || a.ID - b.ID)
+					.map((character) => (
+						<div key={character.ID} style={{ width: "100%" }}>
+							<CharacterRow
+								character={character}
+								setCharacters={setCharacters}
+								onGiveTurn={setActiveCharacter}
+								onSave={saveCharacter}
+								onRemove={() => removeCharacter(character)}
+								onHide={() => void setVisibility(character, true)}
+								conditionCatalog={conditionCatalog}
+								onAddCondition={addCondition}
+								onRemoveCondition={removeCondition}
+								onSetReaction={setReaction}
+								playerView={playerView}
+								onSetDeathSaves={setDeathSaves}
+							/>
+						</div>
+					))}
+			</Stack>
+			{!playerView && (
+				<HiddenCombatants
+					waiting={waiting}
+					round={round}
+					onReveal={(c) => void setVisibility(c, false)}
+					onSchedule={(c, r) => void setVisibility(c, true, r)}
+					onRemove={(c) => void removeCharacter(c)}
+				/>
+			)}
+			{encounterId > 0 && (
+				<CombatBar
+					round={round}
+					activeName={activeCharacter?.Name ?? null}
+					hasCombatants={inPlay.length > 0}
+					busy={combatBusy}
+					onStart={startCombat}
+					onNext={nextCharacter}
+					onReset={endCombat}
+					canControl={!playerView}
+					hasNpcs={characters.some((c) => c.Type === "npc")}
+					onRollNpcInitiative={rollNpcInitiative}
+				/>
+			)}
+			{!playerView && (
+				<>
+					{/* Add existing characters / NPCs — tucked behind a single
+					    unobtrusive toggle so it doesn't dominate the view. */}
+					<Box>
+						<Button
+							size="small"
+							variant="text"
+							onClick={() => setShowAddControls((prev) => !prev)}
+							startIcon={
+								<ExpandMoreIcon
+									sx={{
+										transform: showAddControls ? "none" : "rotate(-90deg)",
+										transition: "transform 0.2s",
+									}}
 								/>
-							</AccordionDetails>
-						</Accordion>
-					</Stack>
-				</CardContent>
-			</Card>
-		</Box>
+							}
+						>
+							Add characters & NPCs
+						</Button>
+						<Collapse in={showAddControls}>
+							<Stack spacing={2} mt={1}>
+								<Stack
+									direction="row"
+									spacing={2}
+									alignItems="center"
+									flexWrap="wrap"
+									useFlexGap
+								>
+									<FormControlLabel
+										sx={{ mr: 0 }}
+										control={
+											<Switch
+												size="small"
+												checked={addHidden}
+												onChange={(e) => setAddHidden(e.target.checked)}
+											/>
+										}
+										label={<Typography variant="body2">Add hidden</Typography>}
+										title="Stage what you add next: invisible to players and out of the turn order until revealed"
+									/>
+									{addHidden && (
+										<TextField
+											label="Arrives round"
+											type="number"
+											size="small"
+											value={arrivalRound}
+											placeholder="Manual"
+											onChange={(e) => setArrivalRound(e.target.value)}
+											slotProps={{
+												htmlInput: { min: 1 },
+												inputLabel: { shrink: true },
+											}}
+											sx={{ width: 130 }}
+										/>
+									)}
+									{addHidden && (
+										<Typography variant="caption" color="text.secondary">
+											{arrivalRound.trim()
+												? "Revealed automatically when that round begins"
+												: "Revealed when you click Reveal"}
+										</Typography>
+									)}
+								</Stack>
+								<Stack
+									direction="row"
+									spacing={2}
+									alignItems="center"
+									flexWrap="wrap"
+									useFlexGap
+								>
+									<AddCharacterControl
+										availableLibraryCharacters={availableLibraryCharacters}
+										selectedAddCharacterId={selectedAddCharacterId}
+										setSelectedAddCharacterId={setSelectedAddCharacterId}
+										addExistingCharacterToEncounter={addExistingCharacterToEncounter}
+										encounterId={encounterId}
+									/>
+								</Stack>
+								<Stack
+									direction="row"
+									spacing={2}
+									alignItems="center"
+									flexWrap="wrap"
+									useFlexGap
+								>
+									<AddNpcControl
+										npcTemplates={npcTemplates}
+										selectedAddNpcId={selectedAddNpcId}
+										setSelectedAddNpcId={setSelectedAddNpcId}
+										addNpcToEncounter={addNpcToEncounter}
+										encounterId={encounterId}
+									/>
+								</Stack>
+								<Box>
+									<Typography
+										variant="subtitle2"
+										color="text.secondary"
+										gutterBottom
+									>
+										Add Custom Character
+									</Typography>
+									<AddCustomCharacterControl
+										addCustomCharacterToEncounter={
+											addCustomCharacterToEncounter
+										}
+										encounterId={encounterId}
+									/>
+								</Box>
+							</Stack>
+						</Collapse>
+					</Box>
+				</>
+			)}
+			{isLoading && characters.length === 0 && (
+				<Typography color="text.secondary">
+					Loading...
+				</Typography>
+			)}
+			<Accordion
+				disableGutters
+				elevation={0}
+				slotProps={{ transition: { unmountOnExit: true } }}
+				sx={{
+					border: 1,
+					borderColor: "divider",
+					borderRadius: 2,
+					"&:before": { display: "none" },
+				}}
+			>
+				<AccordionSummary expandIcon={<ExpandMoreIcon />}>
+					<Typography fontWeight={600}>
+						Combat Log
+						{ledgerEntries.length > 0
+							? ` (${ledgerEntries.length})`
+							: ""}
+					</Typography>
+				</AccordionSummary>
+				<AccordionDetails>
+					<CombatLog
+						ledgerEntries={ledgerEntries}
+						formatLogTime={formatLogTime}
+						characterNameByID={characterNameByID}
+					/>
+				</AccordionDetails>
+			</Accordion>
+		</Stack>
 	);
 };

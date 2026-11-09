@@ -43,8 +43,10 @@ func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	// When scoping to an encounter, the characters returned include the owner's,
 	// so require the caller to own or be a shared-edit member of it. Logged-out
 	// callers still fall through to the historical unscoped/owner-less behavior.
+	role := roleOwner
 	if encounterID > 0 && getDiscordIDFromRequest(r) != "" {
-		if !requireEncounterAccess(w, r, encounterID) {
+		var ok bool
+		if role, ok = resolveEncounterRole(w, r, encounterID); !ok {
 			return
 		}
 	}
@@ -52,6 +54,11 @@ func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch characters")
 		return
+	}
+	// Players get the player view: NPC numbers are hidden server-side.
+	if role == roleMember {
+		characters = dropHiddenForPlayers(characters)
+		redactNpcsForPlayers(characters)
 	}
 	if characters == nil {
 		characters = []dao.Character{}
@@ -177,6 +184,11 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		dao.Character
 		EncounterID int `json:"encounter_id"`
+		// Staging for a brand-new character added straight into the encounter.
+		// Declared here (not via dao.Staging) so they shadow Character's own
+		// Hidden/RevealRound rather than colliding with them.
+		Hidden      bool `json:"hidden"`
+		RevealRound *int `json:"reveal_round"`
 	}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
@@ -184,6 +196,12 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	char := payload.Character
+	staging, err := dao.Staging{Hidden: payload.Hidden, RevealRound: payload.RevealRound}.Normalize()
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	isNew := char.ID == 0
 
 	if char.MaxHP < 1 {
 		writeJSONError(w, http.StatusBadRequest, "Invalid max HP value")
@@ -195,13 +213,41 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	if char.CurrentHP > char.MaxHP {
 		char.CurrentHP = char.MaxHP
 	}
+	if char.TempHP < 0 {
+		char.TempHP = 0
+	}
 	discordID := getDiscordIDFromRequest(r)
 
-	// Saving into an encounter requires access to that encounter, and access is
-	// then enough to edit any character in it — not just the caller's own.
-	if payload.EncounterID > 0 && !requireEncounterAccess(w, r, payload.EncounterID) {
-		return
+	// Saving into an encounter requires access to that encounter. The DM can
+	// edit anything in it; players (members) may edit PCs but not NPCs, whose
+	// stats they can't even see, and may not add creatures to the roster.
+	if payload.EncounterID > 0 {
+		role, ok := resolveEncounterRole(w, r, payload.EncounterID)
+		if !ok {
+			return
+		}
+		if role == roleMember {
+			if char.ID == 0 {
+				writeJSONError(w, http.StatusForbidden, "Only the DM can add creatures to this encounter")
+				return
+			}
+			existing, err := characterDAO.GetCharacterByID(char.ID)
+			if err != nil {
+				writeJSONError(w, http.StatusNotFound, "Character not found in this encounter")
+				return
+			}
+			if existing.Type == "npc" {
+				writeJSONError(w, http.StatusForbidden, "Only the DM can edit NPCs")
+				return
+			}
+			char.Type = existing.Type // a player can't turn a PC into an NPC
+		}
 	}
+
+	// Remember the character's HP (and temp HP) before this save so we can log
+	// the change as a damage/heal entry on the combat log. Only meaningful on the
+	// encounter path (previousHP stays -1 otherwise, which suppresses logging).
+	previousHP, previousTemp := -1, 0
 
 	switch {
 	case char.ID == 0:
@@ -222,6 +268,9 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 		char.ID = newID
 	case payload.EncounterID > 0:
 		// Editing a character through an encounter the caller has access to.
+		if prev, prevErr := encounterCharacterDAO.GetByEncounterAndCharacter(payload.EncounterID, char.ID); prevErr == nil {
+			previousHP, previousTemp = prev.CurrentHP, prev.TempHP
+		}
 		ownerID, updated, err := characterDAO.UpdateCharacterInEncounter(char, payload.EncounterID)
 		if err != nil {
 			log.Printf("Error updating character: %v", err)
@@ -255,12 +304,42 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 			Initiative:  char.Initiative,
 			CurrentHP:   char.CurrentHP,
 			IsActive:    char.IsActive,
+			TempHP:      char.TempHP,
+		}
+		// Visibility is only chosen on creation; later edits go through
+		// /encounters/combat/visibility (Upsert never changes it on conflict).
+		if isNew {
+			encChar.Staging = staging
+			char.Hidden, char.RevealRound = staging.Hidden, staging.RevealRound
 		}
 		err = encounterCharacterDAO.Upsert(encChar)
 		if err != nil {
 			log.Printf("Error upserting encounter character: %v", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to save encounter values")
 			return
+		}
+		// An HP change is the raw material of the combat log. Damage is the drop
+		// in total HP (temp + current), since temp HP soaks hits first; healing is
+		// a rise in current HP. Granting temp HP isn't healing, and edits that
+		// leave HP untouched (name, AC, initiative) produce no entry.
+		if previousHP >= 0 {
+			before, after := previousHP+previousTemp, char.CurrentHP+char.TempHP
+			switch {
+			case after < before:
+				logCombatEvent(dao.EncounterLedgerInsert{
+					EncounterID: payload.EncounterID,
+					ActorID:     char.ID,
+					ActionType:  "damage",
+					HPChange:    after - before,
+				})
+			case char.CurrentHP > previousHP:
+				logCombatEvent(dao.EncounterLedgerInsert{
+					EncounterID: payload.EncounterID,
+					ActorID:     char.ID,
+					ActionType:  "heal",
+					HPChange:    char.CurrentHP - previousHP,
+				})
+			}
 		}
 		events.publish(payload.EncounterID, "character")
 	}
@@ -282,6 +361,7 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		EncounterID int `json:"encounter_id"`
 		CharacterID int `json:"character_id"`
+		dao.Staging
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
@@ -296,10 +376,16 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "encounter_id is required")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	staging, err := req.Staging.Normalize()
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	err := encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID)
+	// The roster belongs to the DM.
+	if !requireEncounterOwner(w, r, encounterID) {
+		return
+	}
+	err = encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID, staging)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
 			writeJSONError(w, http.StatusConflict, "Character is already in this encounter")
@@ -336,7 +422,8 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusBadRequest, "encounter_id is required")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	// The roster belongs to the DM.
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 	err := encounterDAO.RemoveCharacterFromEncounter(encounterID, req.CharacterID)

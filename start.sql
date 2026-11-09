@@ -54,7 +54,8 @@ CREATE TABLE encounters (
 	id SERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
 	owner_id TEXT, -- Discord user ID of DM
-	description TEXT
+	description TEXT,
+	round INTEGER NOT NULL DEFAULT 0 -- combat round; 0 = not started (migration 00007)
 );
 CREATE TABLE encounter_ledger (
 	id SERIAL PRIMARY KEY,
@@ -75,6 +76,12 @@ CREATE TABLE encounter_characters (
 	initiative INTEGER,
 	current_hp INTEGER,
 	is_active BOOLEAN DEFAULT FALSE,
+	reaction_used BOOLEAN NOT NULL DEFAULT FALSE,
+	temp_hp INTEGER NOT NULL DEFAULT 0, -- migration 00008
+	death_save_successes INTEGER NOT NULL DEFAULT 0, -- migration 00009
+	death_save_failures INTEGER NOT NULL DEFAULT 0,
+	hidden BOOLEAN NOT NULL DEFAULT FALSE, -- migration 00011: staged, invisible to players, no turns
+	reveal_round INTEGER, -- auto-reveal when this round begins; NULL = manual
 	PRIMARY KEY (encounter_id, character_id)
 );
 

@@ -114,19 +114,6 @@ func TestApiSaveEncounterHandlerRequiresName(t *testing.T) {
 	}
 }
 
-func TestApiAddEncounterLedgerHandlerRequiresActor(t *testing.T) {
-	body, _ := json.Marshal(map[string]any{"encounter_id": 1, "actor_id": 0})
-	req := httptest.NewRequest(http.MethodPost, "/encounters/ledger/add", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	apiAddEncounterLedgerHandler(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("apiAddEncounterLedgerHandler status = %d, want %d", rr.Code, http.StatusBadRequest)
-	}
-}
-
 func TestApiStartCombatHandlerWrongMethod(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/encounters/combat/start", nil)
 	rr := httptest.NewRecorder()

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
 	Box,
 	Button,
+	IconButton,
 	MenuItem,
 	Paper,
 	Stack,
@@ -11,9 +12,12 @@ import {
 	TableHead,
 	TableRow,
 	TextField,
+	Tooltip,
 	Typography,
 } from "@mui/material";
 import { apiGetArray, apiPost } from "../lib/http";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import { InlineInput } from "./InlineInput";
 
 interface Character {
 	ID: number;
@@ -145,85 +149,89 @@ export default function CharactersPage() {
 		}
 	};
 
+	// Number fields share one shape: right-aligned digits, narrow column.
+	const numberField = (
+		character: Character,
+		field: "ArmorClass" | "ToHitModifier" | "MaxHP",
+		label: string,
+	) => (
+		<InlineInput
+			type="number"
+			value={character[field] ?? 0}
+			onChange={(e) =>
+				updateField(character.ID, field, Number(e.target.value))
+			}
+			onBlur={() => handleBlur(character)}
+			inputProps={{ "aria-label": `${character.Name} ${label}` }}
+			sx={{ width: 72 }}
+		/>
+	);
+
 	const renderRow = (character: Character) => (
-		<TableRow key={character.ID}>
+		<TableRow key={character.ID} hover>
 			<TableCell>
-				<TextField
-					variant="standard"
+				<InlineInput
 					value={character.Name}
 					onChange={(e) =>
 						updateField(character.ID, "Name", e.target.value)
 					}
 					onBlur={() => handleBlur(character)}
+					inputProps={{ "aria-label": "Name" }}
+					sx={{ fontWeight: 600, width: "100%", minWidth: 120 }}
 				/>
 			</TableCell>
-			<TableCell>
-				<TextField
-					variant="standard"
-					type="number"
-					value={character.ArmorClass}
-					onChange={(e) =>
-						updateField(
-							character.ID,
-							"ArmorClass",
-							Number(e.target.value),
-						)
-					}
-					onBlur={() => handleBlur(character)}
-				/>
-			</TableCell>
-			<TableCell>
-				<TextField
-					variant="standard"
-					type="number"
-					value={character.ToHitModifier ?? 0}
-					onChange={(e) =>
-						updateField(
-							character.ID,
-							"ToHitModifier",
-							Number(e.target.value),
-						)
-					}
-					onBlur={() => handleBlur(character)}
-				/>
-			</TableCell>
-			<TableCell>
-				<TextField
-					variant="standard"
-					type="number"
-					value={character.MaxHP}
-					onChange={(e) =>
-						updateField(
-							character.ID,
-							"MaxHP",
-							Number(e.target.value),
-						)
-					}
-					onBlur={() => handleBlur(character)}
-				/>
-			</TableCell>
+			<TableCell>{numberField(character, "ArmorClass", "AC")}</TableCell>
+			<TableCell>{numberField(character, "ToHitModifier", "to-hit")}</TableCell>
+			<TableCell>{numberField(character, "MaxHP", "max HP")}</TableCell>
 			<TableCell>
 				<TextField
 					select
 					variant="standard"
 					value={character.Type}
-					onChange={(e) =>
-						handleTypeChange(character, e.target.value)
-					}
+					onChange={(e) => handleTypeChange(character, e.target.value)}
+					slotProps={{
+						input: { disableUnderline: true },
+						htmlInput: { "aria-label": `${character.Name} type` },
+					}}
+					sx={{ minWidth: 64 }}
 				>
 					<MenuItem value="pc">PC</MenuItem>
 					<MenuItem value="npc">NPC</MenuItem>
 				</TextField>
 			</TableCell>
 			<TableCell align="right">
-				<Button
-					size="small"
-					color="error"
-					variant="outlined"
-					onClick={() => handleDelete(character.ID)}
-				>
-					Delete
-				</Button>
+				<Tooltip title="Delete character">
+					<IconButton
+						size="small"
+						aria-label={`Delete ${character.Name}`}
+						onClick={() => handleDelete(character.ID)}
+						sx={{
+							color: "text.disabled",
+							"&:hover": { color: "error.main" },
+						}}
+					>
+						<DeleteOutlineIcon fontSize="small" />
+					</IconButton>
+				</Tooltip>
+			</TableCell>
+		</TableRow>
+	);
+
+	// Section label inside the table (PCs / NPCs).
+	const groupRow = (label: string) => (
+		<TableRow>
+			<TableCell
+				colSpan={6}
+				sx={{
+					pt: 2,
+					color: "text.secondary",
+					fontSize: "0.75rem",
+					fontWeight: 700,
+					textTransform: "uppercase",
+					letterSpacing: "0.08em",
+				}}
+			>
+				{label}
 			</TableCell>
 		</TableRow>
 	);
@@ -233,11 +241,9 @@ export default function CharactersPage() {
 
 	return (
 		<Stack spacing={2}>
-			<Typography variant="h5" fontWeight={700}>
-				Characters
-			</Typography>
+			<Typography variant="h5">Characters</Typography>
 			{error && <Typography color="error">{error}</Typography>}
-			<Paper sx={{ p: 2 }}>
+			<Paper variant="outlined" sx={{ p: 2 }}>
 				<Stack
 					direction={{ xs: "column", sm: "row" }}
 					spacing={2}
@@ -249,17 +255,14 @@ export default function CharactersPage() {
 						sx={{ flex: 1, minWidth: 160 }}
 						value={draft.Name}
 						onChange={(e) =>
-							setDraft((prev) => ({
-								...prev,
-								Name: e.target.value,
-							}))
+							setDraft((prev) => ({ ...prev, Name: e.target.value }))
 						}
 					/>
 					<TextField
 						label="AC"
 						type="number"
 						size="small"
-						sx={{ width: { xs: "100%", sm: 90 } }}
+						sx={{ width: { xs: "100%", sm: 80 } }}
 						value={draft.ArmorClass}
 						onChange={(e) =>
 							setDraft((prev) => ({
@@ -272,7 +275,7 @@ export default function CharactersPage() {
 						label="To-Hit"
 						type="number"
 						size="small"
-						sx={{ width: { xs: "100%", sm: 90 } }}
+						sx={{ width: { xs: "100%", sm: 80 } }}
 						value={draft.ToHitModifier ?? 0}
 						onChange={(e) =>
 							setDraft((prev) => ({
@@ -285,7 +288,7 @@ export default function CharactersPage() {
 						label="Max HP"
 						type="number"
 						size="small"
-						sx={{ width: { xs: "100%", sm: 90 } }}
+						sx={{ width: { xs: "100%", sm: 80 } }}
 						value={draft.MaxHP}
 						onChange={(e) =>
 							setDraft((prev) => ({
@@ -299,11 +302,11 @@ export default function CharactersPage() {
 						onClick={handleCreate}
 						sx={{ flexShrink: 0 }}
 					>
-						New Character
+						New character
 					</Button>
 				</Stack>
 			</Paper>
-			<Paper sx={{ p: 1 }}>
+			<Paper variant="outlined" sx={{ overflowX: "auto" }}>
 				<Table size="small">
 					<TableHead>
 						<TableRow>
@@ -312,44 +315,22 @@ export default function CharactersPage() {
 							<TableCell>To-Hit</TableCell>
 							<TableCell>Max HP</TableCell>
 							<TableCell>Type</TableCell>
-							<TableCell align="right">Actions</TableCell>
+							<TableCell align="right" />
 						</TableRow>
 					</TableHead>
 					<TableBody>
-						{pcs.length > 0 && (
-							<TableRow>
-								<TableCell
-									colSpan={6}
-									style={{
-										background: "#e3f2fd",
-										fontWeight: 700,
-									}}
-								>
-									Player Characters (PCs)
-								</TableCell>
-							</TableRow>
-						)}
+						{pcs.length > 0 && groupRow("Player characters")}
 						{pcs.map(renderRow)}
-						{npcs.length > 0 && (
-							<TableRow>
-								<TableCell
-									colSpan={6}
-									style={{
-										background: "#fce4ec",
-										fontWeight: 700,
-									}}
-								>
-									Non-Player Characters (NPCs)
-								</TableCell>
-							</TableRow>
-						)}
+						{npcs.length > 0 && groupRow("NPCs")}
 						{npcs.map(renderRow)}
 					</TableBody>
 				</Table>
 				{!loading && characters.length === 0 && (
-					<Box p={2}>
-						<Typography color="text.secondary">
-							No characters yet. Create your first one above.
+					<Box sx={{ p: 4, textAlign: "center" }}>
+						<Typography fontWeight={600}>No characters yet</Typography>
+						<Typography variant="body2" color="text.secondary">
+							Add your party above; they'll be ready to drop into any
+							encounter.
 						</Typography>
 					</Box>
 				)}

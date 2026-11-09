@@ -108,7 +108,8 @@ func apiEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid encounter id")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	role, ok := resolveEncounterRole(w, r, encounterID)
+	if !ok {
 		return
 	}
 
@@ -117,58 +118,9 @@ func apiEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to load encounter log")
 		return
 	}
+	if role == roleMember {
+		entries = redactLedgerForPlayers(entries)
+	}
 
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "entries": entries})
-}
-
-func apiAddEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
-		return
-	}
-
-	var req struct {
-		EncounterID int    `json:"encounter_id"`
-		ActorID     int    `json:"actor_id"`
-		TargetID    int    `json:"target_id"`
-		ActionType  string `json:"action_type"`
-		HPChange    int    `json:"hp_change"`
-		Description string `json:"description"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
-		return
-	}
-	if req.EncounterID <= 0 {
-		writeJSONError(w, http.StatusBadRequest, "Invalid encounter id")
-		return
-	}
-	if req.ActorID <= 0 {
-		writeJSONError(w, http.StatusBadRequest, "Actor is required")
-		return
-	}
-	if !requireEncounterAccess(w, r, req.EncounterID) {
-		return
-	}
-	actionType := strings.TrimSpace(req.ActionType)
-	if actionType == "" {
-		actionType = "note"
-	}
-
-	entry, err := encounterLedgerDAO.Create(dao.EncounterLedgerInsert{
-		EncounterID: req.EncounterID,
-		ActorID:     req.ActorID,
-		TargetID:    req.TargetID,
-		ActionType:  actionType,
-		HPChange:    req.HPChange,
-		Description: strings.TrimSpace(req.Description),
-	})
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "Failed to add combat log entry")
-		return
-	}
-
-	events.publish(req.EncounterID, "ledger")
-	json.NewEncoder(w).Encode(map[string]any{"status": "success", "entry": entry})
 }

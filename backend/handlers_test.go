@@ -89,7 +89,6 @@ func TestHandlersRejectWrongMethod(t *testing.T) {
 		{"combat/next-turn", apiNextTurnHandler, http.MethodGet},
 		{"combat/set-active", apiSetActiveHandler, http.MethodGet},
 		{"ledger", apiEncounterLedgerHandler, http.MethodPost},
-		{"ledger/add", apiAddEncounterLedgerHandler, http.MethodGet},
 		{"events", apiEncounterEventsHandler, http.MethodPost},
 		{"npcs/templates", apiNpcTemplatesHandler, http.MethodPost},
 		{"npcs/templates/save", apiSaveNpcTemplateHandler, http.MethodGet},
@@ -134,7 +133,6 @@ func TestHandlersRejectInvalidJSON(t *testing.T) {
 		{"library/delete", apiDeleteLibraryCharacterHandler, "/characters/library/delete"},
 		{"combat/start", apiStartCombatHandler, "/encounters/combat/start"},
 		{"combat/set-active", apiSetActiveHandler, "/encounters/combat/set-active"},
-		{"ledger/add", apiAddEncounterLedgerHandler, "/encounters/ledger/add"},
 		{"npcs/save", apiSaveNpcTemplateHandler, "/npcs/templates/save"},
 		{"npcs/delete", apiDeleteNpcTemplateHandler, "/npcs/templates/delete"},
 		{"npcs/create-character", apiCreateCharacterFromTemplateHandler, "/npcs/templates/create-character"},
@@ -350,14 +348,56 @@ func TestSetActiveCharacterNotInEncounterIs404(t *testing.T) {
 	assertMet(t, m)
 }
 
+func TestSetReactionAllowsOwner(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectExec("UPDATE encounter_characters SET reaction_used").WithArgs(true, 1, 7).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	rr, req := postJSON("/encounters/combat/reaction", `{"encounter_id":1,"character_id":7,"reaction_used":true}`)
+	authed(req, "dm1")
+	apiSetReactionHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	var body struct {
+		Status       string `json:"status"`
+		ReactionUsed bool   `json:"reaction_used"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Status != "success" || !body.ReactionUsed {
+		t.Errorf("unexpected body: %+v", body)
+	}
+	assertMet(t, m)
+}
+
+func TestSetReactionCharacterNotInEncounterIs404(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectExec("UPDATE encounter_characters SET reaction_used").WithArgs(false, 1, 999).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	rr, req := postJSON("/encounters/combat/reaction", `{"encounter_id":1,"character_id":999,"reaction_used":false}`)
+	authed(req, "dm1")
+	apiSetReactionHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusNotFound)
+	assertMet(t, m)
+}
+
 func TestNextTurnAllowsOwner(t *testing.T) {
 	m, restore := newEncounterMock(t)
 	defer restore()
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
 	m.ExpectBegin()
-	m.ExpectQuery("SELECT character_id FROM encounter_characters").WithArgs(1).
-		WillReturnRows(sqlmock.NewRows([]string{"character_id"}).AddRow(5).AddRow(2).AddRow(8))
+	m.ExpectQuery("SELECT ec.character_id, c.type").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"character_id", "type", "current_hp"}).AddRow(5, "pc", 10).AddRow(2, "pc", 10).AddRow(8, "pc", 10))
 	m.ExpectQuery("AND is_active = TRUE").WithArgs(1).
 		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(5))
 	m.ExpectExec("UPDATE encounter_characters SET is_active = FALSE").WithArgs(1).
@@ -383,8 +423,12 @@ func TestResetCombatAllowsOwner(t *testing.T) {
 	defer restore()
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectBegin()
 	m.ExpectExec("UPDATE encounter_characters SET is_active = FALSE").WithArgs(1).
 		WillReturnResult(sqlmock.NewResult(0, 4))
+	m.ExpectExec("UPDATE encounters SET round = 0").WithArgs(1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectCommit()
 
 	rr, req := postJSON("/encounters/combat/setup", `{"encounter_id":1}`)
 	authed(req, "dm1")
@@ -392,6 +436,37 @@ func TestResetCombatAllowsOwner(t *testing.T) {
 
 	assertStatus(t, rr, http.StatusOK)
 	assertMet(t, m)
+}
+
+func TestCombatStateReturnsRound(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectQuery("SELECT round FROM encounters").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"round"}).AddRow(4))
+
+	rr, req := getReq("/encounters/combat/state?encounter_id=1")
+	authed(req, "dm1")
+	apiCombatStateHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	var body struct {
+		Round int `json:"round"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Round != 4 {
+		t.Errorf("round = %d, want 4", body.Round)
+	}
+	assertMet(t, m)
+}
+
+func TestCombatStateRejectsBadEncounterID(t *testing.T) {
+	rr, req := getReq("/encounters/combat/state?encounter_id=abc")
+	apiCombatStateHandler(rr, req)
+	assertStatus(t, rr, http.StatusBadRequest)
 }
 
 // --- Encounters CRUD --------------------------------------------------------
@@ -483,7 +558,7 @@ func TestAddCharacterAllowsOwner(t *testing.T) {
 	defer restore()
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
-	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5).
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5, false, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	rr, req := postJSON("/add-character-to-encounter", `{"encounter_id":1,"character_id":5}`)
@@ -499,7 +574,7 @@ func TestAddCharacterDuplicateConflict(t *testing.T) {
 	defer restore()
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
-	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5).
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5, false, nil).
 		WillReturnError(errString("duplicate key value violates unique constraint"))
 
 	rr, req := postJSON("/add-character-to-encounter", `{"encounter_id":1,"character_id":5}`)
@@ -601,8 +676,8 @@ func TestEncounterLedgerReadAllowsOwner(t *testing.T) {
 		WillReturnRows(encounterRow(1, "dm1"))
 	m.ExpectQuery("FROM encounter_ledger").WithArgs(1, 50).WillReturnRows(
 		sqlmock.NewRows([]string{
-			"id", "encounter_id", "actor_id", "actor_name", "target_id",
-			"target_name", "action_type", "hp_change", "description", "created_at",
+			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
+			"target_name", "action_type", "hp_change", "description", "created_at", "actor_hidden",
 		}),
 	)
 
@@ -614,33 +689,132 @@ func TestEncounterLedgerReadAllowsOwner(t *testing.T) {
 	assertMet(t, m)
 }
 
-func TestAddLedgerEntryAllowsOwner(t *testing.T) {
+// The combat log is written automatically as a side effect of combat actions.
+// Saving a character with reduced HP through an encounter records a damage entry
+// on the ledger (a heal entry when HP goes up).
+func TestSaveCharacterInEncounterLogsDamage(t *testing.T) {
 	m, restore := newFullMock(t)
 	defer restore()
+	// Owner access check.
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
-	m.ExpectQuery("INSERT INTO encounter_ledger").WillReturnRows(
-		sqlmock.NewRows([]string{
-			"id", "encounter_id", "actor_id", "actor_name", "target_id",
+	// Previous HP lookup for the delta.
+	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp", "death_save_successes", "death_save_failures",
+		}).AddRow(1, 5, 0, 12, false, false, 0, 0, 0))
+	// The character update itself.
+	m.ExpectQuery("UPDATE characters c SET").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	m.ExpectExec("INSERT INTO encounter_characters").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// The automatic damage entry: HP fell from 12 to 5 (delta -7).
+	m.ExpectQuery("INSERT INTO encounter_ledger").
+		WithArgs(1, 5, 0, "damage", -7, "").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
 			"target_name", "action_type", "hp_change", "description", "created_at",
-		}).AddRow(1, 1, 5, "Hero", 0, "", "attack", -3, "", "2026-07-18T00:00:00Z"),
-	)
+		}).AddRow(1, 1, 5, "Hero", "pc", 0, "", "damage", -7, "", "2026-07-18T00:00:00Z"))
 
-	rr, req := postJSON("/encounters/ledger/add", `{"encounter_id":1,"actor_id":5,"action_type":"attack","hp_change":-3}`)
+	rr, req := postJSON("/save-character",
+		`{"id":5,"name":"Hero","maxHP":12,"currentHP":5,"encounter_id":1}`)
 	authed(req, "dm1")
-	apiAddEncounterLedgerHandler(rr, req)
+	saveCharacterHandler(rr, req)
 
 	assertStatus(t, rr, http.StatusOK)
 	assertMet(t, m)
 }
 
-func TestAddLedgerEntryRejectsBadEncounterID(t *testing.T) {
-	rr, req := postJSON("/encounters/ledger/add", `{"encounter_id":0,"actor_id":5}`)
-	apiAddEncounterLedgerHandler(rr, req)
-	assertStatus(t, rr, http.StatusBadRequest)
+// --- NPC templates ----------------------------------------------------------
+
+func TestSaveCharacterInEncounterLogsDamageThroughTempHP(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	// Before: 12 HP + 5 temp.
+	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp", "death_save_successes", "death_save_failures",
+		}).AddRow(1, 5, 0, 12, false, false, 5, 0, 0))
+	m.ExpectQuery("UPDATE characters c SET").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	m.ExpectExec("INSERT INTO encounter_characters").
+		WithArgs(1, 5, 0, 10, false, 0, false, nil).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// After: 10 HP + 0 temp — a 7-point hit, 5 of it soaked by temp HP.
+	m.ExpectQuery("INSERT INTO encounter_ledger").
+		WithArgs(1, 5, 0, "damage", -7, "").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
+			"target_name", "action_type", "hp_change", "description", "created_at",
+		}).AddRow(1, 1, 5, "Hero", "pc", 0, "", "damage", -7, "", "2026-07-18T00:00:00Z"))
+
+	rr, req := postJSON("/save-character",
+		`{"id":5,"name":"Hero","maxHP":12,"currentHP":10,"tempHP":0,"encounter_id":1}`)
+	authed(req, "dm1")
+	saveCharacterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
 }
 
-// --- NPC templates ----------------------------------------------------------
+func TestSaveCharacterInEncounterGrantingTempHPIsNotLogged(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp", "death_save_successes", "death_save_failures",
+		}).AddRow(1, 5, 0, 12, false, false, 0, 0, 0))
+	m.ExpectQuery("UPDATE characters c SET").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	m.ExpectExec("INSERT INTO encounter_characters").
+		WithArgs(1, 5, 0, 12, false, 8, false, nil).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// No ledger insert expected.
+
+	rr, req := postJSON("/save-character",
+		`{"id":5,"name":"Hero","maxHP":12,"currentHP":12,"tempHP":8,"encounter_id":1}`)
+	authed(req, "dm1")
+	saveCharacterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestDeathSavesThirdFailureLogsDeath(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectQuery("FROM encounter_characters WHERE encounter_id").WithArgs(1, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"encounter_id", "character_id", "initiative", "current_hp", "is_active", "reaction_used", "temp_hp", "death_save_successes", "death_save_failures",
+		}).AddRow(1, 5, 0, 0, false, false, 0, 1, 2))
+	m.ExpectExec("UPDATE encounter_characters SET death_save_successes").WithArgs(1, 3, 1, 5).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectQuery("INSERT INTO encounter_ledger").
+		WithArgs(1, 5, 0, "dead", 0, "").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
+			"target_name", "action_type", "hp_change", "description", "created_at",
+		}).AddRow(1, 1, 5, "Hero", "pc", 0, "", "dead", 0, "", "2026-07-18T00:00:00Z"))
+
+	rr, req := postJSON("/encounters/combat/death-saves", `{"encounter_id":1,"character_id":5,"successes":1,"failures":3}`)
+	authed(req, "dm1")
+	apiSetDeathSavesHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestDeathSavesRejectsOutOfRange(t *testing.T) {
+	rr, req := postJSON("/encounters/combat/death-saves", `{"encounter_id":1,"character_id":5,"successes":4,"failures":0}`)
+	apiSetDeathSavesHandler(rr, req)
+	assertStatus(t, rr, http.StatusBadRequest)
+}
 
 func TestNpcTemplatesList(t *testing.T) {
 	m, restore := newFullMock(t)
@@ -708,17 +882,71 @@ func TestCreateCharacterFromTemplateAllowsOwner(t *testing.T) {
 	m.ExpectQuery("FROM npc_templates WHERE id").WithArgs(2).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id"}).
 			AddRow(2, "Goblin", "", "(8,14,10,10,8,8)", 13, 7, "dm1"))
-	// Owner is resolved from the encounter again inside the template flow.
-	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
-		WillReturnRows(encounterRow(1, "dm1"))
-	m.ExpectQuery("INSERT INTO characters").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(50))
-	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 50).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	prevRoll := dao.RollD20
+	dao.RollD20 = func() int { return 10 }
+	defer func() { dao.RollD20 = prevRoll }()
 
-	rr, req := postJSON("/npcs/templates/create-character", `{"npc_template_id":2,"encounter_id":1}`)
+	// Inside one transaction: resolve the owner, count existing copies (one
+	// Goblin already present), then create two numbered copies with initiative
+	// d20 (10) + DEX 14 modifier (+2) = 12.
+	m.ExpectBegin()
+	m.ExpectQuery("SELECT COALESCE\\(owner_id, ''\\) FROM encounters").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
+	m.ExpectQuery("SELECT COUNT").WithArgs(1, 2).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	m.ExpectQuery("INSERT INTO characters").
+		WithArgs("Goblin 2", 13, 0, 7, "dm1", "npc", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(50))
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 50, 12, 7, false, nil).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	m.ExpectQuery("INSERT INTO characters").
+		WithArgs("Goblin 3", 13, 0, 7, "dm1", "npc", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(51))
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 51, 12, 7, false, nil).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	m.ExpectCommit()
+
+	rr, req := postJSON("/npcs/templates/create-character", `{"npc_template_id":2,"encounter_id":1,"count":2}`)
 	authed(req, "dm1")
 	apiCreateCharacterFromTemplateHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestCreateCharacterFromTemplateRejectsBadCount(t *testing.T) {
+	for _, body := range []string{
+		`{"npc_template_id":2,"encounter_id":1,"count":-1}`,
+		`{"npc_template_id":2,"encounter_id":1,"count":21}`,
+	} {
+		rr, req := postJSON("/npcs/templates/create-character", body)
+		apiCreateCharacterFromTemplateHandler(rr, req)
+		assertStatus(t, rr, http.StatusBadRequest)
+	}
+}
+
+func TestRollNpcInitiativeAllowsOwner(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+	prevRoll := dao.RollD20
+	dao.RollD20 = func() int { return 15 }
+	defer func() { dao.RollD20 = prevRoll }()
+
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectBegin()
+	m.ExpectQuery("SELECT ec.character_id").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"character_id", "dex"}).AddRow(4, 14).AddRow(9, 8))
+	// 15 + 2 (DEX 14) and 15 - 1 (DEX 8).
+	m.ExpectExec("UPDATE encounter_characters SET initiative").WithArgs(17, 1, 4).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectExec("UPDATE encounter_characters SET initiative").WithArgs(14, 1, 9).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectCommit()
+
+	rr, req := postJSON("/encounters/combat/roll-npc-initiative", `{"encounter_id":1}`)
+	authed(req, "dm1")
+	apiRollNpcInitiativeHandler(rr, req)
 
 	assertStatus(t, rr, http.StatusOK)
 	assertMet(t, m)
@@ -1001,3 +1229,63 @@ func TestEncounterEventsRejectsBadEncounterID(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+// --- Hidden combatants -------------------------------------------------------
+
+func TestSetVisibilityHidesForOwner(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectBegin()
+	m.ExpectExec("UPDATE encounter_characters SET hidden = TRUE").WithArgs(2, 1, 5).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectCommit()
+
+	rr, req := postJSON("/encounters/combat/visibility", `{"encounter_id":1,"character_id":5,"reveal_round":2}`)
+	authed(req, "dm1")
+	apiSetVisibilityHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestSetVisibilityRejectsRoundZero(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+
+	rr, req := postJSON("/encounters/combat/visibility", `{"encounter_id":1,"character_id":5,"hidden":true,"reveal_round":0}`)
+	authed(req, "dm1")
+	apiSetVisibilityHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusBadRequest)
+	assertMet(t, m)
+}
+
+func TestSetVisibilityRejectsMember(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	expectMember(m, 1, "dm1", "player2")
+
+	rr, req := postJSON("/encounters/combat/visibility", `{"encounter_id":1,"character_id":5,"hidden":false}`)
+	authed(req, "player2")
+	apiSetVisibilityHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusForbidden)
+}
+
+func TestAddCharacterHiddenPassesStaging(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectExec("INSERT INTO encounter_characters").WithArgs(1, 5, true, 3).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	rr, req := postJSON("/add-character-to-encounter", `{"encounter_id":1,"character_id":5,"reveal_round":3}`)
+	authed(req, "dm1")
+	addCharacterToEncounterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}

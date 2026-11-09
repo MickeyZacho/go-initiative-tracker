@@ -3,18 +3,22 @@ import { useCallback, useEffect, useState } from "react";
 import {
 	Box,
 	Button,
+	Collapse,
+	IconButton,
 	MenuItem,
 	Paper,
 	Stack,
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableRow,
 	TextField,
+	Tooltip,
 	Typography,
 } from "@mui/material";
 import { apiGetArray, apiPost } from "../lib/http";
+import { useMe } from "../hooks/useMe";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import PersonAddAlt1OutlinedIcon from "@mui/icons-material/PersonAddAlt1Outlined";
+import { headingFont } from "../theme";
+import { InlineInput } from "./InlineInput";
 
 interface StatBlock {
 	Strength: number;
@@ -32,12 +36,30 @@ interface NpcTemplate {
 	BaseStats: StatBlock;
 	ArmorClass: number;
 	MaxHP: number;
+	OwnerID?: string;
 }
 
 interface EncounterOption {
 	ID: number;
 	Name: string;
 }
+
+const STAT_KEYS: (keyof StatBlock)[] = [
+	"Strength",
+	"Dexterity",
+	"Constitution",
+	"Intelligence",
+	"Wisdom",
+	"Charisma",
+];
+const STAT_ABBR: Record<keyof StatBlock, string> = {
+	Strength: "STR",
+	Dexterity: "DEX",
+	Constitution: "CON",
+	Intelligence: "INT",
+	Wisdom: "WIS",
+	Charisma: "CHA",
+};
 
 const emptyStatBlock: StatBlock = {
 	Strength: 10,
@@ -64,6 +86,7 @@ export default function NpcsPage() {
 	const [notice, setNotice] = useState("");
 	const [encounters, setEncounters] = useState<EncounterOption[]>([]);
 	const [targetEncounterId, setTargetEncounterId] = useState<number>(0);
+	const [showCreate, setShowCreate] = useState(false);
 
 	const loadNpcs = useCallback(async () => {
 		setError("");
@@ -81,7 +104,7 @@ export default function NpcsPage() {
 		try {
 			const data = await apiGetArray<EncounterOption>("/encounters");
 			setEncounters(data);
-			// Default the target to the first encounter so "Create Character"
+			// Default the target to the first encounter so "Add to encounter"
 			// works without an extra click when one exists.
 			setTargetEncounterId((current) =>
 				current > 0 ? current : (data[0]?.ID ?? 0),
@@ -147,16 +170,31 @@ export default function NpcsPage() {
 		}
 	};
 
-	const handleUpdate = async (npc: NpcTemplate) => {
+	// Edit a template field in place (local only); persisted on blur.
+	const updateNpcLocal = (id: number, patch: Partial<NpcTemplate>) => {
+		setNpcs((prev) =>
+			prev.map((n) => (n.ID === id ? { ...n, ...patch } : n)),
+		);
+	};
+
+	// Auto-save on blur, matching the Characters page. Reload only on failure,
+	// to put the server's values back.
+	const handleBlurSave = async (npc: NpcTemplate) => {
 		try {
 			await saveNpc(npc);
-			await loadNpcs();
 		} catch (err) {
 			setError(
 				err instanceof Error ? err.message : "Failed to update npc",
 			);
+			await loadNpcs();
 		}
 	};
+
+	// Shared (seed) templates and other users' templates are read-only; the
+	// backend only updates rows whose owner matches the caller.
+	const me = useMe();
+	const canEdit = (npc: NpcTemplate) =>
+		(npc.OwnerID ?? "") === (me.loggedIn ? me.discordID : "");
 
 	const handleDelete = async (id: number) => {
 		if (!window.confirm("Delete this npc template?")) {
@@ -176,192 +214,342 @@ export default function NpcsPage() {
 		}
 	};
 
+	const targetName =
+		encounters.find((e) => e.ID === targetEncounterId)?.Name ?? "";
+
 	return (
 		<Stack spacing={2}>
-			<Typography variant="h5" fontWeight={700}>
-				NPC Templates
-			</Typography>
+			<Stack
+				direction="row"
+				alignItems="center"
+				spacing={2}
+				useFlexGap
+				flexWrap="wrap"
+			>
+				<Typography variant="h5" sx={{ flexGrow: 1 }}>
+					NPC Templates
+				</Typography>
+				{/* Where the per-card "add" button sends a template. */}
+				<TextField
+					select
+					size="small"
+					label="Add to encounter"
+					value={encounters.length ? targetEncounterId : ""}
+					onChange={(e) => setTargetEncounterId(Number(e.target.value))}
+					disabled={encounters.length === 0}
+					sx={{ minWidth: 200 }}
+				>
+					{encounters.map((encounter) => (
+						<MenuItem key={encounter.ID} value={encounter.ID}>
+							{encounter.Name}
+						</MenuItem>
+					))}
+				</TextField>
+				<Button
+					variant={showCreate ? "outlined" : "contained"}
+					startIcon={<AddIcon />}
+					onClick={() => setShowCreate((v) => !v)}
+				>
+					New NPC
+				</Button>
+			</Stack>
 			{error && <Typography color="error">{error}</Typography>}
 			{notice && <Typography color="success.main">{notice}</Typography>}
-			<Paper sx={{ p: 2 }}>
-				<Box
-					sx={{
-						display: "grid",
-						gridTemplateColumns: {
-							xs: "repeat(2, 1fr)",
-							sm: "repeat(3, 1fr)",
-							md: "repeat(4, 1fr)",
-						},
-						gap: 2,
-						alignItems: "start",
-					}}
-				>
-					<TextField
-						label="Name"
-						size="small"
-						sx={{ gridColumn: { xs: "1 / -1", sm: "span 2" } }}
-						value={draft.Name}
-						onChange={(e) =>
-							setDraft((prev) => ({
-								...prev,
-								Name: e.target.value,
-							}))
-						}
-					/>
-					<TextField
-						label="Description"
-						size="small"
-						sx={{ gridColumn: { xs: "1 / -1", sm: "span 2" } }}
-						value={draft.Description}
-						onChange={(e) =>
-							setDraft((prev) => ({
-								...prev,
-								Description: e.target.value,
-							}))
-						}
-					/>
-					<TextField
-						label="Armor Class"
-						type="number"
-						value={draft.ArmorClass}
-						onChange={(e) =>
-							setDraft((prev) => ({
-								...prev,
-								ArmorClass: Number(e.target.value),
-							}))
-						}
-						size="small"
-					/>
-					<TextField
-						label="Max HP"
-						type="number"
-						value={draft.MaxHP}
-						onChange={(e) =>
-							setDraft((prev) => ({
-								...prev,
-								MaxHP: Number(e.target.value),
-							}))
-						}
-						size="small"
-					/>
-					{Object.entries(draft.BaseStats).map(([stat, value]) => (
+			{encounters.length === 0 && (
+				<Typography variant="body2" color="text.secondary">
+					Create an encounter first to add NPCs to it.
+				</Typography>
+			)}
+			<Collapse in={showCreate} unmountOnExit>
+				<Paper variant="outlined" sx={{ p: 2 }}>
+					<Box
+						sx={{
+							display: "grid",
+							gridTemplateColumns: {
+								xs: "repeat(2, 1fr)",
+								sm: "repeat(4, 1fr)",
+								md: "repeat(8, 1fr)",
+							},
+							gap: 2,
+							alignItems: "start",
+						}}
+					>
 						<TextField
-							key={stat}
-							label={stat.charAt(0).toUpperCase() + stat.slice(1)}
-							type="number"
-							value={value}
+							label="Name"
+							size="small"
+							autoFocus
+							sx={{ gridColumn: { xs: "1 / -1", sm: "span 2", md: "span 3" } }}
+							value={draft.Name}
+							onChange={(e) =>
+								setDraft((prev) => ({ ...prev, Name: e.target.value }))
+							}
+						/>
+						<TextField
+							label="Description"
+							size="small"
+							sx={{ gridColumn: { xs: "1 / -1", sm: "span 2", md: "span 3" } }}
+							value={draft.Description}
 							onChange={(e) =>
 								setDraft((prev) => ({
 									...prev,
-									BaseStats: {
-										...prev.BaseStats,
-										[stat]: Number(e.target.value),
-									},
+									Description: e.target.value,
 								}))
 							}
-							size="small"
 						/>
-					))}
-					<Button
-						variant="contained"
-						onClick={handleCreate}
-						sx={{ gridColumn: "1 / -1", justifySelf: "start" }}
-					>
-						New NPC
-					</Button>
-				</Box>
-			</Paper>
-			<Paper sx={{ p: 2 }}>
-				<Stack direction="row" spacing={2} alignItems="center">
-					<TextField
-						select
-						label="Add to encounter"
-						value={encounters.length ? targetEncounterId : ""}
-						onChange={(e) =>
-							setTargetEncounterId(Number(e.target.value))
-						}
-						disabled={encounters.length === 0}
-						helperText={
-							encounters.length === 0
-								? "Create an encounter first"
-								: "Target for “Create Character”"
-						}
-						sx={{ minWidth: 220 }}
-					>
-						{encounters.map((encounter) => (
-							<MenuItem key={encounter.ID} value={encounter.ID}>
-								{encounter.Name}
-							</MenuItem>
+						<TextField
+							label="AC"
+							type="number"
+							size="small"
+							value={draft.ArmorClass}
+							onChange={(e) =>
+								setDraft((prev) => ({
+									...prev,
+									ArmorClass: Number(e.target.value),
+								}))
+							}
+						/>
+						<TextField
+							label="Max HP"
+							type="number"
+							size="small"
+							value={draft.MaxHP}
+							onChange={(e) =>
+								setDraft((prev) => ({
+									...prev,
+									MaxHP: Number(e.target.value),
+								}))
+							}
+						/>
+						{STAT_KEYS.map((stat) => (
+							<TextField
+								key={stat}
+								label={STAT_ABBR[stat]}
+								type="number"
+								size="small"
+								value={draft.BaseStats[stat]}
+								onChange={(e) =>
+									setDraft((prev) => ({
+										...prev,
+										BaseStats: {
+											...prev.BaseStats,
+											[stat]: Number(e.target.value),
+										},
+									}))
+								}
+							/>
 						))}
-					</TextField>
-				</Stack>
-			</Paper>
-			<Paper sx={{ p: 1, overflowX: "auto" }}>
-				<Table size="small" sx={{ minWidth: 900 }}>
-					<TableHead>
-						<TableRow>
-							<TableCell>Name</TableCell>
-							<TableCell>Description</TableCell>
-							<TableCell>AC</TableCell>
-							<TableCell>Max HP</TableCell>
-							<TableCell>Strength</TableCell>
-							<TableCell>Dexterity</TableCell>
-							<TableCell>Constitution</TableCell>
-							<TableCell>Intelligence</TableCell>
-							<TableCell>Wisdom</TableCell>
-							<TableCell>Charisma</TableCell>
-							<TableCell align="right">Actions</TableCell>
-						</TableRow>
-					</TableHead>
-					<TableBody>
-						{npcs.map((npc) => (
-							<TableRow key={npc.ID}>
-								<TableCell>{npc.Name}</TableCell>
-								<TableCell>{npc.Description}</TableCell>
-								<TableCell>{npc.ArmorClass}</TableCell>
-								<TableCell>{npc.MaxHP}</TableCell>
-								<TableCell>{npc.BaseStats.Strength}</TableCell>
-								<TableCell>{npc.BaseStats.Dexterity}</TableCell>
-								<TableCell>
-									{npc.BaseStats.Constitution}
-								</TableCell>
-								<TableCell>
-									{npc.BaseStats.Intelligence}
-								</TableCell>
-								<TableCell>{npc.BaseStats.Wisdom}</TableCell>
-								<TableCell>{npc.BaseStats.Charisma}</TableCell>
-								<TableCell
-									align="right"
-									sx={{ whiteSpace: "nowrap" }}
+						<Stack
+							direction="row"
+							spacing={1}
+							sx={{ gridColumn: { xs: "1 / -1", md: "span 2" } }}
+						>
+							<Button variant="contained" onClick={handleCreate}>
+								Create
+							</Button>
+							<Button onClick={() => setShowCreate(false)}>Cancel</Button>
+						</Stack>
+					</Box>
+				</Paper>
+			</Collapse>
+			{/* Stat-block cards. Your own templates edit in place and save when a
+			    field loses focus; shared ones are read-only. */}
+			<Box
+				sx={{
+					display: "grid",
+					gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" },
+					gap: 1.5,
+				}}
+			>
+				{npcs.map((npc) => {
+					const editable = canEdit(npc);
+					const save = () => handleBlurSave(npc);
+					// A stat value: inline-editable for your templates, text otherwise.
+					const value = (
+						v: number,
+						label: string,
+						onChange: (v: number) => void,
+					) =>
+						editable ? (
+							<InlineInput
+								type="number"
+								value={v}
+								onChange={(e) => onChange(Number(e.target.value))}
+								onBlur={save}
+								inputProps={{
+									"aria-label": `${npc.Name} ${label}`,
+									style: { textAlign: "center" },
+								}}
+								sx={{ width: 56, fontWeight: 600 }}
+							/>
+						) : (
+							<Typography fontWeight={600} sx={{ py: 0.5 }}>
+								{v}
+							</Typography>
+						);
+					return (
+						<Paper
+							key={npc.ID}
+							variant="outlined"
+							sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1.5 }}
+						>
+							<Stack direction="row" alignItems="flex-start" spacing={1}>
+								<Box sx={{ flex: 1, minWidth: 0 }}>
+									{editable ? (
+										<>
+											<InlineInput
+												value={npc.Name}
+												onChange={(e) =>
+													updateNpcLocal(npc.ID, { Name: e.target.value })
+												}
+												onBlur={save}
+												inputProps={{ "aria-label": "Name" }}
+												fullWidth
+												sx={{
+													fontFamily: headingFont,
+													fontWeight: 700,
+													fontSize: "1.1rem",
+													color: "primary.main",
+												}}
+											/>
+											<InlineInput
+												value={npc.Description}
+												placeholder="Description"
+												onChange={(e) =>
+													updateNpcLocal(npc.ID, {
+														Description: e.target.value,
+													})
+												}
+												onBlur={save}
+												inputProps={{ "aria-label": "Description" }}
+												fullWidth
+												sx={{
+													fontSize: "0.875rem",
+													fontStyle: "italic",
+													color: "text.secondary",
+												}}
+											/>
+										</>
+									) : (
+										<Box sx={{ px: 0.75 }}>
+											<Typography
+												sx={{
+													fontFamily: headingFont,
+													fontWeight: 700,
+													fontSize: "1.1rem",
+													color: "primary.main",
+												}}
+											>
+												{npc.Name}
+											</Typography>
+											<Typography
+												variant="body2"
+												color="text.secondary"
+												sx={{ fontStyle: "italic" }}
+											>
+												{npc.Description || "Shared template"}
+											</Typography>
+										</Box>
+									)}
+								</Box>
+								<Tooltip
+									title={
+										targetName ? `Add to ${targetName}` : "Pick an encounter first"
+									}
 								>
-									<Button
-										size="small"
-										onClick={() => handleUpdate(npc)}
-									>
-										Update
-									</Button>
-									<Button
-										size="small"
-										color="error"
-										onClick={() => handleDelete(npc.ID)}
-									>
-										Delete
-									</Button>
-									<Button
-										size="small"
-										disabled={targetEncounterId <= 0}
-										onClick={() =>
-											createCharacterFromTemplate(npc)
-										}
-									>
-										Create Character
-									</Button>
-								</TableCell>
-							</TableRow>
-						))}
-					</TableBody>
-				</Table>
-			</Paper>
+									<span>
+										<IconButton
+											aria-label={`Add ${npc.Name} to ${targetName || "encounter"}`}
+											disabled={targetEncounterId <= 0}
+											onClick={() => createCharacterFromTemplate(npc)}
+											sx={{ color: "primary.main" }}
+										>
+											<PersonAddAlt1OutlinedIcon fontSize="small" />
+										</IconButton>
+									</span>
+								</Tooltip>
+								{editable && (
+									<Tooltip title="Delete template">
+										<IconButton
+											aria-label={`Delete ${npc.Name}`}
+											onClick={() => handleDelete(npc.ID)}
+											sx={{
+												color: "text.disabled",
+												"&:hover": { color: "error.main" },
+											}}
+										>
+											<DeleteOutlineIcon fontSize="small" />
+										</IconButton>
+									</Tooltip>
+								)}
+							</Stack>
+							{/* AC and HP on a ruled line, like a printed stat block. */}
+							<Stack
+								direction="row"
+								spacing={3}
+								alignItems="center"
+								sx={{
+									borderTop: 2,
+									borderBottom: 1,
+									borderColor: "divider",
+									py: 0.5,
+									px: 0.75,
+								}}
+							>
+								<Stack direction="row" alignItems="center" spacing={0.5}>
+									<Typography variant="caption" color="text.secondary" fontWeight={700}>
+										AC
+									</Typography>
+									{value(npc.ArmorClass, "AC", (n) =>
+										updateNpcLocal(npc.ID, { ArmorClass: n }),
+									)}
+								</Stack>
+								<Stack direction="row" alignItems="center" spacing={0.5}>
+									<Typography variant="caption" color="text.secondary" fontWeight={700}>
+										HP
+									</Typography>
+									{value(npc.MaxHP, "max HP", (n) =>
+										updateNpcLocal(npc.ID, { MaxHP: n }),
+									)}
+								</Stack>
+							</Stack>
+							{/* Ability scores with their modifiers. */}
+							<Box
+								sx={{
+									display: "grid",
+									gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+								}}
+							>
+								{STAT_KEYS.map((stat) => {
+									const score = npc.BaseStats[stat];
+									const mod = Math.floor((score - 10) / 2);
+									return (
+										<Box
+											key={stat}
+											sx={{
+												display: "flex",
+												flexDirection: "column",
+												alignItems: "center",
+											}}
+										>
+											<Typography variant="caption" color="text.secondary" fontWeight={700}>
+												{STAT_ABBR[stat]}
+											</Typography>
+											{value(score, STAT_ABBR[stat], (n) =>
+												updateNpcLocal(npc.ID, {
+													BaseStats: { ...npc.BaseStats, [stat]: n },
+												}),
+											)}
+											<Typography variant="caption" color="text.secondary">
+												{mod >= 0 ? `+${mod}` : mod}
+											</Typography>
+										</Box>
+									);
+								})}
+							</Box>
+						</Paper>
+					);
+				})}
+			</Box>
 		</Stack>
 	);
 }

@@ -1,22 +1,22 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
 	Avatar,
 	Box,
 	Button,
 	Chip,
 	Divider,
+	IconButton,
 	MenuItem,
 	Paper,
 	Select,
 	Stack,
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableRow,
 	TextField,
+	Tooltip,
 	Typography,
 } from "@mui/material";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import GroupAddOutlinedIcon from "@mui/icons-material/GroupAddOutlined";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { apiGetArray, apiPost } from "../lib/http";
 import { useMe } from "../hooks/useMe";
 import { useFriends } from "../hooks/useFriends";
@@ -156,264 +156,222 @@ export default function EncountersPage({
 
 	return (
 		<Stack spacing={2}>
-			<Typography variant="h5" fontWeight={700}>
-				Encounters
-			</Typography>
+			<Typography variant="h5">Encounters</Typography>
 			{error && <Typography color="error">{error}</Typography>}
-			<Paper sx={{ p: 2 }}>
+			<Paper variant="outlined" sx={{ p: 2 }}>
 				<Stack
-					direction="row"
+					direction={{ xs: "column", sm: "row" }}
 					spacing={2}
-					alignItems="center"
-					flexWrap="wrap"
+					alignItems={{ xs: "stretch", sm: "center" }}
 				>
 					<TextField
-						label="Encounter Name"
+						label="Encounter name"
+						size="small"
 						value={name}
 						onChange={(e) => setName(e.target.value)}
+						sx={{ flex: 1 }}
 					/>
 					<TextField
 						label="Description"
+						size="small"
 						value={description}
 						onChange={(e) => setDescription(e.target.value)}
+						sx={{ flex: 2 }}
 					/>
-					<Button variant="contained" onClick={handleCreate}>
-						New Encounter
+					<Button
+						variant="contained"
+						onClick={handleCreate}
+						sx={{ flexShrink: 0 }}
+					>
+						New encounter
 					</Button>
 				</Stack>
 			</Paper>
-			<Paper sx={{ p: 1 }}>
-				<Table size="small">
-					<TableHead>
-						<TableRow>
-							<TableCell>Name</TableCell>
-							<TableCell>Description</TableCell>
-							<TableCell align="right">Actions</TableCell>
-						</TableRow>
-					</TableHead>
-					<TableBody>
-						{encounters.map((encounter) => {
-							const isOwner =
-								me.loggedIn &&
-								encounter.OwnerID === me.discordID;
-							return (
-								<Fragment key={encounter.ID}>
-									<TableRow>
-										<TableCell>
+			<Stack spacing={1}>
+				{encounters.map((encounter) => {
+					const isOwner =
+						me.loggedIn && encounter.OwnerID === me.discordID;
+					return (
+						<Paper
+							key={encounter.ID}
+							variant="outlined"
+							sx={{
+								p: 2,
+								borderLeftWidth: 4,
+								borderLeftColor: "primary.main",
+							}}
+						>
+							<Stack
+								direction="row"
+								spacing={2}
+								alignItems="center"
+							>
+								<Box sx={{ flex: 1, minWidth: 0 }}>
+									<Stack
+										direction="row"
+										spacing={1}
+										alignItems="center"
+									>
+										<Typography fontWeight={700} noWrap>
 											{encounter.Name}
-											{!isOwner && me.loggedIn && (
-												<Chip
-													label="Shared with you"
-													size="small"
-													sx={{ ml: 1 }}
-												/>
-											)}
-										</TableCell>
-										<TableCell>
+										</Typography>
+										{!isOwner && me.loggedIn && (
+											<Chip label="Shared with you" size="small" />
+										)}
+									</Stack>
+									{encounter.Description && (
+										<Typography
+											variant="body2"
+											color="text.secondary"
+											sx={{ mt: 0.25 }}
+										>
 											{encounter.Description}
-										</TableCell>
-										<TableCell align="right">
-											<Stack
-												direction="row"
-												spacing={1}
-												justifyContent="flex-end"
-											>
-												<Button
-													size="small"
-													variant="contained"
-													onClick={() =>
-														onOpenEncounter(
-															encounter.ID,
-														)
-													}
+										</Typography>
+									)}
+								</Box>
+								{isOwner && (
+									<Tooltip title="Share with friends">
+										<IconButton
+											aria-label={`Share ${encounter.Name}`}
+											aria-pressed={sharingId === encounter.ID}
+											onClick={() => toggleSharing(encounter.ID)}
+											sx={{
+												color:
+													sharingId === encounter.ID
+														? "primary.main"
+														: "text.secondary",
+											}}
+										>
+											<GroupAddOutlinedIcon fontSize="small" />
+										</IconButton>
+									</Tooltip>
+								)}
+								{isOwner && (
+									<Tooltip title="Delete encounter">
+										<IconButton
+											aria-label={`Delete ${encounter.Name}`}
+											onClick={() => handleDelete(encounter.ID)}
+											sx={{
+												color: "text.disabled",
+												"&:hover": { color: "error.main" },
+											}}
+										>
+											<DeleteOutlineIcon fontSize="small" />
+										</IconButton>
+									</Tooltip>
+								)}
+								<Button
+									variant="contained"
+									startIcon={<PlayArrowIcon />}
+									onClick={() => onOpenEncounter(encounter.ID)}
+									sx={{ flexShrink: 0 }}
+								>
+									Open
+								</Button>
+							</Stack>
+							{sharingId === encounter.ID && (
+								<Box
+									sx={{
+										mt: 2,
+										pt: 2,
+										borderTop: 1,
+										borderColor: "divider",
+									}}
+								>
+									<Typography
+										variant="overline"
+										color="text.secondary"
+										component="div"
+									>
+										Shared with
+									</Typography>
+									{membersError && (
+										<Typography color="error">{membersError}</Typography>
+									)}
+									<Stack
+										spacing={1}
+										divider={<Divider flexItem />}
+										mb={2}
+									>
+										{members.length === 0 ? (
+											<Typography variant="body2" color="text.secondary">
+												Not shared with anyone yet.
+											</Typography>
+										) : (
+											members.map((m) => (
+												<Stack
+													key={m.discord_id}
+													direction="row"
+													spacing={2}
+													alignItems="center"
 												>
-													Open
-												</Button>
-												{isOwner && (
-													<Button
-														size="small"
-														variant="outlined"
-														onClick={() =>
-															toggleSharing(
-																encounter.ID,
-															)
+													<Avatar
+														src={
+															discordAvatarUrl(m.discord_id, m.avatar) ??
+															undefined
 														}
+														sx={{ width: 28, height: 28 }}
 													>
-														Share
-													</Button>
-												)}
-												{isOwner && (
+														{m.username.charAt(0).toUpperCase()}
+													</Avatar>
+													<Typography flexGrow={1}>{m.username}</Typography>
 													<Button
 														size="small"
 														color="error"
-														variant="outlined"
-														onClick={() =>
-															handleDelete(
-																encounter.ID,
-															)
-														}
+														onClick={() => handleRemoveMember(m.discord_id)}
 													>
-														Delete
+														Remove
 													</Button>
-												)}
-											</Stack>
-										</TableCell>
-									</TableRow>
-									{sharingId === encounter.ID && (
-										<TableRow>
-											<TableCell colSpan={3}>
-												<Box sx={{ p: 1 }}>
-													<Typography
-														variant="subtitle2"
-														fontWeight={700}
-														gutterBottom
-													>
-														Shared with
-													</Typography>
-													{membersError && (
-														<Typography color="error">
-															{membersError}
-														</Typography>
-													)}
-													<Stack
-														spacing={1}
-														divider={
-															<Divider flexItem />
-														}
-														mb={2}
-													>
-														{members.length ===
-														0 ? (
-															<Typography color="text.secondary">
-																Not shared with
-																anyone yet.
-															</Typography>
-														) : (
-															members.map((m) => (
-																<Stack
-																	key={
-																		m.discord_id
-																	}
-																	direction="row"
-																	spacing={2}
-																	alignItems="center"
-																>
-																	<Avatar
-																		src={
-																			discordAvatarUrl(
-																				m.discord_id,
-																				m.avatar,
-																			) ??
-																			undefined
-																		}
-																		sx={{
-																			width: 28,
-																			height: 28,
-																		}}
-																	>
-																		{m.username
-																			.charAt(
-																				0,
-																			)
-																			.toUpperCase()}
-																	</Avatar>
-																	<Typography
-																		flexGrow={
-																			1
-																		}
-																	>
-																		{
-																			m.username
-																		}
-																	</Typography>
-																	<Button
-																		size="small"
-																		color="error"
-																		variant="outlined"
-																		onClick={() =>
-																			handleRemoveMember(
-																				m.discord_id,
-																			)
-																		}
-																	>
-																		Remove
-																	</Button>
-																</Stack>
-															))
-														)}
-													</Stack>
-													<Stack
-														direction="row"
-														spacing={2}
-														alignItems="center"
-													>
-														<Select
-															size="small"
-															displayEmpty
-															value={
-																selectedFriend
-															}
-															onChange={(e) =>
-																setSelectedFriend(
-																	e.target
-																		.value,
-																)
-															}
-															sx={{ minWidth: 200 }}
-														>
-															<MenuItem value="">
-																{addableFriends.length ===
-																0
-																	? "No friends to add"
-																	: "Select a friend…"}
-															</MenuItem>
-															{addableFriends.map(
-																(f) => (
-																	<MenuItem
-																		key={
-																			f.discord_id
-																		}
-																		value={
-																			f.discord_id
-																		}
-																	>
-																		{
-																			f.username
-																		}
-																	</MenuItem>
-																),
-															)}
-														</Select>
-														<Button
-															variant="contained"
-															size="small"
-															disabled={
-																!selectedFriend
-															}
-															onClick={
-																handleAddMember
-															}
-														>
-															Add
-														</Button>
-													</Stack>
-												</Box>
-											</TableCell>
-										</TableRow>
-									)}
-								</Fragment>
-							);
-						})}
-					</TableBody>
-				</Table>
-				{!loading && encounters.length === 0 && (
-					<Box p={2}>
-						<Typography color="text.secondary">
-							No encounters yet. Create your first one above.
-						</Typography>
-					</Box>
-				)}
-			</Paper>
+												</Stack>
+											))
+										)}
+									</Stack>
+									<Stack direction="row" spacing={2} alignItems="center">
+										<Select
+											size="small"
+											displayEmpty
+											value={selectedFriend}
+											onChange={(e) => setSelectedFriend(e.target.value)}
+											sx={{ minWidth: 200 }}
+										>
+											<MenuItem value="">
+												{addableFriends.length === 0
+													? "No friends to add"
+													: "Select a friend…"}
+											</MenuItem>
+											{addableFriends.map((f) => (
+												<MenuItem key={f.discord_id} value={f.discord_id}>
+													{f.username}
+												</MenuItem>
+											))}
+										</Select>
+										<Button
+											variant="contained"
+											size="small"
+											disabled={!selectedFriend}
+											onClick={handleAddMember}
+										>
+											Add
+										</Button>
+									</Stack>
+								</Box>
+							)}
+						</Paper>
+					);
+				})}
+			</Stack>
+			{!loading && encounters.length === 0 && (
+				<Paper
+					variant="outlined"
+					sx={{ p: 4, textAlign: "center", borderStyle: "dashed" }}
+				>
+					<Typography fontWeight={600}>No encounters yet</Typography>
+					<Typography variant="body2" color="text.secondary">
+						Name one above, then open it to add combatants and roll
+						initiative.
+					</Typography>
+				</Paper>
+			)}
 		</Stack>
 	);
 }

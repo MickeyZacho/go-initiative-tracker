@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"regexp"
 	"strconv"
 )
@@ -39,7 +40,7 @@ type NpcTemplateDAO interface {
 	Create(template NpcTemplate) (int, error)
 	UpdateByOwner(template NpcTemplate, ownerID string) (bool, error)
 	DeleteByOwner(id int, ownerID string) (bool, error)
-	AddCharacterToEncounterFromTemplate(templateID int, encounterID int) (Character, error)
+	AddCharactersToEncounterFromTemplate(templateID, encounterID, count int, staging Staging) ([]Character, error)
 }
 
 type npcTemplateDAOImpl struct {
@@ -153,39 +154,92 @@ func (dao *npcTemplateDAOImpl) DeleteByOwner(id int, ownerID string) (bool, erro
 	return rows > 0, err
 }
 
-func (dao *npcTemplateDAOImpl) AddCharacterToEncounterFromTemplate(templateID int, encounterID int) (Character, error) {
+// RollD20 is the die used for NPC initiative. A package variable so tests can
+// make rolls deterministic.
+var RollD20 = func() int { return rand.IntN(20) + 1 }
+
+// AbilityModifier is the 5e ability modifier for a score: floor((score-10)/2).
+func AbilityModifier(score int) int {
+	d := score - 10
+	if d < 0 {
+		return -((-d + 1) / 2)
+	}
+	return d / 2
+}
+
+// MaxTemplateCopies caps how many creatures one "add NPC" call may create.
+const MaxTemplateCopies = 20
+
+// AddCharactersToEncounterFromTemplate creates count creatures from a template
+// and drops them into the encounter, in one transaction. Each copy:
+//   - is owned by the encounter's owner (the DM), like any template NPC;
+//   - is numbered after any copies of the same template already in the
+//     encounter ("Goblin 3", "Goblin 4") so a pack is distinguishable; a lone
+//     first copy keeps the plain template name;
+//   - starts at full HP with initiative rolled as d20 + DEX modifier.
+func (dao *npcTemplateDAOImpl) AddCharactersToEncounterFromTemplate(templateID, encounterID, count int, staging Staging) ([]Character, error) {
+	if count < 1 || count > MaxTemplateCopies {
+		return nil, fmt.Errorf("count must be between 1 and %d", MaxTemplateCopies)
+	}
 	t, err := dao.GetByID(templateID)
 	if err != nil {
-		return Character{}, err
-	}
-	encounterDAO := NewEncounterDAO(dao.db)
-	encounter, err := encounterDAO.GetByID(encounterID)
-	if err != nil {
-		return Character{}, err
-	}
-	character := Character{
-		Name:          t.Name,
-		ArmorClass:    t.ArmorClass,
-		ToHitModifier: 0,
-		MaxHP:         t.MaxHP,
-		CurrentHP:     t.MaxHP,
-		Initiative:    0,
-		OwnerID:       encounter.OwnerID,
-		Type:          "npc",
-		NpcTemplateID: &t.ID,
-		// Add other fields as needed
-	}
-	characterDAO := NewCharacterDAO(dao.db)
-	newID, err := characterDAO.CreateCharacter(character)
-	if err != nil {
-		return Character{}, err
-	}
-	character.ID = newID
-
-	err = encounterDAO.AddCharacterToEncounter(encounterID, newID)
-	if err != nil {
-		return Character{}, err
+		return nil, err
 	}
 
-	return character, nil
+	tx, err := dao.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var ownerID string
+	if err := tx.QueryRow("SELECT COALESCE(owner_id, '') FROM encounters WHERE id = $1", encounterID).Scan(&ownerID); err != nil {
+		return nil, err
+	}
+	var existing int
+	if err := tx.QueryRow(
+		"SELECT COUNT(*) FROM characters c JOIN encounter_characters ec ON ec.character_id = c.id WHERE ec.encounter_id = $1 AND c.npc_template_id = $2",
+		encounterID, templateID,
+	).Scan(&existing); err != nil {
+		return nil, err
+	}
+
+	dexMod := AbilityModifier(t.BaseStats.Dexterity)
+	created := make([]Character, 0, count)
+	for i := 1; i <= count; i++ {
+		name := t.Name
+		if existing > 0 || count > 1 {
+			name = fmt.Sprintf("%s %d", t.Name, existing+i)
+		}
+		c := Character{
+			Name:          name,
+			ArmorClass:    t.ArmorClass,
+			MaxHP:         t.MaxHP,
+			CurrentHP:     t.MaxHP,
+			Initiative:    RollD20() + dexMod,
+			OwnerID:       ownerID,
+			Type:          "npc",
+			NpcTemplateID: &t.ID,
+			Hidden:        staging.Hidden,
+			RevealRound:   staging.RevealRound,
+		}
+		if err := tx.QueryRow(
+			"INSERT INTO characters (name, armor_class, to_hit_modifier, max_hp, owner_id, type, npc_template_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+			c.Name, c.ArmorClass, c.ToHitModifier, c.MaxHP, c.OwnerID, c.Type, t.ID,
+		).Scan(&c.ID); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(
+			"INSERT INTO encounter_characters (encounter_id, character_id, initiative, current_hp, hidden, reveal_round) VALUES ($1, $2, $3, $4, $5, $6)",
+			encounterID, c.ID, c.Initiative, c.CurrentHP, staging.Hidden, staging.RevealRound,
+		); err != nil {
+			return nil, err
+		}
+		created = append(created, c)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return created, nil
 }

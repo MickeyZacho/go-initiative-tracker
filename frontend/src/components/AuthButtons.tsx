@@ -49,7 +49,12 @@ const AuthButtons: React.FC = () => {
 					window.location.href = "/api/login/discord";
 				}}
 			>
-				Login with Discord
+				<Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+					Log in with Discord
+				</Box>
+				<Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+					Log in
+				</Box>
 			</Button>
 		);
 	}

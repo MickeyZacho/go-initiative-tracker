@@ -73,6 +73,19 @@ func apiAddConditionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Record the condition on the combat log. The condition name (with its level,
+	// for leveled ones like Exhaustion) rides in the description so the log can
+	// render "X gained Exhaustion 3" without a second lookup.
+	conditionDesc := req.Condition
+	if req.Level != nil {
+		conditionDesc = fmt.Sprintf("%s %d", req.Condition, *req.Level)
+	}
+	logCombatEvent(dao.EncounterLedgerInsert{
+		EncounterID: req.EncounterID,
+		ActorID:     req.CharacterID,
+		ActionType:  "condition",
+		Description: conditionDesc,
+	})
 	events.publish(req.EncounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
