@@ -19,7 +19,8 @@ type EditableFieldName =
 	| "ArmorClass"
 	| "CurrentHP"
 	| "MaxHP"
-	| "Initiative";
+	| "Initiative"
+	| "ToHitModifier";
 
 interface CharacterRowProps {
 	character: Character;
@@ -37,6 +38,10 @@ interface CharacterRowProps {
 	) => void;
 	onRemoveCondition: (conditionID: number) => void;
 	onSetReaction: (characterID: number, used: boolean) => void;
+}
+
+function formatModifier(n: number): string {
+	return n >= 0 ? `+${n}` : String(n);
 }
 
 // Small caption above each stat, so the row reads like a stat line on any width.
@@ -260,9 +265,14 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		onGiveTurn(character.ID);
 	};
 
-	// Shared props for the click-to-edit fields.
-	const fieldProps = (field: EditableFieldName, current: string | number) => ({
-		value: editing.field === field ? editing.value : current,
+	// Shared props for the click-to-edit fields. `display` is how the value reads
+	// when not editing (e.g. "+3" for a modifier); editing uses the raw value.
+	const fieldProps = (
+		field: EditableFieldName,
+		current: string | number,
+		display: string | number = current,
+	) => ({
+		value: editing.field === field ? editing.value : display,
 		isEditing: editing.field === field,
 		onStartEdit: () => startEdit(field, current),
 		onChange: (v: string) => setEditing((ed) => ({ ...ed, value: v })),
@@ -383,6 +393,22 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 						type="number"
 						width={56}
 						ariaLabel={`${name} initiative`}
+					/>
+				</Box>
+
+				{/* To-hit modifier, so the DM can resolve an attack without leaving
+				    the combat screen. */}
+				<Box sx={{ textAlign: "center" }}>
+					<StatLabel>To-Hit</StatLabel>
+					<EditableField
+						{...fieldProps(
+							"ToHitModifier",
+							character.ToHitModifier ?? 0,
+							formatModifier(character.ToHitModifier ?? 0),
+						)}
+						type="number"
+						width={56}
+						ariaLabel={`${name} to-hit modifier`}
 					/>
 				</Box>
 
