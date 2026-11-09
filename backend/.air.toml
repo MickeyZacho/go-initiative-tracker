@@ -8,7 +8,7 @@ bin = "dndcharacters"
 cmd = "go build -o dndcharacters"
 
 # Include file extensions to watch
-include_ext = ["go", "html"]
+include_ext = ["go", "html", "sql"]
 
 # Exclude directories from watching
 exclude_dir = ["vendor", "tmp"]
