@@ -37,6 +37,9 @@ function CombatRoute() {
 function App() {
 	const navigate = useNavigate();
 	const location = useLocation();
+	// The combat table needs the room for its stat columns; the list pages read
+	// better at a narrower measure.
+	const maxWidth = location.pathname.startsWith("/combat") ? "lg" : "md";
 
 	return (
 		<Box
@@ -48,7 +51,7 @@ function App() {
 			}}
 		>
 			<AppBar position="sticky" color="default" elevation={1}>
-				<Container maxWidth="md" disableGutters>
+				<Container maxWidth="lg" disableGutters>
 					<Toolbar
 						disableGutters
 						sx={{
@@ -94,7 +97,7 @@ function App() {
 				</Container>
 			</AppBar>
 			<Container
-				maxWidth="md"
+				maxWidth={maxWidth}
 				sx={{
 					py: 4,
 					px: { xs: 2, sm: 3 },

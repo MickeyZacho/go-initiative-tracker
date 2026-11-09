@@ -1,4 +1,6 @@
 import { Box, Button, Paper, Stack, Typography } from "@mui/material";
+import CasinoIcon from "@mui/icons-material/Casino";
+import SkipNextIcon from "@mui/icons-material/SkipNext";
 
 export interface CombatBarProps {
 	round: number;
@@ -80,8 +82,9 @@ export function CombatBar({
 							onClick={onNext}
 							disabled={busy || !hasCombatants}
 							title="Next turn (Space)"
+							endIcon={<SkipNextIcon />}
 						>
-							Next turn ▶
+							Next turn
 						</Button>
 					</>
 				) : !canControl ? (
@@ -96,9 +99,10 @@ export function CombatBar({
 							<Button
 								size="small"
 								onClick={onRollNpcInitiative}
+								startIcon={<CasinoIcon />}
 								disabled={busy}
 							>
-								🎲 Roll NPC initiative
+								Roll NPC initiative
 							</Button>
 						)}
 						<Button

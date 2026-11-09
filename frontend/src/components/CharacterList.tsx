@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { CharacterRow } from "./CharacterRow";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import { CharacterRow, ROW_COLUMNS, ROW_HEADERS } from "./CharacterRow";
 import {
-	Card,
-	CardContent,
 	Typography,
 	Box,
 	Select,
@@ -595,218 +594,239 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	}, [nextCharacter]);
 
 	return (
-		<Box display="flex" justifyContent="center" alignItems="center">
-			<Card
-				sx={{
-					width: "100%",
-					// Card defaults to overflow:hidden, which would stop the combat
-					// bar from sticking to the viewport.
-					overflow: "visible",
-					borderRadius: 3,
-					boxShadow: 3,
-					p: { xs: 1, sm: 3 },
-				}}
+		<Stack spacing={2}>
+			{/* Header line: which encounter, and the DM's player-preview
+			    switch, on one compact row. */}
+			<Stack
+				direction="row"
+				alignItems="center"
+				spacing={2}
+				useFlexGap
+				flexWrap="wrap"
 			>
-				<CardContent>
-					<Stack spacing={3}>
-						{/* Encounter Switcher */}
-						<FormControl
-							variant="outlined"
-							sx={{ minWidth: 220 }}
-						>
-							<InputLabel id="encounter-label">
-								Encounter
-							</InputLabel>
-							<Select
-								labelId="encounter-label"
-								value={String(encounterId)}
-								label="Encounter"
-								onChange={handleEncounterChange}
-								sx={{ fontWeight: 500, color: "primary.main" }}
-							>
-								{encounters.map((enc) => (
-									<MenuItem
-										key={enc.ID}
-										value={String(enc.ID)}
-									>
-										{enc.Name}
-									</MenuItem>
-								))}
-							</Select>
-						</FormControl>
-
-						{isOwner && encounterId > 0 && (
-							<FormControlLabel
-								control={
-									<Switch
-										checked={previewAsPlayer}
-										onChange={(e) => setPreviewAsPlayer(e.target.checked)}
-									/>
-								}
-								label="Preview as player"
-								title="See the encounter the way your players do: NPC AC, HP and to-hit hidden"
+				<FormControl size="small" sx={{ minWidth: 220, flex: "0 1 320px" }}>
+					<InputLabel id="encounter-label">Encounter</InputLabel>
+					<Select
+						labelId="encounter-label"
+						value={String(encounterId)}
+						label="Encounter"
+						onChange={handleEncounterChange}
+						sx={{ fontWeight: 600 }}
+					>
+						{encounters.map((enc) => (
+							<MenuItem key={enc.ID} value={String(enc.ID)}>
+								{enc.Name}
+							</MenuItem>
+						))}
+					</Select>
+				</FormControl>
+				{isOwner && encounterId > 0 && (
+					<FormControlLabel
+						sx={{ ml: "auto", mr: 0 }}
+						control={
+							<Switch
+								size="small"
+								checked={previewAsPlayer}
+								onChange={(e) => setPreviewAsPlayer(e.target.checked)}
 							/>
-						)}
-						{!isOwner && (
+						}
+						label={
 							<Typography variant="body2" color="text.secondary">
-								Player view — the DM runs this encounter. You can update your
-								characters and end your turn.
+								Preview as player
 							</Typography>
-						)}
-						{composedError && (
-							<Typography color="error">
-								{composedError}
-							</Typography>
-						)}
-						{actionError && (
-							<Typography color="error">{actionError}</Typography>
-						)}
+						}
+						title="See the encounter the way your players do: NPC AC, HP and to-hit hidden"
+					/>
+				)}
+			</Stack>
+			{!isOwner && (
+				<Typography variant="body2" color="text.secondary">
+					Player view — the DM runs this encounter. You can update your
+					characters and end your turn.
+				</Typography>
+			)}
+			{composedError && (
+				<Typography color="error">
+					{composedError}
+				</Typography>
+			)}
+			{actionError && (
+				<Typography color="error">{actionError}</Typography>
+			)}
+			{/* Column header for the rows. Hidden on phones, where each row
+			    carries its own labels; padding mirrors CharacterRow's. */}
+			{visibleCharacters.length > 0 && (
+				<Box
+					aria-hidden
+					sx={{
+						display: { xs: "none", sm: "grid" },
+						gridTemplateColumns: ROW_COLUMNS,
+						columnGap: 1,
+						pl: "20px",
+						pr: "17px",
+						mb: "-8px !important",
+					}}
+				>
+					{ROW_HEADERS.map((h, i) => (
 						<Typography
-							variant="h4"
-							color="primary"
-							fontWeight={700}
-							letterSpacing={1}
-						>
-							Characters
-						</Typography>
-						{/* Character Rows */}
-						<Stack spacing={2}>
-							{/* Same order as the backend's turn logic (initiative DESC,
-							    character_id ASC) so ties display in the order they act. */}
-							{[...visibleCharacters]
-								.sort((a, b) => b.Initiative - a.Initiative || a.ID - b.ID)
-								.map((character) => (
-									<div key={character.ID} style={{ width: "100%" }}>
-										<CharacterRow
-											character={character}
-											setCharacters={setCharacters}
-											onGiveTurn={setActiveCharacter}
-											onSave={saveCharacter}
-											onRemove={() => removeCharacter(character)}
-											conditionCatalog={conditionCatalog}
-											onAddCondition={addCondition}
-											onRemoveCondition={removeCondition}
-											onSetReaction={setReaction}
-											playerView={playerView}
-											onSetDeathSaves={setDeathSaves}
-										/>
-									</div>
-								))}
-						</Stack>
-						{encounterId > 0 && (
-							<CombatBar
-								round={round}
-								activeName={activeCharacter?.Name ?? null}
-								hasCombatants={characters.length > 0}
-								busy={combatBusy}
-								onStart={startCombat}
-								onNext={nextCharacter}
-								onReset={endCombat}
-								canControl={!playerView}
-								hasNpcs={characters.some((c) => c.Type === "npc")}
-								onRollNpcInitiative={rollNpcInitiative}
-							/>
-						)}
-						{!playerView && (
-							<>
-								{/* Add existing characters / NPCs — tucked behind a single
-								    unobtrusive toggle so it doesn't dominate the view. */}
-								<Box>
-									<Button
-										size="small"
-										variant="text"
-										onClick={() => setShowAddControls((prev) => !prev)}
-										sx={{ textTransform: "none" }}
-									>
-										{showAddControls ? "▾" : "▸"} Add characters & NPCs
-									</Button>
-									<Collapse in={showAddControls}>
-										<Stack spacing={2} mt={1}>
-											<Stack
-												direction="row"
-												spacing={2}
-												alignItems="center"
-												flexWrap="wrap"
-												useFlexGap
-											>
-												<AddCharacterControl
-													availableLibraryCharacters={availableLibraryCharacters}
-													selectedAddCharacterId={selectedAddCharacterId}
-													setSelectedAddCharacterId={setSelectedAddCharacterId}
-													addExistingCharacterToEncounter={addExistingCharacterToEncounter}
-													encounterId={encounterId}
-												/>
-											</Stack>
-											<Stack
-												direction="row"
-												spacing={2}
-												alignItems="center"
-												flexWrap="wrap"
-												useFlexGap
-											>
-												<AddNpcControl
-													npcTemplates={npcTemplates}
-													selectedAddNpcId={selectedAddNpcId}
-													setSelectedAddNpcId={setSelectedAddNpcId}
-													addNpcToEncounter={addNpcToEncounter}
-													encounterId={encounterId}
-												/>
-											</Stack>
-											<Box>
-												<Typography
-													variant="subtitle2"
-													color="text.secondary"
-													gutterBottom
-												>
-													Add Custom Character
-												</Typography>
-												<AddCustomCharacterControl
-													addCustomCharacterToEncounter={
-														addCustomCharacterToEncounter
-													}
-													encounterId={encounterId}
-												/>
-											</Box>
-										</Stack>
-									</Collapse>
-								</Box>
-							</>
-						)}
-						{isLoading && characters.length === 0 && (
-							<Typography color="text.secondary">
-								Loading...
-							</Typography>
-						)}
-						<Accordion
-							disableGutters
-							elevation={0}
-							slotProps={{ transition: { unmountOnExit: true } }}
+							key={i}
+							variant="caption"
+							color="text.secondary"
 							sx={{
-								border: 1,
-								borderColor: "divider",
-								borderRadius: 2,
-								"&:before": { display: "none" },
+								fontWeight: 600,
+								textTransform: "uppercase",
+								letterSpacing: "0.06em",
+								textAlign: i === 0 ? "left" : "center",
+								pl: i === 0 ? 0.75 : 0,
 							}}
 						>
-							<AccordionSummary expandIcon={<span>▾</span>}>
-								<Typography fontWeight={600}>
-									Combat Log
-									{ledgerEntries.length > 0
-										? ` (${ledgerEntries.length})`
-										: ""}
-								</Typography>
-							</AccordionSummary>
-							<AccordionDetails>
-								<CombatLog
-									ledgerEntries={ledgerEntries}
-									formatLogTime={formatLogTime}
-									characterNameByID={characterNameByID}
+							{h}
+						</Typography>
+					))}
+				</Box>
+			)}
+			{/* Character Rows */}
+			<Stack spacing={1}>
+				{/* Same order as the backend's turn logic (initiative DESC,
+				    character_id ASC) so ties display in the order they act. */}
+				{[...visibleCharacters]
+					.sort((a, b) => b.Initiative - a.Initiative || a.ID - b.ID)
+					.map((character) => (
+						<div key={character.ID} style={{ width: "100%" }}>
+							<CharacterRow
+								character={character}
+								setCharacters={setCharacters}
+								onGiveTurn={setActiveCharacter}
+								onSave={saveCharacter}
+								onRemove={() => removeCharacter(character)}
+								conditionCatalog={conditionCatalog}
+								onAddCondition={addCondition}
+								onRemoveCondition={removeCondition}
+								onSetReaction={setReaction}
+								playerView={playerView}
+								onSetDeathSaves={setDeathSaves}
+							/>
+						</div>
+					))}
+			</Stack>
+			{encounterId > 0 && (
+				<CombatBar
+					round={round}
+					activeName={activeCharacter?.Name ?? null}
+					hasCombatants={characters.length > 0}
+					busy={combatBusy}
+					onStart={startCombat}
+					onNext={nextCharacter}
+					onReset={endCombat}
+					canControl={!playerView}
+					hasNpcs={characters.some((c) => c.Type === "npc")}
+					onRollNpcInitiative={rollNpcInitiative}
+				/>
+			)}
+			{!playerView && (
+				<>
+					{/* Add existing characters / NPCs — tucked behind a single
+					    unobtrusive toggle so it doesn't dominate the view. */}
+					<Box>
+						<Button
+							size="small"
+							variant="text"
+							onClick={() => setShowAddControls((prev) => !prev)}
+							startIcon={
+								<ExpandMoreIcon
+									sx={{
+										transform: showAddControls ? "none" : "rotate(-90deg)",
+										transition: "transform 0.2s",
+									}}
 								/>
-							</AccordionDetails>
-						</Accordion>
-					</Stack>
-				</CardContent>
-			</Card>
-		</Box>
+							}
+						>
+							Add characters & NPCs
+						</Button>
+						<Collapse in={showAddControls}>
+							<Stack spacing={2} mt={1}>
+								<Stack
+									direction="row"
+									spacing={2}
+									alignItems="center"
+									flexWrap="wrap"
+									useFlexGap
+								>
+									<AddCharacterControl
+										availableLibraryCharacters={availableLibraryCharacters}
+										selectedAddCharacterId={selectedAddCharacterId}
+										setSelectedAddCharacterId={setSelectedAddCharacterId}
+										addExistingCharacterToEncounter={addExistingCharacterToEncounter}
+										encounterId={encounterId}
+									/>
+								</Stack>
+								<Stack
+									direction="row"
+									spacing={2}
+									alignItems="center"
+									flexWrap="wrap"
+									useFlexGap
+								>
+									<AddNpcControl
+										npcTemplates={npcTemplates}
+										selectedAddNpcId={selectedAddNpcId}
+										setSelectedAddNpcId={setSelectedAddNpcId}
+										addNpcToEncounter={addNpcToEncounter}
+										encounterId={encounterId}
+									/>
+								</Stack>
+								<Box>
+									<Typography
+										variant="subtitle2"
+										color="text.secondary"
+										gutterBottom
+									>
+										Add Custom Character
+									</Typography>
+									<AddCustomCharacterControl
+										addCustomCharacterToEncounter={
+											addCustomCharacterToEncounter
+										}
+										encounterId={encounterId}
+									/>
+								</Box>
+							</Stack>
+						</Collapse>
+					</Box>
+				</>
+			)}
+			{isLoading && characters.length === 0 && (
+				<Typography color="text.secondary">
+					Loading...
+				</Typography>
+			)}
+			<Accordion
+				disableGutters
+				elevation={0}
+				slotProps={{ transition: { unmountOnExit: true } }}
+				sx={{
+					border: 1,
+					borderColor: "divider",
+					borderRadius: 2,
+					"&:before": { display: "none" },
+				}}
+			>
+				<AccordionSummary expandIcon={<ExpandMoreIcon />}>
+					<Typography fontWeight={600}>
+						Combat Log
+						{ledgerEntries.length > 0
+							? ` (${ledgerEntries.length})`
+							: ""}
+					</Typography>
+				</AccordionSummary>
+				<AccordionDetails>
+					<CombatLog
+						ledgerEntries={ledgerEntries}
+						formatLogTime={formatLogTime}
+						characterNameByID={characterNameByID}
+					/>
+				</AccordionDetails>
+			</Accordion>
+		</Stack>
 	);
 };

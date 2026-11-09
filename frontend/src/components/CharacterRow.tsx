@@ -11,6 +11,10 @@ import {
 	Tooltip,
 	Typography,
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import BoltIcon from "@mui/icons-material/Bolt";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import type { Character, ConditionInfo } from "./CharacterList";
 import { tint } from "../theme";
 import { applyHpInput } from "../lib/hp";
@@ -66,17 +70,70 @@ function formatModifier(n: number): string {
 	return n >= 0 ? `+${n}` : String(n);
 }
 
-// Small caption above each stat, so the row reads like a stat line on any width.
+// Columns shared by every row and the list header (CharacterList), so from
+// `sm` up the stats line up as a table with a single header instead of a
+// caption above every value. Below `sm` the row wraps and shows StatLabels.
+export const ROW_COLUMNS =
+	"minmax(140px, 1fr) 52px 116px 52px 52px 60px 92px 108px";
+export const ROW_HEADERS = [
+	"Name",
+	"AC",
+	"HP",
+	"Temp",
+	"Init",
+	"To-Hit",
+	"Reaction",
+	"",
+] as const;
+
+// Per-row caption, shown only on narrow screens where there's no header row.
 function StatLabel({ children }: { children: React.ReactNode }) {
 	return (
 		<Typography
 			component="div"
 			variant="caption"
-			color="primary"
-			sx={{ fontWeight: 600, lineHeight: 1.2, mb: 0.25 }}
+			color="text.secondary"
+			sx={{
+				display: { xs: "block", sm: "none" },
+				fontWeight: 600,
+				lineHeight: 1.2,
+				mb: 0.25,
+			}}
 		>
 			{children}
 		</Typography>
+	);
+}
+
+// Thin bar under the HP numbers: the state of the fight at a glance. Thresholds
+// follow the table's "bloodied" convention (half HP).
+function HpBar({ current, max }: { current: number; max: number }) {
+	const ratio = max > 0 ? Math.max(0, Math.min(1, current / max)) : 0;
+	const color =
+		ratio > 0.5 ? "success.main" : ratio > 0.25 ? "warning.main" : "error.main";
+	return (
+		<Box
+			aria-hidden
+			sx={{
+				mt: 0.5,
+				mx: "auto",
+				width: "100%",
+				maxWidth: 104,
+				height: 4,
+				borderRadius: 2,
+				bgcolor: "action.selected",
+				overflow: "hidden",
+			}}
+		>
+			<Box
+				sx={{
+					height: "100%",
+					width: `${ratio * 100}%`,
+					bgcolor: color,
+					transition: "width 0.3s, background-color 0.3s",
+				}}
+			/>
+		</Box>
 	);
 }
 
@@ -160,8 +217,12 @@ const EditableField: React.FC<{
 				maxWidth: width + 40,
 				px: 0.75,
 				borderRadius: 1,
-				borderBottom: "1px dashed",
-				borderColor: "primary.main",
+				// The editable hint only appears while hovering the row, so a table
+				// of numbers doesn't read as a wall of underlines.
+				borderBottom: "1px dashed transparent",
+				".character-row:hover &, &:focus-visible": {
+					borderBottomColor: "text.disabled",
+				},
 				cursor: "text",
 				fontWeight: strong ? 600 : 500,
 				fontSize: strong ? "1.05rem" : "1rem",
@@ -404,53 +465,35 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				// under the sticky app bar.
 				scrollMarginTop: 96,
 				scrollMarginBottom: 96,
-				borderLeftWidth: character.IsActive ? 8 : 5,
-				borderWidth: character.IsActive ? 2 : 1,
-				borderColor: character.IsActive ? "primary.main" : "divider",
-				boxShadow: character.IsActive
-					? (t) => `0 0 0 3px ${tint("primary", 0.25)(t)}`
-					: "none",
+				// Whose turn it is: a warm wash plus a solid left edge. Two signals
+				// are enough; the combat bar also names the active creature.
+				borderLeftWidth: 4,
 				borderLeftColor: isOut
 					? "text.disabled"
 					: character.IsActive
 						? "primary.main"
-						: tint("primary", 0.35),
+						: "divider",
 				bgcolor: character.IsActive
-					? tint("primary", 0.14)
+					? tint("primary", 0.12)
 					: "background.paper",
 				filter: isOut ? "grayscale(1)" : "none",
-				opacity: isOut ? 0.75 : 1,
+				opacity: isOut ? 0.6 : 1,
 				transition: "background-color 0.2s, border-color 0.2s, opacity 0.2s",
 			}}
 		>
 			<Box
 				sx={{
-					display: "flex",
+					display: { xs: "flex", sm: "grid" },
+					gridTemplateColumns: ROW_COLUMNS,
 					flexWrap: "wrap",
-					alignItems: "flex-end",
-					columnGap: { xs: 1.5, sm: 2.5 },
+					alignItems: { xs: "flex-end", sm: "center" },
+					columnGap: { xs: 1.5, sm: 1 },
 					rowGap: 1,
 				}}
 			>
 				{/* Name */}
 				<Box sx={{ flex: "1 1 150px", minWidth: 0 }}>
-					<StatLabel>
-						Name
-						{character.IsActive && (
-							<Chip
-								label="▶ Their turn"
-								size="small"
-								color="primary"
-								sx={{
-									ml: 1,
-									height: 18,
-									fontSize: "0.7rem",
-									fontWeight: 700,
-									verticalAlign: "middle",
-								}}
-							/>
-						)}
-					</StatLabel>
+					<StatLabel>Name</StatLabel>
 					<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
 						{isDown && (
 							<Tooltip
@@ -518,49 +561,62 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 							sx={{ fontWeight: 600 }}
 						/>
 					) : (
-						<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-							<EditableField
-								{...fieldProps("CurrentHP", character.CurrentHP)}
-								type="text"
-								width={64}
-								ariaLabel={`${name} current HP`}
-								placeholder={String(character.CurrentHP)}
-								hint="Type -7 for damage, +5 to heal, or a new total"
-							/>
-							<Typography component="span" color="text.secondary">
-								/
-							</Typography>
-							<EditableField
-								{...fieldProps("MaxHP", character.MaxHP)}
-								type="number"
-								width={56}
-								ariaLabel={`${name} max HP`}
-							/>
+						<Box>
+							<Box
+								sx={{
+									display: "flex",
+									alignItems: "center",
+									justifyContent: "center",
+									gap: 0.5,
+								}}
+							>
+								<EditableField
+									{...fieldProps("CurrentHP", character.CurrentHP)}
+									type="text"
+									width={64}
+									ariaLabel={`${name} current HP`}
+									placeholder={String(character.CurrentHP)}
+									hint="Type -7 for damage, +5 to heal, or a new total"
+								/>
+								<Typography component="span" color="text.secondary">
+									/
+								</Typography>
+								<EditableField
+									{...fieldProps("MaxHP", character.MaxHP)}
+									type="number"
+									width={56}
+									ariaLabel={`${name} max HP`}
+								/>
+							</Box>
+							<HpBar current={character.CurrentHP} max={character.MaxHP} />
 						</Box>
 					)}
 				</Box>
 
 				{/* Temporary HP: soaks damage before HP (the -N input drains it
-				    first). Hidden for redacted NPCs. */}
-				{!redacted && (
-					<Box sx={{ textAlign: "center" }}>
-						<StatLabel>Temp</StatLabel>
-						<Box
-							sx={{
-								color:
-									(character.TempHP ?? 0) > 0 ? "info.main" : "text.disabled",
-							}}
-						>
-							<EditableField
-								{...fieldProps("TempHP", character.TempHP ?? 0)}
-								type="number"
-								width={56}
-								ariaLabel={`${name} temporary HP`}
-								hint="Temporary HP — absorbs damage first, doesn't stack"
-							/>
-						</Box>
-					</Box>
-				)}
+				    first). Hidden for redacted NPCs, but the cell stays so the grid
+				    columns don't shift. */}
+				<Box sx={{ textAlign: "center" }}>
+					{!redacted && (
+						<>
+							<StatLabel>Temp</StatLabel>
+							<Box
+								sx={{
+									color:
+										(character.TempHP ?? 0) > 0 ? "info.main" : "text.disabled",
+								}}
+							>
+								<EditableField
+									{...fieldProps("TempHP", character.TempHP ?? 0)}
+									type="number"
+									width={56}
+									ariaLabel={`${name} temporary HP`}
+									hint="Temporary HP — absorbs damage first, doesn't stack"
+								/>
+							</Box>
+						</>
+					)}
+				</Box>
 
 				{/* Initiative */}
 				<Box sx={{ textAlign: "center" }}>
@@ -596,8 +652,8 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					<StatLabel>Reaction</StatLabel>
 					<Chip
 						size="small"
-						label={character.ReactionUsed ? "⚡ Used" : "⚡ Ready"}
-						color={character.ReactionUsed ? "default" : "primary"}
+						icon={<BoltIcon fontSize="small" />}
+						label={character.ReactionUsed ? "Used" : "Ready"}
 						variant={character.ReactionUsed ? "outlined" : "filled"}
 						aria-pressed={character.ReactionUsed}
 						aria-label={
@@ -615,29 +671,58 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 								? undefined
 								: () => onSetReaction(character.ID, !character.ReactionUsed)
 						}
-						sx={{
-							fontWeight: 600,
-							textDecoration: character.ReactionUsed ? "line-through" : "none",
-						}}
+						sx={
+							character.ReactionUsed
+								? {
+										color: "text.disabled",
+										textDecoration: "line-through",
+										"& .MuiChip-icon": { color: "text.disabled" },
+									}
+								: {
+										bgcolor: tint("primary", 0.14),
+										color: "primary.main",
+										"& .MuiChip-icon": { color: "primary.main" },
+										"&:hover": { bgcolor: tint("primary", 0.24) },
+									}
+						}
 					/>
 				</Box>
 
-				{/* Give turn (hidden on the creature whose turn it already is) */}
-				{!playerView && (
-					<Box sx={{ ml: "auto", display: "flex", alignItems: "center" }}>
-						{!character.IsActive && (
-							<Tooltip title="Give this creature the turn">
-								<IconButton
-									size="small"
-									aria-label={`Give ${name} the turn`}
-									onClick={giveTurn}
-									sx={{ color: "text.secondary", fontSize: "0.9rem" }}
-								>
-									▶
-								</IconButton>
-							</Tooltip>
-						)}
-						{/* Delete */}
+				{/* Row actions: add condition, give turn, remove. */}
+				<Box
+					sx={{
+						ml: "auto",
+						justifySelf: "end",
+						display: "flex",
+						alignItems: "center",
+					}}
+				>
+					{!locked && !addingCondition && availableConditions.length > 0 && (
+						<Tooltip title="Add condition">
+							<IconButton
+								size="small"
+								aria-label={`Add condition to ${name}`}
+								onClick={() => setAddingCondition(true)}
+								sx={{ color: "text.secondary" }}
+							>
+								<AddIcon fontSize="small" />
+							</IconButton>
+						</Tooltip>
+					)}
+					{/* Give turn (hidden on the creature whose turn it already is) */}
+					{!playerView && !character.IsActive && (
+						<Tooltip title="Give this creature the turn">
+							<IconButton
+								size="small"
+								aria-label={`Give ${name} the turn`}
+								onClick={giveTurn}
+								sx={{ color: "text.secondary" }}
+							>
+								<PlayArrowIcon fontSize="small" />
+							</IconButton>
+						</Tooltip>
+					)}
+					{!playerView && (
 						<Tooltip title="Remove from encounter">
 							<IconButton
 								size="small"
@@ -651,28 +736,11 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 									},
 								}}
 							>
-								<svg
-									aria-hidden="true"
-									focusable="false"
-									width="16"
-									height="16"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<polyline points="3 6 5 6 21 6" />
-									<path d="M19 6l-1 14H6L5 6" />
-									<path d="M10 11v6" />
-									<path d="M14 11v6" />
-									<path d="M9 6V4h6v2" />
-								</svg>
+								<DeleteOutlineIcon fontSize="small" />
 							</IconButton>
 						</Tooltip>
-					</Box>
-				)}
+					)}
+				</Box>
 			</Box>
 
 			{concentrationCheck && concentrating && (
@@ -719,162 +787,142 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				/>
 			)}
 
-			{/* Conditions strip */}
-			<Box
-				sx={{
-					display: "flex",
-					alignItems: "center",
-					flexWrap: "wrap",
-					gap: 0.75,
-					mt: 1,
-					pt: 1,
-					borderTop: "1px dashed",
-					borderColor: "divider",
-				}}
-			>
-				<Typography variant="caption" color="primary" sx={{ fontWeight: 600 }}>
-					Conditions:
-				</Typography>
-				{conditions.length === 0 && !addingCondition && (
-					<Typography variant="caption" color="text.disabled">
-						none
-					</Typography>
-				)}
-				{conditions.map((cond) => {
-					// For a leveled condition the tooltip explains what that level
-					// does (e.g. exhaustion 5 = speed 0); notes come first when the DM
-					// wrote one.
-					const levelEffect =
-						cond.Level != null
-							? conditionCatalog.find((i) => i.Name === cond.Condition)
-									?.LevelEffects?.[cond.Level - 1]
-							: undefined;
-					const tooltip =
-						[cond.Note, levelEffect].filter(Boolean).join(" — ") || "";
-					const label =
-						cond.Condition +
-						(cond.Level != null ? ` ${cond.Level}` : "") +
-						(cond.DurationRounds != null ? ` (${cond.DurationRounds})` : "");
-					return (
-						<Tooltip key={cond.ID} title={tooltip}>
-							<Chip
-								size="small"
-								label={label}
-								onDelete={() => onRemoveCondition(cond.ID)}
-								slotProps={{
-									root: { "aria-label": label },
-								}}
-								sx={{
-									fontWeight: 600,
-									bgcolor: tint("secondary", 0.14),
-									color: "secondary.main",
-									"& .MuiChip-deleteIcon": { color: "secondary.main" },
-								}}
-							/>
-						</Tooltip>
-					);
-				})}
-				{addingCondition ? (
-					<Box
-						sx={{
-							display: "inline-flex",
-							alignItems: "center",
-							flexWrap: "wrap",
-							gap: 0.75,
-						}}
-					>
-						<TextField
-							select
-							size="small"
-							value={newCondition}
-							onChange={(e) => handleConditionChange(e.target.value)}
-							autoFocus
-							slotProps={{
-								select: { native: true },
-								htmlInput: { "aria-label": "Condition" },
+			{/* Conditions strip: only takes space when there's something on it
+			    (the "+" in the row actions opens the picker). */}
+			{(conditions.length > 0 || addingCondition) && (
+				<Box
+					sx={{
+						display: "flex",
+						alignItems: "center",
+						flexWrap: "wrap",
+						gap: 0.75,
+						mt: 1,
+					}}
+				>
+					{conditions.map((cond) => {
+						// For a leveled condition the tooltip explains what that level
+						// does (e.g. exhaustion 5 = speed 0); notes come first when the DM
+						// wrote one.
+						const levelEffect =
+							cond.Level != null
+								? conditionCatalog.find((i) => i.Name === cond.Condition)
+										?.LevelEffects?.[cond.Level - 1]
+								: undefined;
+						const tooltip =
+							[cond.Note, levelEffect].filter(Boolean).join(" — ") || "";
+						const label =
+							cond.Condition +
+							(cond.Level != null ? ` ${cond.Level}` : "") +
+							(cond.DurationRounds != null ? ` (${cond.DurationRounds})` : "");
+						return (
+							<Tooltip key={cond.ID} title={tooltip}>
+								<Chip
+									size="small"
+									label={label}
+									onDelete={() => onRemoveCondition(cond.ID)}
+									slotProps={{
+										root: { "aria-label": label },
+									}}
+									sx={{
+										fontWeight: 600,
+										bgcolor: tint("secondary", 0.14),
+										color: "secondary.main",
+										"& .MuiChip-deleteIcon": { color: "secondary.main" },
+									}}
+								/>
+							</Tooltip>
+						);
+					})}
+					{addingCondition ? (
+						<Box
+							sx={{
+								display: "inline-flex",
+								alignItems: "center",
+								flexWrap: "wrap",
+								gap: 0.75,
 							}}
-							sx={{ minWidth: 130 }}
 						>
-							<option value="">Select…</option>
-							{availableConditions.map((info) => (
-								<option key={info.Name} value={info.Name}>
-									{info.Name}
-								</option>
-							))}
-						</TextField>
-						{maxLevel > 0 && (
 							<TextField
 								select
 								size="small"
-								value={newLevel}
-								onChange={(e) => setNewLevel(e.target.value)}
+								value={newCondition}
+								onChange={(e) => handleConditionChange(e.target.value)}
+								autoFocus
 								slotProps={{
 									select: { native: true },
-									htmlInput: { "aria-label": "Level" },
+									htmlInput: { "aria-label": "Condition" },
 								}}
-								sx={{ maxWidth: 220 }}
+								sx={{ minWidth: 130 }}
 							>
-								{Array.from({ length: maxLevel }, (_, i) => i + 1).map(
-									(lvl) => (
-										<option key={lvl} value={String(lvl)}>
-											{`Lv ${lvl}${
-												selectedInfo?.LevelEffects?.[lvl - 1]
-													? ` — ${selectedInfo.LevelEffects[lvl - 1]}`
-													: ""
-											}`}
-										</option>
-									),
-								)}
+								<option value="">Select…</option>
+								{availableConditions.map((info) => (
+									<option key={info.Name} value={info.Name}>
+										{info.Name}
+									</option>
+								))}
 							</TextField>
-						)}
-						{newCondition === "Concentrating" && (
+							{maxLevel > 0 && (
+								<TextField
+									select
+									size="small"
+									value={newLevel}
+									onChange={(e) => setNewLevel(e.target.value)}
+									slotProps={{
+										select: { native: true },
+										htmlInput: { "aria-label": "Level" },
+									}}
+									sx={{ maxWidth: 220 }}
+								>
+									{Array.from({ length: maxLevel }, (_, i) => i + 1).map(
+										(lvl) => (
+											<option key={lvl} value={String(lvl)}>
+												{`Lv ${lvl}${
+													selectedInfo?.LevelEffects?.[lvl - 1]
+														? ` — ${selectedInfo.LevelEffects[lvl - 1]}`
+														: ""
+												}`}
+											</option>
+										),
+									)}
+								</TextField>
+							)}
+							{newCondition === "Concentrating" && (
+								<TextField
+									size="small"
+									value={newNote}
+									onChange={(e) => setNewNote(e.target.value)}
+									placeholder="Spell (optional)"
+									slotProps={{ htmlInput: { "aria-label": "Spell" } }}
+									sx={{ width: 150 }}
+								/>
+							)}
 							<TextField
+								type="number"
 								size="small"
-								value={newNote}
-								onChange={(e) => setNewNote(e.target.value)}
-								placeholder="Spell (optional)"
-								slotProps={{ htmlInput: { "aria-label": "Spell" } }}
-								sx={{ width: 150 }}
+								value={newDuration}
+								onChange={(e) => setNewDuration(e.target.value)}
+								placeholder="∞"
+								title="Duration in rounds (blank = until removed)"
+								slotProps={{
+									htmlInput: { min: 1, "aria-label": "Duration in rounds" },
+								}}
+								sx={{ width: 72 }}
 							/>
-						)}
-						<TextField
-							type="number"
-							size="small"
-							value={newDuration}
-							onChange={(e) => setNewDuration(e.target.value)}
-							placeholder="∞"
-							title="Duration in rounds (blank = until removed)"
-							slotProps={{
-								htmlInput: { min: 1, "aria-label": "Duration in rounds" },
-							}}
-							sx={{ width: 72 }}
-						/>
-						<Button
-							size="small"
-							variant="contained"
-							onClick={submitCondition}
-							disabled={!newCondition}
-						>
-							Add
-						</Button>
-						<Button size="small" onClick={resetConditionForm}>
-							Cancel
-						</Button>
-					</Box>
-				) : (
-					availableConditions.length > 0 && (
-						<Chip
-							size="small"
-							variant="outlined"
-							color="primary"
-							label="+ Condition"
-							aria-label="Add condition"
-							onClick={() => setAddingCondition(true)}
-							sx={{ borderStyle: "dashed" }}
-						/>
-					)
-				)}
-			</Box>
+							<Button
+								size="small"
+								variant="contained"
+								onClick={submitCondition}
+								disabled={!newCondition}
+							>
+								Add
+							</Button>
+							<Button size="small" onClick={resetConditionForm}>
+								Cancel
+							</Button>
+						</Box>
+					) : null}
+				</Box>
+			)}
 		</Paper>
 	);
 };
