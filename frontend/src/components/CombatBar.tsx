@@ -48,11 +48,9 @@ export function CombatBar({
 			<Stack
 				direction="row"
 				alignItems="center"
-				spacing={2}
-				useFlexGap
-				flexWrap="wrap"
+				spacing={{ xs: 1, sm: 2 }}
 			>
-				<Box sx={{ minWidth: 0, flex: "1 1 160px" }}>
+				<Box sx={{ minWidth: 0, flex: "1 1 0" }}>
 					<Typography
 						variant="overline"
 						color="text.secondary"
@@ -79,6 +77,7 @@ export function CombatBar({
 						<Button
 							variant="contained"
 							size="large"
+							sx={{ whiteSpace: "nowrap", flexShrink: 0 }}
 							onClick={onNext}
 							disabled={busy || !hasCombatants}
 							title="Next turn (Space)"
@@ -100,14 +99,24 @@ export function CombatBar({
 								size="small"
 								onClick={onRollNpcInitiative}
 								startIcon={<CasinoIcon />}
+								aria-label="Roll NPC initiative"
+								sx={{
+									whiteSpace: "nowrap",
+									// Icon-only on phones so the main button keeps its room.
+									minWidth: 0,
+									"& .MuiButton-startIcon": { mr: { xs: 0, sm: 1 } },
+								}}
 								disabled={busy}
 							>
-								Roll NPC initiative
+								<Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+									Roll NPC initiative
+								</Box>
 							</Button>
 						)}
 						<Button
 							variant="contained"
 							size="large"
+							sx={{ whiteSpace: "nowrap", flexShrink: 0 }}
 							onClick={onStart}
 							disabled={busy || !hasCombatants}
 						>

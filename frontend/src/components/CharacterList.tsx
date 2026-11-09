@@ -659,7 +659,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				<Box
 					aria-hidden
 					sx={{
-						display: { xs: "none", sm: "grid" },
+						display: { xs: "none", md: "grid" },
 						gridTemplateColumns: ROW_COLUMNS,
 						columnGap: 1,
 						pl: "20px",

@@ -71,8 +71,8 @@ function formatModifier(n: number): string {
 }
 
 // Columns shared by every row and the list header (CharacterList), so from
-// `sm` up the stats line up as a table with a single header instead of a
-// caption above every value. Below `sm` the row wraps and shows StatLabels.
+// `md` up the stats line up as a table with a single header instead of a
+// caption above every value. Below `md` the row wraps and shows StatLabels.
 export const ROW_COLUMNS =
 	"minmax(140px, 1fr) 52px 116px 52px 52px 60px 92px 108px";
 export const ROW_HEADERS = [
@@ -86,6 +86,9 @@ export const ROW_HEADERS = [
 	"",
 ] as const;
 
+// Stat cells sit after the name and row actions on phones (see the name cell).
+const STAT_CELL = { textAlign: "center", order: { xs: 2, md: 0 } } as const;
+
 // Per-row caption, shown only on narrow screens where there's no header row.
 function StatLabel({ children }: { children: React.ReactNode }) {
 	return (
@@ -94,7 +97,7 @@ function StatLabel({ children }: { children: React.ReactNode }) {
 			variant="caption"
 			color="text.secondary"
 			sx={{
-				display: { xs: "block", sm: "none" },
+				display: { xs: "block", md: "none" },
 				fontWeight: 600,
 				lineHeight: 1.2,
 				mb: 0.25,
@@ -483,17 +486,23 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		>
 			<Box
 				sx={{
-					display: { xs: "flex", sm: "grid" },
+					display: { xs: "flex", md: "grid" },
 					gridTemplateColumns: ROW_COLUMNS,
 					flexWrap: "wrap",
-					alignItems: { xs: "flex-end", sm: "center" },
-					columnGap: { xs: 1.5, sm: 1 },
+					alignItems: { xs: "flex-start", md: "center" },
+					columnGap: { xs: 1.5, md: 1 },
 					rowGap: 1,
 				}}
 			>
 				{/* Name */}
-				<Box sx={{ flex: "1 1 150px", minWidth: 0 }}>
-					<StatLabel>Name</StatLabel>
+				<Box
+					sx={{
+						// Phones: name shares the first line with the row actions; the
+						// stats wrap onto the line below.
+						flex: { xs: "1 1 calc(100% - 128px)", md: "initial" },
+						minWidth: 0,
+					}}
+				>
 					<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
 						{isDown && (
 							<Tooltip
@@ -535,7 +544,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				</Box>
 
 				{/* Armor Class */}
-				<Box sx={{ textAlign: "center" }}>
+				<Box sx={STAT_CELL}>
 					<StatLabel>AC</StatLabel>
 					<EditableField
 						{...fieldProps(
@@ -550,7 +559,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				</Box>
 
 				{/* HP */}
-				<Box sx={{ textAlign: "center" }}>
+				<Box sx={STAT_CELL}>
 					<StatLabel>HP</StatLabel>
 					{redacted ? (
 						<Chip
@@ -596,7 +605,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				{/* Temporary HP: soaks damage before HP (the -N input drains it
 				    first). Hidden for redacted NPCs, but the cell stays so the grid
 				    columns don't shift. */}
-				<Box sx={{ textAlign: "center" }}>
+				<Box sx={STAT_CELL}>
 					{!redacted && (
 						<>
 							<StatLabel>Temp</StatLabel>
@@ -619,7 +628,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				</Box>
 
 				{/* Initiative */}
-				<Box sx={{ textAlign: "center" }}>
+				<Box sx={STAT_CELL}>
 					<StatLabel>Init</StatLabel>
 					<EditableField
 						{...fieldProps("Initiative", character.Initiative)}
@@ -631,7 +640,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 
 				{/* To-hit modifier, so the DM can resolve an attack without leaving
 				    the combat screen. */}
-				<Box sx={{ textAlign: "center" }}>
+				<Box sx={STAT_CELL}>
 					<StatLabel>To-Hit</StatLabel>
 					<EditableField
 						{...fieldProps(
@@ -648,7 +657,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				{/* Reaction toggle. A creature has one reaction per round; click to
 				    mark it spent, click again to restore. The backend also clears it
 				    automatically at the start of the creature's turn. */}
-				<Box sx={{ textAlign: "center" }}>
+				<Box sx={STAT_CELL}>
 					<StatLabel>Reaction</StatLabel>
 					<Chip
 						size="small"
@@ -692,6 +701,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				<Box
 					sx={{
 						ml: "auto",
+						order: { xs: 1, md: 0 },
 						justifySelf: "end",
 						display: "flex",
 						alignItems: "center",
