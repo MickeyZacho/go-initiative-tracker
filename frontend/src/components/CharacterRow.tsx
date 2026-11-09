@@ -495,15 +495,15 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 					flexWrap: "wrap",
 					alignItems: { xs: "flex-start", md: "center" },
 					columnGap: { xs: 1.5, md: 1 },
-					rowGap: 1,
+					rowGap: { xs: 0.5, md: 1 },
 				}}
 			>
 				{/* Name */}
 				<Box
 					sx={{
-						// Phones: name shares the first line with the row actions; the
-						// stats wrap onto the line below.
-						flex: { xs: "1 1 calc(100% - 128px)", md: "initial" },
+						// Phones: name shares the first line with the row actions (however
+						// many there are); the line break below pushes the stats down.
+						flex: { xs: "1 1 0", md: "initial" },
 						minWidth: 0,
 					}}
 				>
@@ -767,6 +767,18 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 						</Tooltip>
 					)}
 				</Box>
+
+				{/* Phones: forced line break between name+actions and the stats. It
+				    sits on its own zero-height flex line (hence the halved rowGap). */}
+				<Box
+					aria-hidden
+					sx={{
+						display: { xs: "block", md: "none" },
+						order: 1,
+						flexBasis: "100%",
+						height: 0,
+					}}
+				/>
 			</Box>
 
 			{concentrationCheck && concentrating && (

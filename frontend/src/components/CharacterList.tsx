@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import { tint } from "../theme";
 import { CharacterRow, ROW_COLUMNS, ROW_HEADERS } from "./CharacterRow";
 import {
 	Typography,
@@ -13,6 +16,7 @@ import {
 	AccordionSummary,
 	AccordionDetails,
 	Button,
+	ButtonBase,
 	Collapse,
 	FormControlLabel,
 	Switch,
@@ -654,9 +658,9 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				alignItems="center"
 				spacing={2}
 				useFlexGap
-				flexWrap="wrap"
 			>
-				<FormControl size="small" sx={{ minWidth: 220, flex: "0 1 320px" }}>
+				{/* Never wraps: the picker shrinks so the switch stays beside it. */}
+				<FormControl size="small" sx={{ minWidth: 0, flex: "0 1 320px" }}>
 					<InputLabel id="encounter-label">Encounter</InputLabel>
 					<Select
 						labelId="encounter-label"
@@ -673,22 +677,75 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					</Select>
 				</FormControl>
 				{isOwner && encounterId > 0 && (
-					<FormControlLabel
-						sx={{ ml: "auto", mr: 0 }}
-						control={
-							<Switch
-								size="small"
-								checked={previewAsPlayer}
-								onChange={(e) => setPreviewAsPlayer(e.target.checked)}
-							/>
-						}
-						label={
-							<Typography variant="body2" color="text.secondary">
-								Preview as player
-							</Typography>
-						}
+					// A pill that lights up while previewing, so the DM can't forget
+					// they're looking at the redacted view. The eye pairs with the
+					// "hide from players" eye-off on rows.
+					<ButtonBase
+						aria-pressed={previewAsPlayer}
+						onClick={() => setPreviewAsPlayer((p) => !p)}
 						title="See the encounter the way your players do: NPC AC, HP and to-hit hidden"
-					/>
+						sx={{
+							ml: "auto",
+							flexShrink: 0,
+							whiteSpace: "nowrap",
+							gap: 0.75,
+							pl: 1.25,
+							pr: 1.5,
+							py: 0.75,
+							borderRadius: 999,
+							border: 1,
+							typography: "body2",
+							fontWeight: 600,
+							transition:
+								"background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s",
+							"&:focus-visible": { outline: 2, outlineColor: "primary.main", outlineOffset: 2 },
+							...(previewAsPlayer
+								? {
+										borderColor: "primary.main",
+										color: "primary.main",
+										bgcolor: tint("primary", 0.16),
+										boxShadow: (t) => `0 0 0 3px ${tint("primary", 0.12)(t)}`,
+										"&:hover": { bgcolor: tint("primary", 0.24) },
+									}
+								: {
+										borderColor: "divider",
+										color: "text.secondary",
+										"&:hover": {
+											borderColor: "text.secondary",
+											color: "text.primary",
+										},
+									}),
+						}}
+					>
+						{previewAsPlayer ? (
+							<VisibilityIcon fontSize="small" />
+						) : (
+							<VisibilityOutlinedIcon fontSize="small" />
+						)}
+						<Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+							{previewAsPlayer ? "Previewing as player" : "Preview as player"}
+						</Box>
+						<Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+							Player view
+						</Box>
+						{previewAsPlayer && (
+							<Box
+								aria-hidden
+								sx={{
+									width: 7,
+									height: 7,
+									borderRadius: "50%",
+									bgcolor: "primary.main",
+									"@keyframes previewPulse": {
+										"0%, 100%": { opacity: 1, transform: "scale(1)" },
+										"50%": { opacity: 0.35, transform: "scale(0.7)" },
+									},
+									animation: "previewPulse 1.6s ease-in-out infinite",
+									"@media (prefers-reduced-motion: reduce)": { animation: "none" },
+								}}
+							/>
+						)}
+					</ButtonBase>
 				)}
 			</Stack>
 			{!isOwner && (
