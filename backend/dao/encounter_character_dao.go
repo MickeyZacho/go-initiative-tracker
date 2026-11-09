@@ -20,6 +20,8 @@ type EncounterCharacterDAO interface {
 	Upsert(enc EncounterCharacter) error
 	StartCombat(encounterID int) (int, error)
 	ResetCombat(encounterID int) error
+	// GetRound returns the encounter's combat round (0 = combat not started).
+	GetRound(encounterID int) (int, error)
 	AdvanceTurn(encounterID int) (int, error)
 	SetActiveCharacter(encounterID, characterID int) error
 	SetReactionUsed(encounterID, characterID int, used bool) error
@@ -101,6 +103,10 @@ func (dao *encounterCharacterDAOImpl) StartCombat(encounterID int) (int, error) 
 		return 0, err
 	}
 
+	if _, err = tx.Exec("UPDATE encounters SET round = 1 WHERE id = $1", encounterID); err != nil {
+		return 0, err
+	}
+
 	if err = tx.Commit(); err != nil {
 		return 0, err
 	}
@@ -108,12 +114,31 @@ func (dao *encounterCharacterDAOImpl) StartCombat(encounterID int) (int, error) 
 	return activeID, nil
 }
 
+// ResetCombat ends combat: nobody holds the turn and the round clock returns to
+// 0, so the next Start/Next begins again at round 1.
 func (dao *encounterCharacterDAOImpl) ResetCombat(encounterID int) error {
-	_, err := dao.db.Exec(
+	tx, err := dao.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err = tx.Exec(
 		"UPDATE encounter_characters SET is_active = FALSE WHERE encounter_id = $1",
 		encounterID,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("UPDATE encounters SET round = 0 WHERE id = $1", encounterID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (dao *encounterCharacterDAOImpl) GetRound(encounterID int) (int, error) {
+	var round int
+	err := dao.db.QueryRow("SELECT round FROM encounters WHERE id = $1", encounterID).Scan(&round)
+	return round, err
 }
 
 // SetActiveCharacter makes a single character the active turn holder, clearing
@@ -210,9 +235,11 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 	}
 
 	nextIndex := 0
+	currentIndex := -1
 	if currentActiveID != 0 {
 		for idx, id := range orderedIDs {
 			if id == currentActiveID {
+				currentIndex = idx
 				nextIndex = (idx + 1) % len(orderedIDs)
 				break
 			}
@@ -232,6 +259,20 @@ func (dao *encounterCharacterDAOImpl) AdvanceTurn(encounterID int) (int, error) 
 		encounterID, nextActiveID,
 	); err != nil {
 		return 0, err
+	}
+
+	// Advance the round clock. With nobody active, this Next is effectively the
+	// start of combat, so make sure we're in at least round 1. Otherwise a new
+	// round begins whenever the turn wraps back to the top of the order.
+	switch {
+	case currentIndex < 0:
+		if _, err = tx.Exec("UPDATE encounters SET round = GREATEST(round, 1) WHERE id = $1", encounterID); err != nil {
+			return 0, err
+		}
+	case nextIndex <= currentIndex:
+		if _, err = tx.Exec("UPDATE encounters SET round = round + 1 WHERE id = $1", encounterID); err != nil {
+			return 0, err
+		}
 	}
 
 	// Tick down the outgoing creature's timed conditions as its turn ends (when we

@@ -23,12 +23,14 @@ import {
 	type CustomCharacterDraft,
 } from "./AddCustomCharacterControl";
 import { CombatLog } from "./CombatLog";
+import { CombatBar } from "./CombatBar";
 import type { SelectChangeEvent } from "@mui/material/Select";
 
 import { useEncounters } from "../hooks/useEncounters";
 import { useCharacters } from "../hooks/useCharacters";
 import { useNpcTemplates } from "../hooks/useNpcTemplates";
 import { useCombatLog } from "../hooks/useCombatLog";
+import { useCombatState } from "../hooks/useCombatState";
 import { useEncounterEvents } from "../hooks/useEncounterEvents";
 import { apiGetArray, apiPost } from "../lib/http";
 
@@ -108,6 +110,10 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	// Combat Log
 	const { ledgerEntries, fetchLedger } = useCombatLog();
 
+	// Round counter
+	const { round, fetchCombatState } = useCombatState();
+	const [combatBusy, setCombatBusy] = useState(false);
+
 	// Local state
 	const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
 	const [conditionCatalog, setConditionCatalog] = useState<ConditionInfo[]>([]);
@@ -154,12 +160,19 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		fetchNpcTemplates,
 	]);
 
+	// Round is per encounter; load it whenever the selected encounter changes.
+	useEffect(() => {
+		void fetchCombatState(encounterId);
+	}, [encounterId, fetchCombatState]);
+
 	// Live sync: when any viewer changes this encounter, the backend pushes an
-	// event and we re-pull characters + ledger so every viewer stays in step.
+	// event and we re-pull characters, ledger and round so every viewer stays in
+	// step.
 	useEncounterEvents(encounterId, () => {
 		if (!encounterId) return;
 		void fetchCharacters(encounterId);
 		void fetchLedger(encounterId);
+		void fetchCombatState(encounterId);
 	});
 	// Add NPC to encounter
 	const addNpcToEncounter = async () => {
@@ -409,22 +422,50 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		}
 	};
 
-	const nextCharacter = useCallback(async () => {
-		if (!encounterId || characters.length === 0) return;
-		setActionError("");
-		try {
-			await apiPost(
-				"/encounters/combat/next-turn",
-				{ encounter_id: encounterId },
-				"Failed to advance turn",
-			);
-			await fetchCharacters(encounterId);
-		} catch (err) {
-			setActionError(
-				err instanceof Error ? err.message : "Failed to advance turn",
-			);
+	// Run one combat-control call (start / next / end), then refresh the rows,
+	// round and log. combatBusy guards against double-advancing on a fast
+	// double-click or held spacebar.
+	const runCombatAction = useCallback(
+		async (path: string, failure: string) => {
+			if (!encounterId || combatBusy) return;
+			setActionError("");
+			setCombatBusy(true);
+			try {
+				await apiPost(path, { encounter_id: encounterId }, failure);
+				await Promise.all([
+					fetchCharacters(encounterId),
+					fetchCombatState(encounterId),
+					fetchLedger(encounterId),
+				]);
+			} catch (err) {
+				setActionError(err instanceof Error ? err.message : failure);
+			} finally {
+				setCombatBusy(false);
+			}
+		},
+		[encounterId, combatBusy, fetchCharacters, fetchCombatState, fetchLedger],
+	);
+
+	const nextCharacter = useCallback(() => {
+		if (characters.length === 0) return;
+		void runCombatAction("/encounters/combat/next-turn", "Failed to advance turn");
+	}, [characters.length, runCombatAction]);
+
+	const startCombat = () =>
+		void runCombatAction("/encounters/combat/start", "Failed to start combat");
+
+	const endCombat = () => {
+		if (
+			!window.confirm(
+				"End combat? This clears whose turn it is and resets the round counter. HP and conditions are kept.",
+			)
+		) {
+			return;
 		}
-	}, [encounterId, characters.length, fetchCharacters]);
+		void runCombatAction("/encounters/combat/setup", "Failed to end combat");
+	};
+
+	const activeCharacter = characters.find((c) => c.IsActive) ?? null;
 
 	const availableLibraryCharacters = libraryCharacters.filter(
 		(libChar) => !characters.some((encChar) => encChar.ID === libChar.ID),
@@ -445,29 +486,38 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		});
 	}, []);
 
-	// Spacebar triggers nextCharacter
+	// Spacebar advances the turn (the Next button is the visible equivalent).
+	// Ignore it while the user is typing or has a control focused, where Space
+	// already means something, and ignore auto-repeat from a held key.
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.code !== "Space" || e.repeat) return;
+			const t = e.target;
 			if (
-				e.code === "Space" &&
-				!(
-					e.target instanceof HTMLInputElement ||
-					e.target instanceof HTMLTextAreaElement
-				)
+				t instanceof HTMLInputElement ||
+				t instanceof HTMLTextAreaElement ||
+				t instanceof HTMLSelectElement ||
+				t instanceof HTMLButtonElement ||
+				(t instanceof HTMLElement &&
+					(t.isContentEditable || t.getAttribute("role") === "button"))
 			) {
-				e.preventDefault();
-				nextCharacter();
+				return;
 			}
+			e.preventDefault();
+			nextCharacter();
 		};
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [nextCharacter, characters, encounterId]);
+	}, [nextCharacter]);
 
 	return (
 		<Box display="flex" justifyContent="center" alignItems="center">
 			<Card
 				sx={{
 					width: "100%",
+					// Card defaults to overflow:hidden, which would stop the combat
+					// bar from sticking to the viewport.
+					overflow: "visible",
 					borderRadius: 3,
 					boxShadow: 3,
 					p: { xs: 1, sm: 3 },
@@ -539,6 +589,17 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 									</div>
 								))}
 						</Stack>
+						{encounterId > 0 && (
+							<CombatBar
+								round={round}
+								activeName={activeCharacter?.Name ?? null}
+								hasCombatants={characters.length > 0}
+								busy={combatBusy}
+								onStart={startCombat}
+								onNext={nextCharacter}
+								onReset={endCombat}
+							/>
+						)}
 						{/* Add existing characters / NPCs — tucked behind a single
 						    unobtrusive toggle so it doesn't dominate the view. */}
 						<Box>

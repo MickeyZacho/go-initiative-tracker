@@ -423,8 +423,12 @@ func TestResetCombatAllowsOwner(t *testing.T) {
 	defer restore()
 	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
 		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectBegin()
 	m.ExpectExec("UPDATE encounter_characters SET is_active = FALSE").WithArgs(1).
 		WillReturnResult(sqlmock.NewResult(0, 4))
+	m.ExpectExec("UPDATE encounters SET round = 0").WithArgs(1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectCommit()
 
 	rr, req := postJSON("/encounters/combat/setup", `{"encounter_id":1}`)
 	authed(req, "dm1")
@@ -432,6 +436,37 @@ func TestResetCombatAllowsOwner(t *testing.T) {
 
 	assertStatus(t, rr, http.StatusOK)
 	assertMet(t, m)
+}
+
+func TestCombatStateReturnsRound(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectQuery("SELECT round FROM encounters").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"round"}).AddRow(4))
+
+	rr, req := getReq("/encounters/combat/state?encounter_id=1")
+	authed(req, "dm1")
+	apiCombatStateHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	var body struct {
+		Round int `json:"round"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Round != 4 {
+		t.Errorf("round = %d, want 4", body.Round)
+	}
+	assertMet(t, m)
+}
+
+func TestCombatStateRejectsBadEncounterID(t *testing.T) {
+	rr, req := getReq("/encounters/combat/state?encounter_id=abc")
+	apiCombatStateHandler(rr, req)
+	assertStatus(t, rr, http.StatusBadRequest)
 }
 
 // --- Encounters CRUD --------------------------------------------------------

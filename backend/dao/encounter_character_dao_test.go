@@ -22,6 +22,12 @@ const (
 	// of its turn and clears expired ones; these mirror those two statements.
 	tickConditionsQ   = "UPDATE encounter_character_conditions SET duration_rounds = duration_rounds - 1 WHERE encounter_id = $1 AND character_id = $2 AND duration_rounds IS NOT NULL"
 	expireConditionsQ = "DELETE FROM encounter_character_conditions WHERE encounter_id = $1 AND character_id = $2 AND duration_rounds IS NOT NULL AND duration_rounds <= 0"
+	// Round clock on the encounter: start sets 1, a wrap increments, a Next with
+	// nobody active ensures at least 1, and reset returns to 0.
+	roundStartQ  = "UPDATE encounters SET round = 1 WHERE id = $1"
+	roundEnsureQ = "UPDATE encounters SET round = GREATEST(round, 1) WHERE id = $1"
+	roundIncQ    = "UPDATE encounters SET round = round + 1 WHERE id = $1"
+	roundResetQ  = "UPDATE encounters SET round = 0 WHERE id = $1"
 )
 
 func q(s string) string { return regexp.QuoteMeta(s) }
@@ -49,6 +55,7 @@ func TestStartCombat_ActivatesTopOfInitiativeOrder(t *testing.T) {
 	mock.ExpectQuery(q(selectOrderedQ)).WithArgs(7).WillReturnRows(orderedRows(5, 2, 8))
 	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(q(roundStartQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	active, err := dao.StartCombat(7)
@@ -151,6 +158,8 @@ func TestAdvanceTurn_WrapsFromLastToFirst(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(8))
 	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 1))
+	// Wrapping to the top of the order starts a new round.
+	mock.ExpectExec(q(roundIncQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 1))
 	// Conditions tick on the outgoing creature (8), whose turn is ending.
 	mock.ExpectExec(q(tickConditionsQ)).WithArgs(7, 8).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(q(expireConditionsQ)).WithArgs(7, 8).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -184,6 +193,8 @@ func TestAdvanceTurn_NoActiveStartsAtFirst(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(0))
 	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 1))
+	// Nobody was active, so this Next starts combat: round becomes at least 1.
+	mock.ExpectExec(q(roundEnsureQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	next, err := dao.AdvanceTurn(7)
@@ -330,12 +341,64 @@ func TestResetCombat_DeactivatesEveryone(t *testing.T) {
 	defer db.Close()
 	dao := NewEncounterCharacterDAO(db)
 
+	mock.ExpectBegin()
 	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 4))
+	mock.ExpectExec(q(roundResetQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	if err := dao.ResetCombat(7); err != nil {
 		t.Fatalf("ResetCombat returned error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestAdvanceTurn_SingleCombatantStartsNewRoundEachTurn(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	dao := NewEncounterCharacterDAO(db)
+
+	// Only one creature: every advance wraps to itself, so every advance is a
+	// new round.
+	mock.ExpectBegin()
+	mock.ExpectQuery(q(selectOrderedQ)).WithArgs(7).WillReturnRows(orderedRows(5))
+	mock.ExpectQuery(q(selectActiveQ)).WithArgs(7).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(5))
+	mock.ExpectExec(q(updateAllOffQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(q(updateOnQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(q(roundIncQ)).WithArgs(7).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(q(tickConditionsQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(q(expireConditionsQ)).WithArgs(7, 5).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	if _, err := dao.AdvanceTurn(7); err != nil {
+		t.Fatalf("AdvanceTurn returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestGetRound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open mock database: %v", err)
+	}
+	defer db.Close()
+	dao := NewEncounterCharacterDAO(db)
+
+	mock.ExpectQuery(q("SELECT round FROM encounters WHERE id = $1")).WithArgs(7).
+		WillReturnRows(sqlmock.NewRows([]string{"round"}).AddRow(3))
+
+	round, err := dao.GetRound(7)
+	if err != nil {
+		t.Fatalf("GetRound returned error: %v", err)
+	}
+	if round != 3 {
+		t.Errorf("round = %d, want 3", round)
 	}
 }

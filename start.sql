@@ -54,7 +54,8 @@ CREATE TABLE encounters (
 	id SERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
 	owner_id TEXT, -- Discord user ID of DM
-	description TEXT
+	description TEXT,
+	round INTEGER NOT NULL DEFAULT 0 -- combat round; 0 = not started (migration 00007)
 );
 CREATE TABLE encounter_ledger (
 	id SERIAL PRIMARY KEY,

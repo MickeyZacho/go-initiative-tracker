@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go-initiative-tracker/dao"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -188,4 +189,29 @@ func apiNextTurnHandler(w http.ResponseWriter, r *http.Request) {
 	logCombatEvent(dao.EncounterLedgerInsert{EncounterID: encounterID, ActorID: activeCharacterID, ActionType: "turn"})
 	events.publish(encounterID, "combat")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "active_character_id": activeCharacterID})
+}
+
+// apiCombatStateHandler returns the encounter-level combat state that isn't
+// carried on the character rows — currently the round (0 = not started).
+// GET /encounters/combat/state?encounter_id=N
+func apiCombatStateHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+	encounterID, err := strconv.Atoi(r.URL.Query().Get("encounter_id"))
+	if err != nil || encounterID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid encounter id")
+		return
+	}
+	if !requireEncounterAccess(w, r, encounterID) {
+		return
+	}
+	round, err := encounterCharacterDAO.GetRound(encounterID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Failed to load combat state")
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"status": "success", "round": round})
 }

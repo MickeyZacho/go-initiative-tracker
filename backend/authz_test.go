@@ -90,6 +90,8 @@ func TestStartCombatAllowsOwner(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	m.ExpectExec("UPDATE encounter_characters SET is_active = TRUE").WithArgs(1, 7).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	m.ExpectExec("UPDATE encounters SET round = 1").WithArgs(1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	m.ExpectCommit()
 
 	rr, req := postJSON("/encounters/combat/start", `{"encounter_id":1}`)
