@@ -25,6 +25,10 @@ type Character struct {
 	// Only populated by GetCharactersByEncounterID; nil (and omitted from JSON)
 	// for library/global queries that have no encounter scope.
 	Conditions []Condition `json:",omitempty"`
+	// Redacted is set on NPCs in the player view: AC/HP/to-hit are zeroed and
+	// HealthStatus ("Healthy", "Wounded", "Bloodied", "Down") stands in for HP.
+	Redacted     bool   `json:",omitempty"`
+	HealthStatus string `json:",omitempty"`
 }
 
 type CharacterDAO interface {

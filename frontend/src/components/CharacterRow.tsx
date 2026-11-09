@@ -38,7 +38,19 @@ interface CharacterRowProps {
 	) => void;
 	onRemoveCondition: (conditionID: number) => void;
 	onSetReaction: (characterID: number, used: boolean) => void;
+	// Player view: no roster/turn controls, and NPC rows are read-only.
+	playerView?: boolean;
 }
+
+const HEALTH_COLOR: Record<
+	string,
+	"success" | "warning" | "error" | "default"
+> = {
+	Healthy: "success",
+	Wounded: "warning",
+	Bloodied: "error",
+	Down: "default",
+};
 
 function formatModifier(n: number): string {
 	return n >= 0 ? `+${n}` : String(n);
@@ -73,6 +85,7 @@ const EditableField: React.FC<{
 	strong?: boolean;
 	placeholder?: string;
 	hint?: string;
+	readOnly?: boolean;
 }> = ({
 	value,
 	type,
@@ -86,8 +99,22 @@ const EditableField: React.FC<{
 	strong,
 	placeholder,
 	hint,
+	readOnly,
 }) =>
-	isEditing ? (
+	readOnly ? (
+		<Box
+			component="span"
+			sx={{
+				display: "inline-block",
+				px: 0.75,
+				fontWeight: strong ? 600 : 500,
+				fontSize: strong ? "1.05rem" : "1rem",
+				whiteSpace: "nowrap",
+			}}
+		>
+			{value}
+		</Box>
+	) : isEditing ? (
 		<InputBase
 			type={type}
 			value={String(value)}
@@ -149,6 +176,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	onAddCondition,
 	onRemoveCondition,
 	onSetReaction,
+	playerView = false,
 }) => {
 	const [editing, setEditing] = React.useState<{
 		field: EditableFieldName | null;
@@ -162,14 +190,19 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	const [newLevel, setNewLevel] = React.useState("1");
 
 	const conditions = character.Conditions ?? [];
-	const isDown = character.CurrentHP === 0;
+	// Redacted NPCs (player view) carry a HealthStatus instead of HP numbers.
+	const redacted = Boolean(character.Redacted);
+	const isDown = redacted
+		? character.HealthStatus === "Down"
+		: character.CurrentHP === 0;
+	// Players can't edit NPCs; the server enforces this too.
+	const locked = playerView && character.Type === "npc";
 	// Only offer conditions not already applied — except leveled ones (Exhaustion),
 	// which stay in the picker so the DM can raise or lower the level. Adding one
 	// again upserts the existing row rather than stacking a second chip.
 	const availableConditions = conditionCatalog.filter(
 		(info) =>
-			info.MaxLevel > 0 ||
-			!conditions.some((c) => c.Condition === info.Name),
+			info.MaxLevel > 0 || !conditions.some((c) => c.Condition === info.Name),
 	);
 	const selectedInfo = conditionCatalog.find(
 		(info) => info.Name === newCondition,
@@ -202,7 +235,10 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		// The backend rejects a level on a binary condition, so only send one when
 		// the selected condition actually has levels.
 		const level = maxLevel > 0 ? Number(newLevel) : null;
-		if (level !== null && (!Number.isFinite(level) || level < 1 || level > maxLevel))
+		if (
+			level !== null &&
+			(!Number.isFinite(level) || level < 1 || level > maxLevel)
+		)
 			return;
 		onAddCondition(character.ID, newCondition, rounds, level);
 		resetConditionForm();
@@ -278,6 +314,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		onChange: (v: string) => setEditing((ed) => ({ ...ed, value: v })),
 		onBlur: () => handleFieldBlur(field),
 		onKeyDown: handleFieldKeyDown,
+		readOnly: locked,
 	});
 
 	const name = character.Name || "Character";
@@ -354,7 +391,11 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				<Box sx={{ textAlign: "center" }}>
 					<StatLabel>AC</StatLabel>
 					<EditableField
-						{...fieldProps("ArmorClass", character.ArmorClass)}
+						{...fieldProps(
+							"ArmorClass",
+							character.ArmorClass,
+							redacted ? "—" : character.ArmorClass,
+						)}
 						type="number"
 						width={56}
 						ariaLabel={`${name} AC`}
@@ -364,25 +405,35 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				{/* HP */}
 				<Box sx={{ textAlign: "center" }}>
 					<StatLabel>HP</StatLabel>
-					<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-						<EditableField
-							{...fieldProps("CurrentHP", character.CurrentHP)}
-							type="text"
-							width={64}
-							ariaLabel={`${name} current HP`}
-							placeholder={String(character.CurrentHP)}
-							hint="Type -7 for damage, +5 to heal, or a new total"
+					{redacted ? (
+						<Chip
+							size="small"
+							label={character.HealthStatus || "?"}
+							color={HEALTH_COLOR[character.HealthStatus ?? ""] ?? "default"}
+							variant="outlined"
+							sx={{ fontWeight: 600 }}
 						/>
-						<Typography component="span" color="text.secondary">
-							/
-						</Typography>
-						<EditableField
-							{...fieldProps("MaxHP", character.MaxHP)}
-							type="number"
-							width={56}
-							ariaLabel={`${name} max HP`}
-						/>
-					</Box>
+					) : (
+						<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+							<EditableField
+								{...fieldProps("CurrentHP", character.CurrentHP)}
+								type="text"
+								width={64}
+								ariaLabel={`${name} current HP`}
+								placeholder={String(character.CurrentHP)}
+								hint="Type -7 for damage, +5 to heal, or a new total"
+							/>
+							<Typography component="span" color="text.secondary">
+								/
+							</Typography>
+							<EditableField
+								{...fieldProps("MaxHP", character.MaxHP)}
+								type="number"
+								width={56}
+								ariaLabel={`${name} max HP`}
+							/>
+						</Box>
+					)}
 				</Box>
 
 				{/* Initiative */}
@@ -404,7 +455,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 						{...fieldProps(
 							"ToHitModifier",
 							character.ToHitModifier ?? 0,
-							formatModifier(character.ToHitModifier ?? 0),
+							redacted ? "—" : formatModifier(character.ToHitModifier ?? 0),
 						)}
 						type="number"
 						width={56}
@@ -433,64 +484,69 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 								? "Reaction used — click to restore"
 								: "Reaction available — click to mark used"
 						}
-						onClick={() =>
-							onSetReaction(character.ID, !character.ReactionUsed)
+						onClick={
+							locked
+								? undefined
+								: () => onSetReaction(character.ID, !character.ReactionUsed)
 						}
 						sx={{
 							fontWeight: 600,
-							textDecoration: character.ReactionUsed
-								? "line-through"
-								: "none",
+							textDecoration: character.ReactionUsed ? "line-through" : "none",
 						}}
 					/>
 				</Box>
 
 				{/* Give turn (hidden on the creature whose turn it already is) */}
-				<Box sx={{ ml: "auto", display: "flex", alignItems: "center" }}>
-					{!character.IsActive && (
-						<Tooltip title="Give this creature the turn">
+				{!playerView && (
+					<Box sx={{ ml: "auto", display: "flex", alignItems: "center" }}>
+						{!character.IsActive && (
+							<Tooltip title="Give this creature the turn">
+								<IconButton
+									size="small"
+									aria-label={`Give ${name} the turn`}
+									onClick={giveTurn}
+									sx={{ color: "text.secondary", fontSize: "0.9rem" }}
+								>
+									▶
+								</IconButton>
+							</Tooltip>
+						)}
+						{/* Delete */}
+						<Tooltip title="Remove from encounter">
 							<IconButton
 								size="small"
-								aria-label={`Give ${name} the turn`}
-								onClick={giveTurn}
-								sx={{ color: "text.secondary", fontSize: "0.9rem" }}
+								aria-label={`Remove ${name}`}
+								onClick={onRemove}
+								sx={{
+									color: "text.disabled",
+									"&:hover": {
+										color: "error.main",
+										bgcolor: tint("error", 0.1),
+									},
+								}}
 							>
-								▶
+								<svg
+									aria-hidden="true"
+									focusable="false"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								>
+									<polyline points="3 6 5 6 21 6" />
+									<path d="M19 6l-1 14H6L5 6" />
+									<path d="M10 11v6" />
+									<path d="M14 11v6" />
+									<path d="M9 6V4h6v2" />
+								</svg>
 							</IconButton>
 						</Tooltip>
-					)}
-					{/* Delete */}
-					<Tooltip title="Remove from encounter">
-						<IconButton
-							size="small"
-							aria-label={`Remove ${name}`}
-							onClick={onRemove}
-							sx={{
-								color: "text.disabled",
-								"&:hover": { color: "error.main", bgcolor: tint("error", 0.1) },
-							}}
-						>
-							<svg
-								aria-hidden="true"
-								focusable="false"
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-							>
-								<polyline points="3 6 5 6 21 6" />
-								<path d="M19 6l-1 14H6L5 6" />
-								<path d="M10 11v6" />
-								<path d="M14 11v6" />
-								<path d="M9 6V4h6v2" />
-							</svg>
-						</IconButton>
-					</Tooltip>
-				</Box>
+					</Box>
+				)}
 			</Box>
 
 			{/* Conditions strip */}

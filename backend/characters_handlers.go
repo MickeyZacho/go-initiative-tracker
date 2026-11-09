@@ -43,8 +43,10 @@ func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	// When scoping to an encounter, the characters returned include the owner's,
 	// so require the caller to own or be a shared-edit member of it. Logged-out
 	// callers still fall through to the historical unscoped/owner-less behavior.
+	role := roleOwner
 	if encounterID > 0 && getDiscordIDFromRequest(r) != "" {
-		if !requireEncounterAccess(w, r, encounterID) {
+		var ok bool
+		if role, ok = resolveEncounterRole(w, r, encounterID); !ok {
 			return
 		}
 	}
@@ -52,6 +54,10 @@ func apiCharactersHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch characters")
 		return
+	}
+	// Players get the player view: NPC numbers are hidden server-side.
+	if role == roleMember {
+		redactNpcsForPlayers(characters)
 	}
 	if characters == nil {
 		characters = []dao.Character{}
@@ -197,10 +203,30 @@ func saveCharacterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	discordID := getDiscordIDFromRequest(r)
 
-	// Saving into an encounter requires access to that encounter, and access is
-	// then enough to edit any character in it — not just the caller's own.
-	if payload.EncounterID > 0 && !requireEncounterAccess(w, r, payload.EncounterID) {
-		return
+	// Saving into an encounter requires access to that encounter. The DM can
+	// edit anything in it; players (members) may edit PCs but not NPCs, whose
+	// stats they can't even see, and may not add creatures to the roster.
+	if payload.EncounterID > 0 {
+		role, ok := resolveEncounterRole(w, r, payload.EncounterID)
+		if !ok {
+			return
+		}
+		if role == roleMember {
+			if char.ID == 0 {
+				writeJSONError(w, http.StatusForbidden, "Only the DM can add creatures to this encounter")
+				return
+			}
+			existing, err := characterDAO.GetCharacterByID(char.ID)
+			if err != nil {
+				writeJSONError(w, http.StatusNotFound, "Character not found in this encounter")
+				return
+			}
+			if existing.Type == "npc" {
+				writeJSONError(w, http.StatusForbidden, "Only the DM can edit NPCs")
+				return
+			}
+			char.Type = existing.Type // a player can't turn a PC into an NPC
+		}
 	}
 
 	// Remember the character's HP before this save so we can log the delta as a
@@ -319,7 +345,8 @@ func addCharacterToEncounterHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "encounter_id is required")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	// The roster belongs to the DM.
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 	err := encounterDAO.AddCharacterToEncounter(encounterID, req.CharacterID)
@@ -359,7 +386,8 @@ func removeCharacterFromEncounterHandler(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusBadRequest, "encounter_id is required")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	// The roster belongs to the DM.
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 	err := encounterDAO.RemoveCharacterFromEncounter(encounterID, req.CharacterID)

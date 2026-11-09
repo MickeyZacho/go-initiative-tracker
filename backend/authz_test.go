@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"go-initiative-tracker/dao"
 	"net/http"
 	"net/http/httptest"
@@ -198,6 +199,9 @@ func TestSaveCharacterInEncounterAllowsMemberEditingOthersCharacter(t *testing.T
 		WillReturnRows(encounterRow(1, "dm1"))
 	m.ExpectQuery("FROM encounter_users").WithArgs(1, "player2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// Members may only edit PCs, so the character's type is checked first.
+	m.ExpectQuery("FROM characters WHERE id").WithArgs(5).
+		WillReturnRows(characterRow(5, "Rogue", "dm1", "pc"))
 	// The character is owned by dm1, yet the member's update lands.
 	m.ExpectQuery("UPDATE characters c SET").
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
@@ -283,5 +287,174 @@ func TestDeleteNpcTemplateRejectsNonOwner(t *testing.T) {
 	}
 	if err := m.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// characterRow builds a GetCharacterByID result row.
+func characterRow(id int, name, owner, typ string) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "name", "armor_class", "to_hit_modifier", "max_hp",
+		"current_hp", "initiative", "is_active", "owner_id", "type", "npc_template_id",
+	}).AddRow(id, name, 12, 3, 10, 10, 0, false, owner, typ, nil)
+}
+
+// expectMember queues the access check for a member (not the owner).
+func expectMember(m sqlmock.Sqlmock, encounterID int, owner, member string) {
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(encounterID).
+		WillReturnRows(encounterRow(encounterID, owner))
+	m.ExpectQuery("FROM encounter_users").WithArgs(encounterID, member).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+}
+
+func TestSaveCharacterInEncounterRejectsMemberEditingNpc(t *testing.T) {
+	m, restore := newEncounterAndCharacterMock(t)
+	defer restore()
+	expectMember(m, 1, "dm1", "player2")
+	m.ExpectQuery("FROM characters WHERE id").WithArgs(9).
+		WillReturnRows(characterRow(9, "Goblin", "dm1", "npc"))
+
+	rr, req := postJSON("/save-character", `{"id":9,"name":"Goblin","maxHP":7,"currentHP":0,"encounter_id":1}`)
+	authed(req, "player2")
+	saveCharacterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusForbidden)
+	assertMet(t, m)
+}
+
+func TestSaveCharacterInEncounterRejectsMemberCreating(t *testing.T) {
+	m, restore := newEncounterAndCharacterMock(t)
+	defer restore()
+	expectMember(m, 1, "dm1", "player2")
+
+	rr, req := postJSON("/save-character", `{"id":0,"name":"Dragon","maxHP":300,"encounter_id":1}`)
+	authed(req, "player2")
+	saveCharacterHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusForbidden)
+	assertMet(t, m)
+}
+
+func TestCharactersListRedactsNpcsForMember(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	expectMember(m, 1, "dm1", "player2")
+	m.ExpectQuery("FROM characters c JOIN encounter_characters").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "armor_class", "to_hit_modifier", "max_hp", "current_hp",
+			"initiative", "is_active", "owner_id", "type", "npc_template_id", "reaction_used",
+		}).
+			AddRow(1, "Aria", 16, 5, 30, 30, 18, false, "player2", "pc", nil, false).
+			AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false))
+	m.ExpectQuery("FROM encounter_character_conditions").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "encounter_id", "character_id", "condition", "duration_rounds", "level", "note"}))
+
+	rr, req := getReq("/characters?encounter_id=1")
+	authed(req, "player2")
+	apiCharactersHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+	var chars []dao.Character
+	if err := json.Unmarshal(rr.Body.Bytes(), &chars); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(chars) != 2 {
+		t.Fatalf("got %d characters, want 2", len(chars))
+	}
+	pc, npc := chars[0], chars[1]
+	if pc.Redacted || pc.ArmorClass != 16 || pc.CurrentHP != 30 {
+		t.Errorf("PC should be untouched, got %+v", pc)
+	}
+	if !npc.Redacted || npc.ArmorClass != 0 || npc.CurrentHP != 0 || npc.MaxHP != 0 || npc.ToHitModifier != 0 {
+		t.Errorf("NPC numbers should be hidden, got %+v", npc)
+	}
+	if npc.HealthStatus != "Bloodied" {
+		t.Errorf("HealthStatus = %q, want Bloodied (3/8)", npc.HealthStatus)
+	}
+}
+
+func TestCharactersListOwnerSeesNpcStats(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+	m.ExpectQuery("FROM characters c JOIN encounter_characters").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "armor_class", "to_hit_modifier", "max_hp", "current_hp",
+			"initiative", "is_active", "owner_id", "type", "npc_template_id", "reaction_used",
+		}).AddRow(2, "Goblin 1", 15, 4, 8, 3, 12, false, "dm1", "npc", 4, false))
+	m.ExpectQuery("FROM encounter_character_conditions").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "encounter_id", "character_id", "condition", "duration_rounds", "level", "note"}))
+
+	rr, req := getReq("/characters?encounter_id=1")
+	authed(req, "dm1")
+	apiCharactersHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	var chars []dao.Character
+	if err := json.Unmarshal(rr.Body.Bytes(), &chars); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(chars) != 1 || chars[0].Redacted || chars[0].ArmorClass != 15 {
+		t.Errorf("owner should see full NPC stats, got %+v", chars)
+	}
+}
+
+func TestEncounterLedgerRedactsNpcHPForMember(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	expectMember(m, 1, "dm1", "player2")
+	m.ExpectQuery("FROM encounter_ledger").WithArgs(1, 50).WillReturnRows(
+		sqlmock.NewRows([]string{
+			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
+			"target_name", "action_type", "hp_change", "description", "created_at",
+		}).
+			AddRow(1, 1, 2, "Goblin 1", "npc", 0, "", "damage", -5, "", "2026-01-01T00:00:00Z").
+			AddRow(2, 1, 1, "Aria", "pc", 0, "", "damage", -4, "", "2026-01-01T00:00:01Z"),
+	)
+
+	rr, req := getReq("/encounters/ledger?encounter_id=1")
+	authed(req, "player2")
+	apiEncounterLedgerHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	var body struct {
+		Entries []dao.EncounterLedgerEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Entries) != 2 || body.Entries[0].HPChange != 0 || body.Entries[1].HPChange != -4 {
+		t.Errorf("NPC hp_change should be hidden, PC kept; got %+v", body.Entries)
+	}
+}
+
+func TestStartCombatRejectsMember(t *testing.T) {
+	m, restore := newEncounterMock(t)
+	defer restore()
+	// Owner-only: a member is refused without even checking membership.
+	m.ExpectQuery("FROM encounters WHERE id").WithArgs(1).
+		WillReturnRows(encounterRow(1, "dm1"))
+
+	rr, req := postJSON("/encounters/combat/start", `{"encounter_id":1}`)
+	authed(req, "player2")
+	apiStartCombatHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusForbidden)
+	assertMet(t, m)
+}
+
+func TestHealthStatus(t *testing.T) {
+	cases := []struct {
+		cur, max int
+		want     string
+	}{
+		{10, 10, "Healthy"}, {9, 10, "Wounded"}, {6, 10, "Wounded"},
+		{5, 10, "Bloodied"}, {1, 10, "Bloodied"}, {0, 10, "Down"},
+	}
+	for _, c := range cases {
+		if got := healthStatus(c.cur, c.max); got != c.want {
+			t.Errorf("healthStatus(%d, %d) = %q, want %q", c.cur, c.max, got, c.want)
+		}
 	}
 }

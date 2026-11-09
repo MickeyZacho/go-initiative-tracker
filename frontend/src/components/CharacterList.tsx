@@ -15,6 +15,8 @@ import {
 	AccordionDetails,
 	Button,
 	Collapse,
+	FormControlLabel,
+	Switch,
 } from "@mui/material";
 import { AddCharacterControl } from "./AddCharacterControl";
 import { AddNpcControl } from "./AddNpcControl";
@@ -33,6 +35,8 @@ import { useCombatLog } from "../hooks/useCombatLog";
 import { useCombatState } from "../hooks/useCombatState";
 import { useEncounterEvents } from "../hooks/useEncounterEvents";
 import { apiGetArray, apiPost } from "../lib/http";
+import { useMe } from "../hooks/useMe";
+import { redactForPlayers } from "../lib/playerView";
 
 export interface Condition {
 	ID: number;
@@ -69,6 +73,9 @@ export interface Character {
 	// backend when the character's turn begins.
 	ReactionUsed: boolean;
 	Conditions?: Condition[];
+	// Player view: set on NPCs whose AC/HP/to-hit are hidden from players.
+	Redacted?: boolean;
+	HealthStatus?: string;
 }
 
 // (Encounter and LedgerEntry interfaces removed; now provided by hooks or not needed)
@@ -487,6 +494,20 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			"Failed to roll initiative",
 		);
 
+	// Player view. Anyone who isn't the encounter's DM (a shared member) gets
+	// it automatically, with NPC numbers already stripped by the server; the DM
+	// can preview it locally. Logged-out viewers own logged-out encounters.
+	const me = useMe();
+	const currentEncounter = encounters.find((e) => e.ID === encounterId);
+	const isOwner =
+		!currentEncounter ||
+		currentEncounter.OwnerID === (me.loggedIn ? me.discordID : "");
+	const [previewAsPlayer, setPreviewAsPlayer] = useState(false);
+	const playerView = !isOwner || previewAsPlayer;
+	const visibleCharacters = previewAsPlayer
+		? redactForPlayers(characters)
+		: characters;
+
 	const activeCharacter = characters.find((c) => c.IsActive) ?? null;
 
 	const availableLibraryCharacters = libraryCharacters.filter(
@@ -573,6 +594,24 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 							</Select>
 						</FormControl>
 
+						{isOwner && encounterId > 0 && (
+							<FormControlLabel
+								control={
+									<Switch
+										checked={previewAsPlayer}
+										onChange={(e) => setPreviewAsPlayer(e.target.checked)}
+									/>
+								}
+								label="Preview as player"
+								title="See the encounter the way your players do: NPC AC, HP and to-hit hidden"
+							/>
+						)}
+						{!isOwner && (
+							<Typography variant="body2" color="text.secondary">
+								Player view — the DM runs this encounter. You can update your
+								characters and end your turn.
+							</Typography>
+						)}
 						{composedError && (
 							<Typography color="error">
 								{composedError}
@@ -593,7 +632,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						<Stack spacing={2}>
 							{/* Same order as the backend's turn logic (initiative DESC,
 							    character_id ASC) so ties display in the order they act. */}
-							{[...characters]
+							{[...visibleCharacters]
 								.sort((a, b) => b.Initiative - a.Initiative || a.ID - b.ID)
 								.map((character) => (
 									<div key={character.ID} style={{ width: "100%" }}>
@@ -607,6 +646,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 											onAddCondition={addCondition}
 											onRemoveCondition={removeCondition}
 											onSetReaction={setReaction}
+											playerView={playerView}
 										/>
 									</div>
 								))}
@@ -620,71 +660,76 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 								onStart={startCombat}
 								onNext={nextCharacter}
 								onReset={endCombat}
+								canControl={!playerView}
 								hasNpcs={characters.some((c) => c.Type === "npc")}
 								onRollNpcInitiative={rollNpcInitiative}
 							/>
 						)}
-						{/* Add existing characters / NPCs — tucked behind a single
-						    unobtrusive toggle so it doesn't dominate the view. */}
-						<Box>
-							<Button
-								size="small"
-								variant="text"
-								onClick={() => setShowAddControls((prev) => !prev)}
-								sx={{ textTransform: "none" }}
-							>
-								{showAddControls ? "▾" : "▸"} Add characters & NPCs
-							</Button>
-							<Collapse in={showAddControls}>
-								<Stack spacing={2} mt={1}>
-									<Stack
-										direction="row"
-										spacing={2}
-										alignItems="center"
-										flexWrap="wrap"
-										useFlexGap
+						{!playerView && (
+							<>
+								{/* Add existing characters / NPCs — tucked behind a single
+								    unobtrusive toggle so it doesn't dominate the view. */}
+								<Box>
+									<Button
+										size="small"
+										variant="text"
+										onClick={() => setShowAddControls((prev) => !prev)}
+										sx={{ textTransform: "none" }}
 									>
-										<AddCharacterControl
-											availableLibraryCharacters={availableLibraryCharacters}
-											selectedAddCharacterId={selectedAddCharacterId}
-											setSelectedAddCharacterId={setSelectedAddCharacterId}
-											addExistingCharacterToEncounter={addExistingCharacterToEncounter}
-											encounterId={encounterId}
-										/>
-									</Stack>
-									<Stack
-										direction="row"
-										spacing={2}
-										alignItems="center"
-										flexWrap="wrap"
-										useFlexGap
-									>
-										<AddNpcControl
-											npcTemplates={npcTemplates}
-											selectedAddNpcId={selectedAddNpcId}
-											setSelectedAddNpcId={setSelectedAddNpcId}
-											addNpcToEncounter={addNpcToEncounter}
-											encounterId={encounterId}
-										/>
-									</Stack>
-									<Box>
-										<Typography
-											variant="subtitle2"
-											color="text.secondary"
-											gutterBottom
-										>
-											Add Custom Character
-										</Typography>
-										<AddCustomCharacterControl
-											addCustomCharacterToEncounter={
-												addCustomCharacterToEncounter
-											}
-											encounterId={encounterId}
-										/>
-									</Box>
-								</Stack>
-							</Collapse>
-						</Box>
+										{showAddControls ? "▾" : "▸"} Add characters & NPCs
+									</Button>
+									<Collapse in={showAddControls}>
+										<Stack spacing={2} mt={1}>
+											<Stack
+												direction="row"
+												spacing={2}
+												alignItems="center"
+												flexWrap="wrap"
+												useFlexGap
+											>
+												<AddCharacterControl
+													availableLibraryCharacters={availableLibraryCharacters}
+													selectedAddCharacterId={selectedAddCharacterId}
+													setSelectedAddCharacterId={setSelectedAddCharacterId}
+													addExistingCharacterToEncounter={addExistingCharacterToEncounter}
+													encounterId={encounterId}
+												/>
+											</Stack>
+											<Stack
+												direction="row"
+												spacing={2}
+												alignItems="center"
+												flexWrap="wrap"
+												useFlexGap
+											>
+												<AddNpcControl
+													npcTemplates={npcTemplates}
+													selectedAddNpcId={selectedAddNpcId}
+													setSelectedAddNpcId={setSelectedAddNpcId}
+													addNpcToEncounter={addNpcToEncounter}
+													encounterId={encounterId}
+												/>
+											</Stack>
+											<Box>
+												<Typography
+													variant="subtitle2"
+													color="text.secondary"
+													gutterBottom
+												>
+													Add Custom Character
+												</Typography>
+												<AddCustomCharacterControl
+													addCustomCharacterToEncounter={
+														addCustomCharacterToEncounter
+													}
+													encounterId={encounterId}
+												/>
+											</Box>
+										</Stack>
+									</Collapse>
+								</Box>
+							</>
+						)}
 						{isLoading && characters.length === 0 && (
 							<Typography color="text.secondary">
 								Loading...

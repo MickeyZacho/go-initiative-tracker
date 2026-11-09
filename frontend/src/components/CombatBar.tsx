@@ -8,6 +8,8 @@ export interface CombatBarProps {
 	onStart: () => void;
 	onNext: () => void;
 	onReset: () => void;
+	// False in the player view: players can end their turn, nothing else.
+	canControl: boolean;
 	hasNpcs: boolean;
 	onRollNpcInitiative: () => void;
 }
@@ -23,6 +25,7 @@ export function CombatBar({
 	onStart,
 	onNext,
 	onReset,
+	canControl,
 	hasNpcs,
 	onRollNpcInitiative,
 }: CombatBarProps) {
@@ -61,14 +64,16 @@ export function CombatBar({
 				</Box>
 				{started ? (
 					<>
-						<Button
-							color="inherit"
-							size="small"
-							onClick={onReset}
-							disabled={busy}
-						>
-							End combat
-						</Button>
+						{canControl && (
+							<Button
+								color="inherit"
+								size="small"
+								onClick={onReset}
+								disabled={busy}
+							>
+								End combat
+							</Button>
+						)}
 						<Button
 							variant="contained"
 							size="large"
@@ -79,6 +84,10 @@ export function CombatBar({
 							Next turn ▶
 						</Button>
 					</>
+				) : !canControl ? (
+					<Typography variant="body2" color="text.secondary">
+						Waiting for the DM to start combat
+					</Typography>
 				) : (
 					<>
 						{/* Before the fight: roll every NPC at once (d20 + DEX), so

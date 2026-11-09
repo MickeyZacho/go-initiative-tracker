@@ -136,7 +136,8 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Count must be between 1 and %d", dao.MaxTemplateCopies))
 		return
 	}
-	if !requireEncounterAccess(w, r, req.EncounterID) {
+	// Adding monsters is the DM's call.
+	if !requireEncounterOwner(w, r, req.EncounterID) {
 		return
 	}
 

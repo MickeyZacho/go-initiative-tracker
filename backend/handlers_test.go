@@ -676,7 +676,7 @@ func TestEncounterLedgerReadAllowsOwner(t *testing.T) {
 		WillReturnRows(encounterRow(1, "dm1"))
 	m.ExpectQuery("FROM encounter_ledger").WithArgs(1, 50).WillReturnRows(
 		sqlmock.NewRows([]string{
-			"id", "encounter_id", "actor_id", "actor_name", "target_id",
+			"id", "encounter_id", "actor_id", "actor_name", "actor_type", "target_id",
 			"target_name", "action_type", "hp_change", "description", "created_at",
 		}),
 	)

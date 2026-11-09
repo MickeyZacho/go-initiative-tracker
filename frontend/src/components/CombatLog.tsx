@@ -22,10 +22,16 @@ function describeEntry(
 	switch (entry.action_type) {
 		case "turn":
 			return `${actor}'s turn`;
+		// In the player view the server zeroes NPC hp_change, so the amount is
+		// left out rather than shown as "0".
 		case "damage":
-			return `${actor} took ${magnitude} damage`;
+			return magnitude
+				? `${actor} took ${magnitude} damage`
+				: `${actor} took damage`;
 		case "heal":
-			return `${actor} recovered ${magnitude} HP`;
+			return magnitude
+				? `${actor} recovered ${magnitude} HP`
+				: `${actor} was healed`;
 		case "condition":
 			return `${actor} gained ${entry.description || "a condition"}`;
 		case "reaction":

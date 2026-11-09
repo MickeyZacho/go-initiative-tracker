@@ -4,6 +4,7 @@ import { apiGetArray } from "../lib/http";
 export interface Encounter {
 	ID: number;
 	Name: string;
+	OwnerID: string;
 }
 
 export function useEncounters(initialEncounterId?: number | null) {

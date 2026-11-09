@@ -108,7 +108,8 @@ func apiEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid encounter id")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	role, ok := resolveEncounterRole(w, r, encounterID)
+	if !ok {
 		return
 	}
 
@@ -116,6 +117,9 @@ func apiEncounterLedgerHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to load encounter log")
 		return
+	}
+	if role == roleMember {
+		redactLedgerForPlayers(entries)
 	}
 
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "entries": entries})

@@ -34,7 +34,8 @@ func apiStartCombatHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	// Starting the fight is the DM's call; players can only end their turn.
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 
@@ -72,7 +73,8 @@ func apiSetActiveHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid encounter or character id")
 		return
 	}
-	if !requireEncounterAccess(w, r, req.EncounterID) {
+	// Handing the turn to an arbitrary creature is a DM override.
+	if !requireEncounterOwner(w, r, req.EncounterID) {
 		return
 	}
 
@@ -147,7 +149,8 @@ func apiResetCombatHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	// Ending the fight is the DM's call.
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 
@@ -230,7 +233,8 @@ func apiRollNpcInitiativeHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
-	if !requireEncounterAccess(w, r, encounterID) {
+	// NPC initiative is the DM's roll.
+	if !requireEncounterOwner(w, r, encounterID) {
 		return
 	}
 	rolled, err := encounterCharacterDAO.RollNpcInitiative(encounterID)
