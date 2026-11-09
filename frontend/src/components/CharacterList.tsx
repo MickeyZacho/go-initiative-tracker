@@ -289,6 +289,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 			condition: string,
 			durationRounds: number | null,
 			level: number | null,
+			note = "",
 		) => {
 			if (!encounterId || !characterID || !condition) return;
 			setActionError("");
@@ -301,6 +302,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 						condition,
 						duration_rounds: durationRounds,
 						level,
+						note,
 					},
 					"Failed to add condition",
 				);

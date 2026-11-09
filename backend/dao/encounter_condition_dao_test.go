@@ -186,3 +186,12 @@ func TestConditionCatalogMarksExhaustionLeveled(t *testing.T) {
 		}
 	}
 }
+
+func TestConcentratingIsTrackable(t *testing.T) {
+	if !IsValidCondition("Concentrating") {
+		t.Fatal("Concentrating should be accepted so the DM can track who holds a spell")
+	}
+	if ConditionMaxLevel("Concentrating") != 0 {
+		t.Error("Concentrating should be binary (no level)")
+	}
+}

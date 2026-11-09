@@ -1,5 +1,6 @@
 import React from "react";
 import {
+	Alert,
 	Box,
 	Button,
 	Chip,
@@ -14,6 +15,7 @@ import type { Character, ConditionInfo } from "./CharacterList";
 import { tint } from "../theme";
 import { applyHpInput } from "../lib/hp";
 import { DeathSaves } from "./DeathSaves";
+import { concentrationDC } from "../lib/concentration";
 
 type EditableFieldName =
 	| "Name"
@@ -37,6 +39,7 @@ interface CharacterRowProps {
 		condition: string,
 		durationRounds: number | null,
 		level: number | null,
+		note?: string,
 	) => void;
 	onRemoveCondition: (conditionID: number) => void;
 	onSetReaction: (characterID: number, used: boolean) => void;
@@ -196,8 +199,16 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 	const [newCondition, setNewCondition] = React.useState("");
 	const [newDuration, setNewDuration] = React.useState("");
 	const [newLevel, setNewLevel] = React.useState("1");
+	// Spell being concentrated on, stored as the condition's note.
+	const [newNote, setNewNote] = React.useState("");
+	// Set when a concentrating creature takes damage: prompts the CON save.
+	const [concentrationCheck, setConcentrationCheck] = React.useState<{
+		dc: number;
+		droppedToZero: boolean;
+	} | null>(null);
 
 	const conditions = character.Conditions ?? [];
+	const concentrating = conditions.find((c) => c.Condition === "Concentrating");
 	// Redacted NPCs (player view) carry a HealthStatus instead of HP numbers.
 	const redacted = Boolean(character.Redacted);
 	const isDown = redacted
@@ -238,6 +249,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 		setNewCondition("");
 		setNewDuration("");
 		setNewLevel("1");
+		setNewNote("");
 	};
 
 	const submitCondition = () => {
@@ -253,7 +265,13 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 			(!Number.isFinite(level) || level < 1 || level > maxLevel)
 		)
 			return;
-		onAddCondition(character.ID, newCondition, rounds, level);
+		onAddCondition(
+			character.ID,
+			newCondition,
+			rounds,
+			level,
+			newCondition === "Concentrating" ? newNote.trim() : "",
+		);
 		resetConditionForm();
 	};
 
@@ -282,6 +300,16 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				(next.current === character.CurrentHP && next.temp === temp)
 			)
 				return;
+			// Damage to a concentrating creature calls for a Constitution save
+			// (or ends concentration outright at 0 HP). Temp HP still counts: the
+			// creature took the hit.
+			const damage = character.CurrentHP + temp - (next.current + next.temp);
+			if (damage > 0 && concentrating) {
+				setConcentrationCheck({
+					dc: concentrationDC(damage),
+					droppedToZero: next.current === 0,
+				});
+			}
 			const updated = {
 				...character,
 				CurrentHP: next.current,
@@ -647,6 +675,40 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 				)}
 			</Box>
 
+			{concentrationCheck && concentrating && (
+				<Alert
+					severity={concentrationCheck.droppedToZero ? "error" : "warning"}
+					sx={{ mt: 1, py: 0 }}
+					action={
+						<>
+							<Button
+								color="inherit"
+								size="small"
+								onClick={() => {
+									onRemoveCondition(concentrating.ID);
+									setConcentrationCheck(null);
+								}}
+							>
+								{concentrationCheck.droppedToZero ? "End it" : "Lost it"}
+							</Button>
+							{!concentrationCheck.droppedToZero && (
+								<Button
+									color="inherit"
+									size="small"
+									onClick={() => setConcentrationCheck(null)}
+								>
+									Kept it
+								</Button>
+							)}
+						</>
+					}
+				>
+					{concentrationCheck.droppedToZero
+						? `${name} dropped to 0 HP — concentration${concentrating.Note ? ` on ${concentrating.Note}` : ""} ends.`
+						: `${name} is concentrating${concentrating.Note ? ` on ${concentrating.Note}` : ""}: Constitution save DC ${concentrationCheck.dc}.`}
+				</Alert>
+			)}
+
 			{/* A PC at 0 HP is dying, not dead: track their death saves. */}
 			{isDown && character.Type !== "npc" && !redacted && (
 				<DeathSaves
@@ -764,6 +826,16 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 									),
 								)}
 							</TextField>
+						)}
+						{newCondition === "Concentrating" && (
+							<TextField
+								size="small"
+								value={newNote}
+								onChange={(e) => setNewNote(e.target.value)}
+								placeholder="Spell (optional)"
+								slotProps={{ htmlInput: { "aria-label": "Spell" } }}
+								sx={{ width: 150 }}
+							/>
 						)}
 						<TextField
 							type="number"

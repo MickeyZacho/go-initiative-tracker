@@ -21,12 +21,15 @@ type Condition struct {
 	Note           string `json:"Note"`
 }
 
-// ValidConditions is the canonical D&D 5e condition set. Handlers validate
-// incoming names against this so the stored data stays consistent and the
-// frontend can render a known set of chips.
+// ValidConditions is the canonical D&D 5e condition set, plus Concentrating:
+// not a condition in the rules, but a status the DM has to track the same way
+// (who holds a spell, so damage can prompt a Constitution save). Handlers
+// validate incoming names against this so the stored data stays consistent and
+// the frontend can render a known set of chips.
 var ValidConditions = []string{
 	"Blinded",
 	"Charmed",
+	"Concentrating",
 	"Deafened",
 	"Exhaustion",
 	"Frightened",
