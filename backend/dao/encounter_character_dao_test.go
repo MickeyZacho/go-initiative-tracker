@@ -447,8 +447,8 @@ func TestAddCharactersFromTemplate_LoneFirstCopyKeepsPlainName(t *testing.T) {
 	dao := NewNpcTemplateDAO(db)
 
 	mock.ExpectQuery("FROM npc_templates WHERE id").WithArgs(2).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id"}).
-			AddRow(2, "Ogre", "", "(19,8,16,5,7,7)", 11, 59, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id", "source", "type", "size", "cr"}).
+			AddRow(2, "Ogre", "", "(19,8,16,5,7,7)", 11, 59, "", "", "", "", nil))
 	mock.ExpectBegin()
 	mock.ExpectQuery("FROM encounters WHERE id").WithArgs(3).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))

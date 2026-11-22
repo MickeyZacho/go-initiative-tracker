@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -819,14 +820,82 @@ func TestDeathSavesRejectsOutOfRange(t *testing.T) {
 func TestNpcTemplatesList(t *testing.T) {
 	m, restore := newFullMock(t)
 	defer restore()
-	m.ExpectQuery("FROM npc_templates").WillReturnRows(
-		sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id"}),
-	)
+	// No filters: everything, app-made first, first page.
+	m.ExpectQuery(`FROM npc_templates ORDER BY \(source IS NULL\) DESC, name, id LIMIT \$1 OFFSET \$2`).
+		WithArgs(defaultTemplateSearchLimit, 0).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id", "source", "type", "size", "cr"}),
+		)
 
 	rr, req := getReq("/npcs/templates")
 	apiNpcTemplatesHandler(rr, req)
 
 	assertStatus(t, rr, http.StatusOK)
+	assertMet(t, m)
+}
+
+func TestNpcTemplatesFilters(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery(`WHERE lower\(details->>'type'\) = lower\(\$1\) AND lower\(details->>'size'\) = lower\(\$2\) `+
+		`AND \(details->>'challenge_rating'\)::float8 >= \$3 AND \(details->>'challenge_rating'\)::float8 <= \$4 `+
+		`AND source LIKE 'srd-%' ORDER BY \(source IS NULL\) DESC, \(details->>'challenge_rating'\)::float8, name, id LIMIT \$5 OFFSET \$6`).
+		WithArgs("undead", "medium", 0.25, 2.0, 10, 20).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id", "source", "type", "size", "cr"}).
+				AddRow(4, "Zombie", "", "(13,6,16,3,6,5)", 8, 15, "", "srd-5.2", "undead", "Medium", 0.25),
+		)
+
+	rr, req := getReq("/npcs/templates?type=undead&size=medium&min_cr=0.25&max_cr=2&source=srd&sort=cr&limit=10&offset=20")
+	apiNpcTemplatesHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	if !strings.Contains(rr.Body.String(), `"CR":0.25`) {
+		t.Errorf("expected CR in response, got %s", rr.Body.String())
+	}
+	assertMet(t, m)
+}
+
+func TestNpcTemplatesRejectsBadSource(t *testing.T) {
+	_, restore := newFullMock(t)
+	defer restore()
+	rr, req := getReq("/npcs/templates?source=everything")
+	apiNpcTemplatesHandler(rr, req)
+	assertStatus(t, rr, http.StatusBadRequest)
+}
+
+func TestNpcTemplateFacets(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery(`SELECT DISTINCT 'type'`).WillReturnRows(
+		sqlmock.NewRows([]string{"kind", "v"}).AddRow("size", "large").AddRow("type", "beast").AddRow("type", "undead"),
+	)
+	rr, req := getReq("/npcs/templates/facets")
+	apiNpcTemplateFacetsHandler(rr, req)
+	assertStatus(t, rr, http.StatusOK)
+	if got := strings.TrimSpace(rr.Body.String()); got != `{"Types":["beast","undead"],"Sizes":["large"]}` {
+		t.Errorf("unexpected facets %s", got)
+	}
+	assertMet(t, m)
+}
+
+func TestNpcTemplatesSearchEscapesAndCapsLimit(t *testing.T) {
+	m, restore := newFullMock(t)
+	defer restore()
+	m.ExpectQuery(`FROM npc_templates WHERE \(name ILIKE '%' \|\| \$1 \|\| '%' OR description ILIKE '%' \|\| \$1 \|\| '%'\) ORDER BY \(name ILIKE \$1 \|\| '%'\) DESC`).
+		WithArgs(`50\% dragon`, maxTemplateSearchLimit, 0).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id", "source", "type", "size", "cr"}).
+				AddRow(3, "Red Dragon", "Huge dragon", "(27,10,25,16,13,23)", 19, 256, "", "srd-5.2", "dragon", "Huge", 17.0),
+		)
+
+	rr, req := getReq("/npcs/templates?q=%2050%25%20dragon%20&limit=999")
+	apiNpcTemplatesHandler(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	if !strings.Contains(rr.Body.String(), `"Source":"srd-5.2"`) {
+		t.Errorf("expected Source in response, got %s", rr.Body.String())
+	}
 	assertMet(t, m)
 }
 
@@ -880,8 +949,8 @@ func TestCreateCharacterFromTemplateAllowsOwner(t *testing.T) {
 		WillReturnRows(encounterRow(1, "dm1"))
 	// Template lookup (valid composite stat_block so parsing succeeds).
 	m.ExpectQuery("FROM npc_templates WHERE id").WithArgs(2).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id"}).
-			AddRow(2, "Goblin", "", "(8,14,10,10,8,8)", 13, 7, "dm1"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "description", "base_stats", "armor_class", "max_hp", "owner_id", "source", "type", "size", "cr"}).
+			AddRow(2, "Goblin", "", "(8,14,10,10,8,8)", 13, 7, "dm1", "", "", "", nil))
 	prevRoll := dao.RollD20
 	dao.RollD20 = func() int { return 10 }
 	defer func() { dao.RollD20 = prevRoll }()

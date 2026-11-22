@@ -5,7 +5,13 @@ import (
 	"fmt"
 	"go-initiative-tracker/dao"
 	"net/http"
+	"strconv"
 	"strings"
+)
+
+const (
+	defaultTemplateSearchLimit = 25
+	maxTemplateSearchLimit     = 100
 )
 
 func apiNpcTemplatesHandler(w http.ResponseWriter, r *http.Request) {
@@ -13,7 +19,38 @@ func apiNpcTemplatesHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
-	templates, err := npcTemplateDAO.GetAll()
+	// GET /npcs/templates?q=&type=&size=&min_cr=&max_cr=&source=&sort=&limit=&offset=
+	// All optional; one page of results, app-made templates first.
+	qs := r.URL.Query()
+	f := dao.TemplateFilter{
+		Query: strings.TrimSpace(qs.Get("q")),
+		Type:  strings.TrimSpace(qs.Get("type")),
+		Size:  strings.TrimSpace(qs.Get("size")),
+		MinCR: parseOptFloat(qs.Get("min_cr")),
+		MaxCR: parseOptFloat(qs.Get("max_cr")),
+		Limit: defaultTemplateSearchLimit,
+	}
+	if n, err := strconv.Atoi(qs.Get("limit")); err == nil && n > 0 {
+		f.Limit = min(n, maxTemplateSearchLimit)
+	}
+	if n, err := strconv.Atoi(qs.Get("offset")); err == nil && n > 0 {
+		f.Offset = n
+	}
+	switch s := qs.Get("source"); s {
+	case "", "custom", "srd":
+		f.Source = s
+	default:
+		writeJSONError(w, http.StatusBadRequest, "source must be custom or srd")
+		return
+	}
+	switch s := qs.Get("sort"); s {
+	case "", "name", "cr":
+		f.SortBy = s
+	default:
+		writeJSONError(w, http.StatusBadRequest, "sort must be name or cr")
+		return
+	}
+	templates, err := npcTemplateDAO.Search(f)
 	if err != nil {
 		fmt.Println(err)
 		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch npc templates")
@@ -155,4 +192,29 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 	events.publish(req.EncounterID, "character")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "success", "characters": characters})
+}
+
+// parseOptFloat parses an optional numeric query value; blank or invalid is nil.
+func parseOptFloat(s string) *float64 {
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
+// GET /npcs/templates/facets: distinct creature types and sizes, for filters.
+func apiNpcTemplateFacetsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+	facets, err := npcTemplateDAO.Facets()
+	if err != nil {
+		fmt.Println(err)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch npc template filters")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(facets)
 }
