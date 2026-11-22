@@ -17,7 +17,6 @@ import { useMe } from "../hooks/useMe";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PersonAddAlt1OutlinedIcon from "@mui/icons-material/PersonAddAlt1Outlined";
-import { headingFont } from "../theme";
 import { InlineInput } from "./InlineInput";
 import {
 	CR_VALUES,
@@ -523,7 +522,7 @@ export default function NpcsPage() {
 												inputProps={{ "aria-label": "Name" }}
 												fullWidth
 												sx={{
-													fontFamily: headingFont,
+													fontFamily: (t) => t.typography.h6.fontFamily,
 													fontWeight: 700,
 													fontSize: "1.1rem",
 													color: "primary.main",
@@ -551,7 +550,7 @@ export default function NpcsPage() {
 										<Box sx={{ px: 0.75 }}>
 											<Typography
 												sx={{
-													fontFamily: headingFont,
+													fontFamily: (t) => t.typography.h6.fontFamily,
 													fontWeight: 700,
 													fontSize: "1.1rem",
 													color: "primary.main",

@@ -50,3 +50,35 @@ func (dao UserDAO) GetUserByUsername(username string) (User, error) {
 	err := row.Scan(&user.DiscordID, &user.Username, &user.Discriminator, &user.Avatar)
 	return user, err
 }
+
+// GetTheme returns the user's saved theme JSON, or nil when they have none
+// (or have no users row yet).
+func (dao UserDAO) GetTheme(discordID string) ([]byte, error) {
+	var theme sql.NullString
+	err := dao.db.QueryRow(`SELECT theme FROM users WHERE discord_id = $1`, discordID).Scan(&theme)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !theme.Valid {
+		return nil, nil
+	}
+	return []byte(theme.String), nil
+}
+
+// SetTheme stores the user's theme JSON; nil clears it back to the default.
+// Returns false when the user has no row (never logged in).
+func (dao UserDAO) SetTheme(discordID string, theme []byte) (bool, error) {
+	var value any
+	if theme != nil {
+		value = string(theme)
+	}
+	res, err := dao.db.Exec(`UPDATE users SET theme = $2 WHERE discord_id = $1`, discordID, value)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
