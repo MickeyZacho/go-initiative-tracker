@@ -452,8 +452,8 @@ func TestAddCharactersFromTemplate_LoneFirstCopyKeepsPlainName(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("FROM encounters WHERE id").WithArgs(3).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
-	mock.ExpectQuery("SELECT COUNT").WithArgs(3, 2).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT c.name").WithArgs(3).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "npc_template_id"}))
 	mock.ExpectQuery("INSERT INTO characters").
 		WithArgs("Ogre", 11, 0, 59, "dm1", "npc", 2).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(80))
@@ -462,7 +462,7 @@ func TestAddCharactersFromTemplate_LoneFirstCopyKeepsPlainName(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	created, err := dao.AddCharactersToEncounterFromTemplate(2, 3, 1, Staging{})
+	created, err := dao.AddCharactersToEncounterFromTemplate(2, 3, 1, Staging{}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

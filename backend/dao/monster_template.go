@@ -72,7 +72,7 @@ type NpcTemplateDAO interface {
 	Create(template NpcTemplate) (int, error)
 	UpdateByOwner(template NpcTemplate, ownerID string) (bool, error)
 	DeleteByOwner(id int, ownerID string) (bool, error)
-	AddCharactersToEncounterFromTemplate(templateID, encounterID, count int, staging Staging) ([]Character, error)
+	AddCharactersToEncounterFromTemplate(templateID, encounterID, count int, staging Staging, generateNames bool) ([]Character, error)
 	UpsertImported(template NpcTemplate, source, sourceKey string, details []byte) (inserted bool, err error)
 }
 
@@ -312,11 +312,13 @@ const MaxTemplateCopies = 20
 // AddCharactersToEncounterFromTemplate creates count creatures from a template
 // and drops them into the encounter, in one transaction. Each copy:
 //   - is owned by the encounter's owner (the DM), like any template NPC;
-//   - is numbered after any copies of the same template already in the
-//     encounter ("Goblin 3", "Goblin 4") so a pack is distinguishable; a lone
-//     first copy keeps the plain template name;
+//   - is numbered after the highest-numbered copy of the same template
+//     already in the encounter ("Goblin 3", "Goblin 4") so a pack is
+//     distinguishable; a lone first copy keeps the plain template name;
+//   - with generateNames, also gets a nickname that is unique in the
+//     encounter ("Goblin 3 · Snagtooth"), see nicknamePool;
 //   - starts at full HP with initiative rolled as d20 + DEX modifier.
-func (dao *npcTemplateDAOImpl) AddCharactersToEncounterFromTemplate(templateID, encounterID, count int, staging Staging) ([]Character, error) {
+func (dao *npcTemplateDAOImpl) AddCharactersToEncounterFromTemplate(templateID, encounterID, count int, staging Staging, generateNames bool) ([]Character, error) {
 	if count < 1 || count > MaxTemplateCopies {
 		return nil, fmt.Errorf("count must be between 1 and %d", MaxTemplateCopies)
 	}
@@ -335,20 +337,45 @@ func (dao *npcTemplateDAOImpl) AddCharactersToEncounterFromTemplate(templateID, 
 	if err := tx.QueryRow("SELECT COALESCE(owner_id, '') FROM encounters WHERE id = $1", encounterID).Scan(&ownerID); err != nil {
 		return nil, err
 	}
-	var existing int
-	if err := tx.QueryRow(
-		"SELECT COUNT(*) FROM characters c JOIN encounter_characters ec ON ec.character_id = c.id WHERE ec.encounter_id = $1 AND c.npc_template_id = $2",
-		encounterID, templateID,
-	).Scan(&existing); err != nil {
+	// Everyone already in the encounter: copies of this template set the next
+	// number, and every name's nickname is taken.
+	rows, err := tx.Query(
+		"SELECT c.name, COALESCE(c.npc_template_id, 0) FROM characters c JOIN encounter_characters ec ON ec.character_id = c.id WHERE ec.encounter_id = $1",
+		encounterID,
+	)
+	if err != nil {
 		return nil, err
 	}
+	var allNames, copyNames []string
+	for rows.Next() {
+		var name string
+		var tid int
+		if err := rows.Scan(&name, &tid); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		allNames = append(allNames, name)
+		if tid == templateID {
+			copyNames = append(copyNames, name)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	highest := highestCopyNumber(t.Name, copyNames)
+	used := usedNicknames(allNames)
+	pool := nicknamePool(t.Name, t.Type)
 
 	dexMod := AbilityModifier(t.BaseStats.Dexterity)
 	created := make([]Character, 0, count)
 	for i := 1; i <= count; i++ {
 		name := t.Name
-		if existing > 0 || count > 1 {
-			name = fmt.Sprintf("%s %d", t.Name, existing+i)
+		if len(copyNames) > 0 || count > 1 {
+			name = fmt.Sprintf("%s %d", t.Name, highest+i)
+		}
+		if generateNames {
+			name += NicknameSeparator + pickNickname(pool, used)
 		}
 		c := Character{
 			Name:          name,

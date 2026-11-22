@@ -159,6 +159,9 @@ const EditableField: React.FC<{
 	placeholder?: string;
 	hint?: string;
 	readOnly?: boolean;
+	// Fill the cell instead of capping at width (the name column). It still
+	// ellipsizes, but only when the column itself runs out of room.
+	fluid?: boolean;
 }> = ({
 	value,
 	type,
@@ -173,6 +176,7 @@ const EditableField: React.FC<{
 	placeholder,
 	hint,
 	readOnly,
+	fluid,
 }) =>
 	readOnly ? (
 		<Box
@@ -199,7 +203,7 @@ const EditableField: React.FC<{
 			onKeyDown={onKeyDown}
 			inputProps={{ "aria-label": ariaLabel }}
 			sx={{
-				width,
+				...(fluid ? { flex: "1 1 auto", minWidth: 0 } : { width }),
 				px: 0.75,
 				border: 1,
 				borderColor: "primary.main",
@@ -219,8 +223,9 @@ const EditableField: React.FC<{
 			title={hint}
 			sx={{
 				display: "inline-block",
-				minWidth: 28,
-				maxWidth: width + 40,
+				minWidth: fluid ? 0 : 28,
+				maxWidth: fluid ? "100%" : width + 40,
+				flex: fluid ? "0 1 auto" : undefined,
 				px: 0.75,
 				borderRadius: 1,
 				// The editable hint only appears while hovering the row, so a table
@@ -541,6 +546,7 @@ export const CharacterRow: React.FC<CharacterRowProps> = ({
 							{...fieldProps("Name", character.Name)}
 							type="text"
 							width={150}
+							fluid
 							ariaLabel="Name"
 							strong
 						/>
