@@ -35,7 +35,7 @@ import type { SelectChangeEvent } from "@mui/material/Select";
 
 import { useEncounters } from "../hooks/useEncounters";
 import { useCharacters } from "../hooks/useCharacters";
-import { useNpcTemplates } from "../hooks/useNpcTemplates";
+import type { NpcTemplate } from "../hooks/useNpcTemplates";
 import { useCombatLog } from "../hooks/useCombatLog";
 import { useCombatState } from "../hooks/useCombatState";
 import { useEncounterEvents } from "../hooks/useEncounterEvents";
@@ -120,13 +120,10 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		error: charactersError,
 	} = useCharacters();
 
-	// NPC Templates
-	const {
-		npcTemplates,
-		selectedAddNpcId,
-		setSelectedAddNpcId,
-		fetchNpcTemplates,
-	} = useNpcTemplates();
+	// NPC template picked in the (searchable) Add NPC control.
+	const [selectedAddNpc, setSelectedAddNpc] = useState<NpcTemplate | null>(
+		null,
+	);
 
 	// Combat Log
 	const { ledgerEntries, fetchLedger } = useCombatLog();
@@ -184,13 +181,11 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	useEffect(() => {
 		fetchEncounters(fetchCharacters, fetchLedger);
 		fetchLibraryCharacters();
-		fetchNpcTemplates();
 	}, [
 		fetchEncounters,
 		fetchCharacters,
 		fetchLedger,
 		fetchLibraryCharacters,
-		fetchNpcTemplates,
 	]);
 
 	// Round is per encounter; load it whenever the selected encounter changes.
@@ -210,7 +205,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 	// Add one or more copies of an NPC template to the encounter. The backend
 	// numbers them and rolls their initiative.
 	const addNpcToEncounter = async (count: number) => {
-		if (!encounterId || !selectedAddNpcId) {
+		if (!encounterId || !selectedAddNpc) {
 			return;
 		}
 		setActionError("");
@@ -219,7 +214,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 				"/npcs/templates/create-character",
 				{
 					encounter_id: encounterId,
-					npc_template_id: selectedAddNpcId,
+					npc_template_id: selectedAddNpc.ID,
 					count,
 					...staging(),
 				},
@@ -929,9 +924,8 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 									useFlexGap
 								>
 									<AddNpcControl
-										npcTemplates={npcTemplates}
-										selectedAddNpcId={selectedAddNpcId}
-										setSelectedAddNpcId={setSelectedAddNpcId}
+										selectedNpc={selectedAddNpc}
+										setSelectedNpc={setSelectedAddNpc}
 										addNpcToEncounter={addNpcToEncounter}
 										encounterId={encounterId}
 									/>

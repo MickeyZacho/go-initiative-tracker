@@ -199,6 +199,7 @@ func main() {
 	http.Handle("/encounters/events", loggingMiddleware(http.HandlerFunc(apiEncounterEventsHandler)))
 	// NPC Template API endpoints
 	http.Handle("/npcs/templates", loggingMiddleware(http.HandlerFunc(apiNpcTemplatesHandler)))
+	http.Handle("/npcs/templates/facets", loggingMiddleware(http.HandlerFunc(apiNpcTemplateFacetsHandler)))
 	http.Handle("/npcs/templates/save", loggingMiddleware(http.HandlerFunc(apiSaveNpcTemplateHandler)))
 	http.Handle("/npcs/templates/delete", loggingMiddleware(http.HandlerFunc(apiDeleteNpcTemplateHandler)))
 	http.Handle("/npcs/templates/create-character", loggingMiddleware(http.HandlerFunc(apiCreateCharacterFromTemplateHandler)))

@@ -19,25 +19,17 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PersonAddAlt1OutlinedIcon from "@mui/icons-material/PersonAddAlt1Outlined";
 import { headingFont } from "../theme";
 import { InlineInput } from "./InlineInput";
-
-interface StatBlock {
-	Strength: number;
-	Dexterity: number;
-	Constitution: number;
-	Intelligence: number;
-	Wisdom: number;
-	Charisma: number;
-}
-
-interface NpcTemplate {
-	ID: number;
-	Name: string;
-	Description: string;
-	BaseStats: StatBlock;
-	ArmorClass: number;
-	MaxHP: number;
-	OwnerID?: string;
-}
+import {
+	CR_VALUES,
+	formatCR,
+	useNpcTemplateFacets,
+	useNpcTemplateSearch,
+	type NpcTemplate,
+	type NpcTemplateFilters,
+	type StatBlock,
+} from "../hooks/useNpcTemplates";
+import SearchIcon from "@mui/icons-material/Search";
+import InputAdornment from "@mui/material/InputAdornment";
 
 interface EncounterOption {
 	ID: number;
@@ -80,25 +72,35 @@ const emptyNpc: NpcTemplate = {
 };
 
 export default function NpcsPage() {
-	const [npcs, setNpcs] = useState<NpcTemplate[]>([]);
+	// Search and filters run server-side, one page at a time, so the full
+	// SRD list is never loaded at once. Your own templates sort first.
+	const [search, setSearch] = useState("");
+	const [filters, setFilters] = useState<NpcTemplateFilters>({});
+	const facets = useNpcTemplateFacets();
+	const {
+		results: npcs,
+		setResults: setNpcs,
+		loading: searching,
+		error: searchError,
+		hasMore,
+		loadMore,
+		reload: loadNpcs,
+	} = useNpcTemplateSearch(search, filters);
+	const setFilter = <K extends keyof NpcTemplateFilters>(
+		key: K,
+		value: NpcTemplateFilters[K],
+	) => setFilters((prev) => ({ ...prev, [key]: value }));
+	const filtering =
+		search.trim() !== "" || Object.values(filters).some((v) => v !== undefined && v !== "");
+	// Type/size/CR only exist on imported monsters.
+	const srdOnlyFilter =
+		!!filters.type || !!filters.size || filters.minCR !== undefined || filters.maxCR !== undefined;
 	const [draft, setDraft] = useState<NpcTemplate>(emptyNpc);
 	const [error, setError] = useState("");
 	const [notice, setNotice] = useState("");
 	const [encounters, setEncounters] = useState<EncounterOption[]>([]);
 	const [targetEncounterId, setTargetEncounterId] = useState<number>(0);
 	const [showCreate, setShowCreate] = useState(false);
-
-	const loadNpcs = useCallback(async () => {
-		setError("");
-		try {
-			setNpcs(await apiGetArray<NpcTemplate>("/npcs/templates"));
-		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to load npcs",
-			);
-			setNpcs([]);
-		}
-	}, []);
 
 	const loadEncounters = useCallback(async () => {
 		try {
@@ -115,9 +117,8 @@ export default function NpcsPage() {
 	}, []);
 
 	useEffect(() => {
-		loadNpcs();
 		loadEncounters();
-	}, [loadNpcs, loadEncounters]);
+	}, [loadEncounters]);
 
 	const saveNpc = async (npc: NpcTemplate) => {
 		setError("");
@@ -162,7 +163,7 @@ export default function NpcsPage() {
 		try {
 			await saveNpc(draft);
 			setDraft(emptyNpc);
-			await loadNpcs();
+			loadNpcs();
 		} catch (err) {
 			setError(
 				err instanceof Error ? err.message : "Failed to create npc",
@@ -186,14 +187,16 @@ export default function NpcsPage() {
 			setError(
 				err instanceof Error ? err.message : "Failed to update npc",
 			);
-			await loadNpcs();
+			loadNpcs();
 		}
 	};
 
 	// Shared (seed) templates and other users' templates are read-only; the
 	// backend only updates rows whose owner matches the caller.
 	const me = useMe();
+	// Imported (SRD) templates are read-only for everyone.
 	const canEdit = (npc: NpcTemplate) =>
+		!npc.Source &&
 		(npc.OwnerID ?? "") === (me.loggedIn ? me.discordID : "");
 
 	const handleDelete = async (id: number) => {
@@ -206,7 +209,7 @@ export default function NpcsPage() {
 				{ id },
 				"Failed to delete npc template",
 			);
-			await loadNpcs();
+			loadNpcs();
 		} catch (err) {
 			setError(
 				err instanceof Error ? err.message : "Failed to delete npc",
@@ -253,7 +256,122 @@ export default function NpcsPage() {
 					New NPC
 				</Button>
 			</Stack>
-			{error && <Typography color="error">{error}</Typography>}
+			<TextField
+				size="small"
+				placeholder="Search monsters, e.g. goblin, dragon, undead…"
+				value={search}
+				onChange={(e) => setSearch(e.target.value)}
+				slotProps={{
+					input: {
+						startAdornment: (
+							<InputAdornment position="start">
+								<SearchIcon fontSize="small" />
+							</InputAdornment>
+						),
+					},
+					htmlInput: { "aria-label": "Search NPC templates" },
+				}}
+			/>
+			<Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="center">
+				<TextField
+					select
+					size="small"
+					label="Type"
+					value={filters.type ?? ""}
+					onChange={(e) => setFilter("type", e.target.value || undefined)}
+					sx={{ minWidth: 150, textTransform: "capitalize" }}
+				>
+					<MenuItem value="">Any type</MenuItem>
+					{facets.Types.map((t) => (
+						<MenuItem key={t} value={t} sx={{ textTransform: "capitalize" }}>
+							{t}
+						</MenuItem>
+					))}
+				</TextField>
+				<TextField
+					select
+					size="small"
+					label="Size"
+					value={filters.size ?? ""}
+					onChange={(e) => setFilter("size", e.target.value || undefined)}
+					sx={{ minWidth: 120, textTransform: "capitalize" }}
+				>
+					<MenuItem value="">Any size</MenuItem>
+					{facets.Sizes.map((s) => (
+						<MenuItem key={s} value={s} sx={{ textTransform: "capitalize" }}>
+							{s}
+						</MenuItem>
+					))}
+				</TextField>
+				{(["minCR", "maxCR"] as const).map((key) => (
+					<TextField
+						key={key}
+						select
+						size="small"
+						label={key === "minCR" ? "Min CR" : "Max CR"}
+						value={filters[key] ?? ""}
+						onChange={(e) =>
+							setFilter(key, e.target.value === "" ? undefined : Number(e.target.value))
+						}
+						sx={{ minWidth: 100 }}
+					>
+						<MenuItem value="">Any</MenuItem>
+						{CR_VALUES.map((cr) => (
+							<MenuItem key={cr} value={cr}>
+								{formatCR(cr)}
+							</MenuItem>
+						))}
+					</TextField>
+				))}
+				<TextField
+					select
+					size="small"
+					label="Source"
+					value={filters.source ?? ""}
+					onChange={(e) =>
+						setFilter("source", e.target.value as NpcTemplateFilters["source"])
+					}
+					sx={{ minWidth: 140 }}
+				>
+					<MenuItem value="">All</MenuItem>
+					<MenuItem value="custom">My templates</MenuItem>
+					<MenuItem value="srd">SRD monsters</MenuItem>
+				</TextField>
+				<TextField
+					select
+					size="small"
+					label="Sort by"
+					value={filters.sort ?? ""}
+					onChange={(e) => setFilter("sort", e.target.value as NpcTemplateFilters["sort"])}
+					sx={{ minWidth: 110 }}
+				>
+					<MenuItem value="">Name</MenuItem>
+					<MenuItem value="cr">CR</MenuItem>
+				</TextField>
+				{filtering && (
+					<Button
+						size="small"
+						onClick={() => {
+							setSearch("");
+							setFilters({});
+						}}
+					>
+						Clear
+					</Button>
+				)}
+			</Stack>
+			<Typography variant="body2" color="text.secondary">
+				{searching && npcs.length === 0
+					? "Loading…"
+					: npcs.length === 0
+						? filters.source === "custom" && srdOnlyFilter
+							? "Type, size and CR filters only apply to SRD monsters."
+							: "No templates match."
+						: `Showing ${npcs.length}${hasMore ? "+" : ""} template${npcs.length === 1 ? "" : "s"}.`}
+			</Typography>
+			{(error || searchError) && (
+				<Typography color="error">{error || searchError}</Typography>
+			)}
 			{notice && <Typography color="success.main">{notice}</Typography>}
 			{encounters.length === 0 && (
 				<Typography variant="body2" color="text.secondary">
@@ -448,6 +566,11 @@ export default function NpcsPage() {
 											>
 												{npc.Description || "Shared template"}
 											</Typography>
+											{npc.CR != null && (
+												<Typography variant="caption" fontWeight={700} color="text.secondary">
+													CR {formatCR(npc.CR)}
+												</Typography>
+											)}
 										</Box>
 									)}
 								</Box>
@@ -550,6 +673,31 @@ export default function NpcsPage() {
 					);
 				})}
 			</Box>
+			{hasMore && (
+				<Box sx={{ display: "flex", justifyContent: "center" }}>
+					<Button variant="outlined" onClick={loadMore} disabled={searching}>
+						{searching ? "Loading…" : "Load more"}
+					</Button>
+				</Box>
+			)}
+			{npcs.some((n) => n.Source?.startsWith("srd-")) && (
+				<Typography variant="caption" color="text.secondary">
+					This work includes material from the System Reference Document 5.2
+					("SRD 5.2") by Wizards of the Coast LLC, available at{" "}
+					<a href="https://www.dndbeyond.com/srd" target="_blank" rel="noopener noreferrer">
+						dndbeyond.com/srd
+					</a>
+					. The SRD 5.2 is licensed under the{" "}
+					<a
+						href="https://creativecommons.org/licenses/by/4.0/legalcode"
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						Creative Commons Attribution 4.0 International License
+					</a>
+					.
+				</Typography>
+			)}
 		</Stack>
 	);
 }

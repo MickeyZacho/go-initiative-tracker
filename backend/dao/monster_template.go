@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 type StatBlock struct {
@@ -32,15 +33,47 @@ type NpcTemplate struct {
 	ArmorClass  int
 	MaxHP       int
 	OwnerID     string
+	// Source is where an imported template came from ("srd-5.2"); empty for
+	// templates made in the app.
+	Source string
+	// Type, Size and CR come from an imported template's details; empty / nil
+	// for templates made in the app.
+	Type string
+	Size string
+	CR   *float64
+}
+
+// TemplateFilter narrows a template search. Zero values mean "no filter".
+// Type, Size and the CR range only match imported templates, since app-made
+// ones have no details.
+type TemplateFilter struct {
+	Query  string
+	Type   string
+	Size   string
+	MinCR  *float64
+	MaxCR  *float64
+	Source string // "", "custom" (app-made) or "srd" (any SRD import)
+	SortBy string // "" / "name" or "cr"
+	Limit  int
+	Offset int
+}
+
+// TemplateFacets are the distinct filter values present in the data, for
+// building filter dropdowns.
+type TemplateFacets struct {
+	Types []string
+	Sizes []string
 }
 
 type NpcTemplateDAO interface {
-	GetAll() ([]NpcTemplate, error)
+	Search(f TemplateFilter) ([]NpcTemplate, error)
+	Facets() (TemplateFacets, error)
 	GetByID(id int) (NpcTemplate, error)
 	Create(template NpcTemplate) (int, error)
 	UpdateByOwner(template NpcTemplate, ownerID string) (bool, error)
 	DeleteByOwner(id int, ownerID string) (bool, error)
 	AddCharactersToEncounterFromTemplate(templateID, encounterID, count int, staging Staging) ([]Character, error)
+	UpsertImported(template NpcTemplate, source, sourceKey string, details []byte) (inserted bool, err error)
 }
 
 type npcTemplateDAOImpl struct {
@@ -51,34 +84,81 @@ func NewNpcTemplateDAO(db *sql.DB) NpcTemplateDAO {
 	return &npcTemplateDAOImpl{db: db}
 }
 
-func (dao *npcTemplateDAOImpl) GetAll() ([]NpcTemplate, error) {
-	rows, err := dao.db.Query(`SELECT id, name, description, base_stats, armor_class, max_hp, COALESCE(owner_id, '') FROM npc_templates`)
+// crExpr is an imported template's challenge rating (NULL for app-made ones).
+const crExpr = `(details->>'challenge_rating')::float8`
+
+const npcTemplateColumns = `id, name, description, base_stats, armor_class, max_hp, COALESCE(owner_id, ''), COALESCE(source, ''), ` +
+	`COALESCE(details->>'type', ''), COALESCE(details->>'size', ''), ` + crExpr
+
+// Search lists templates one page at a time. Every filter is optional; with
+// none it returns everything, app-made templates first. A query matches name
+// or description (case-insensitive substring), name-prefix matches first.
+func (dao *npcTemplateDAOImpl) Search(f TemplateFilter) ([]NpcTemplate, error) {
+	var where, order []string
+	var args []any
+	arg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+	if f.Query != "" {
+		p := arg(likeEscaper.Replace(f.Query))
+		where = append(where, fmt.Sprintf(`(name ILIKE '%%' || %[1]s || '%%' OR description ILIKE '%%' || %[1]s || '%%')`, p))
+		order = append(order, fmt.Sprintf(`(name ILIKE %s || '%%') DESC`, p))
+	}
+	if f.Type != "" {
+		where = append(where, `lower(details->>'type') = lower(`+arg(f.Type)+`)`)
+	}
+	if f.Size != "" {
+		where = append(where, `lower(details->>'size') = lower(`+arg(f.Size)+`)`)
+	}
+	if f.MinCR != nil {
+		where = append(where, crExpr+` >= `+arg(*f.MinCR))
+	}
+	if f.MaxCR != nil {
+		where = append(where, crExpr+` <= `+arg(*f.MaxCR))
+	}
+	switch f.Source {
+	case "custom":
+		where = append(where, `source IS NULL`)
+	case "srd":
+		where = append(where, `source LIKE 'srd-%'`)
+	}
+	order = append(order, `(source IS NULL) DESC`)
+	if f.SortBy == "cr" {
+		order = append(order, crExpr)
+	}
+	order = append(order, `name`, `id`)
+
+	q := `SELECT ` + npcTemplateColumns + ` FROM npc_templates`
+	if len(where) > 0 {
+		q += ` WHERE ` + strings.Join(where, ` AND `)
+	}
+	q += ` ORDER BY ` + strings.Join(order, `, `)
+	q += ` LIMIT ` + arg(f.Limit) + ` OFFSET ` + arg(f.Offset)
+
+	rows, err := dao.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var templates []NpcTemplate
 	for rows.Next() {
-		var t NpcTemplate
-		var statsStr string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP, &t.OwnerID); err != nil {
+		t, err := scanTemplate(rows)
+		if err != nil {
 			return nil, err
 		}
-		stats, err := parseStatBlock(statsStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse stat_block: %w", err)
-		}
-		t.BaseStats = stats
 		templates = append(templates, t)
 	}
-	return templates, nil
+	return templates, rows.Err()
 }
 
-func (dao *npcTemplateDAOImpl) GetByID(id int) (NpcTemplate, error) {
+type rowScanner interface{ Scan(dest ...any) error }
+
+func scanTemplate(r rowScanner) (NpcTemplate, error) {
 	var t NpcTemplate
 	var statsStr string
-	err := dao.db.QueryRow(`SELECT id, name, description, base_stats, armor_class, max_hp, COALESCE(owner_id, '') FROM npc_templates WHERE id = $1`, id).Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP, &t.OwnerID)
-	if err != nil {
+	var cr sql.NullFloat64
+	if err := r.Scan(&t.ID, &t.Name, &t.Description, &statsStr, &t.ArmorClass, &t.MaxHP, &t.OwnerID, &t.Source, &t.Type, &t.Size, &cr); err != nil {
 		return t, err
 	}
 	stats, err := parseStatBlock(statsStr)
@@ -86,7 +166,46 @@ func (dao *npcTemplateDAOImpl) GetByID(id int) (NpcTemplate, error) {
 		return t, fmt.Errorf("failed to parse stat_block: %w", err)
 	}
 	t.BaseStats = stats
+	if cr.Valid {
+		t.CR = &cr.Float64
+	}
 	return t, nil
+}
+
+// Facets returns the distinct creature types and sizes among imported
+// templates, lower-cased and sorted, for filter dropdowns.
+func (dao *npcTemplateDAOImpl) Facets() (TemplateFacets, error) {
+	f := TemplateFacets{Types: []string{}, Sizes: []string{}}
+	rows, err := dao.db.Query(
+		`SELECT DISTINCT 'type', lower(details->>'type') FROM npc_templates WHERE details->>'type' <> ''
+		 UNION
+		 SELECT DISTINCT 'size', lower(details->>'size') FROM npc_templates WHERE details->>'size' <> ''
+		 ORDER BY 1, 2`,
+	)
+	if err != nil {
+		return f, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind, v string
+		if err := rows.Scan(&kind, &v); err != nil {
+			return f, err
+		}
+		if kind == "type" {
+			f.Types = append(f.Types, v)
+		} else {
+			f.Sizes = append(f.Sizes, v)
+		}
+	}
+	return f, rows.Err()
+}
+
+// likeEscaper neutralises LIKE wildcards in user input (Postgres' default
+// escape character is backslash).
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+func (dao *npcTemplateDAOImpl) GetByID(id int) (NpcTemplate, error) {
+	return scanTemplate(dao.db.QueryRow(`SELECT `+npcTemplateColumns+` FROM npc_templates WHERE id = $1`, id))
 }
 
 // parseStatBlock parses a Postgres composite type stat_block string like (8,14,10,10,8,8)
@@ -132,10 +251,11 @@ func (dao *npcTemplateDAOImpl) Create(template NpcTemplate) (int, error) {
 // UpdateByOwner updates a template only when it belongs to ownerID; owner_id is
 // not in the SET clause so ownership can never be reassigned. Returns false when
 // no row matched (wrong id or not owned by the caller). Shared seed templates
-// have a NULL owner and so are read-only to signed-in users.
+// have a NULL owner and so are read-only to signed-in users; imported
+// templates (source set) are read-only to everyone, logged in or not.
 func (dao *npcTemplateDAOImpl) UpdateByOwner(template NpcTemplate, ownerID string) (bool, error) {
 	result, err := dao.db.Exec(
-		`UPDATE npc_templates SET name = $1, description = $2, base_stats = $3, armor_class = $4, max_hp = $5 WHERE id = $6 AND COALESCE(owner_id, '') = $7`,
+		`UPDATE npc_templates SET name = $1, description = $2, base_stats = $3, armor_class = $4, max_hp = $5 WHERE id = $6 AND COALESCE(owner_id, '') = $7 AND source IS NULL`,
 		template.Name, template.Description, template.BaseStats.String(), template.ArmorClass, template.MaxHP, template.ID, ownerID,
 	)
 	if err != nil {
@@ -146,12 +266,31 @@ func (dao *npcTemplateDAOImpl) UpdateByOwner(template NpcTemplate, ownerID strin
 }
 
 func (dao *npcTemplateDAOImpl) DeleteByOwner(id int, ownerID string) (bool, error) {
-	result, err := dao.db.Exec(`DELETE FROM npc_templates WHERE id = $1 AND COALESCE(owner_id, '') = $2`, id, ownerID)
+	result, err := dao.db.Exec(`DELETE FROM npc_templates WHERE id = $1 AND COALESCE(owner_id, '') = $2 AND source IS NULL`, id, ownerID)
 	if err != nil {
 		return false, err
 	}
 	rows, err := result.RowsAffected()
 	return rows > 0, err
+}
+
+// UpsertImported inserts or refreshes a shared (owner-less) template that came
+// from an external source, keyed by (source, sourceKey). details is the raw
+// source record stored as JSONB. Returns true when a new row was inserted and
+// false when an existing one was updated (xmax = 0 only for fresh inserts).
+func (dao *npcTemplateDAOImpl) UpsertImported(template NpcTemplate, source, sourceKey string, details []byte) (bool, error) {
+	var inserted bool
+	err := dao.db.QueryRow(
+		`INSERT INTO npc_templates (name, description, base_stats, armor_class, max_hp, details, source, source_key)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 ON CONFLICT (source, source_key) WHERE source IS NOT NULL DO UPDATE SET
+		   name = EXCLUDED.name, description = EXCLUDED.description, base_stats = EXCLUDED.base_stats,
+		   armor_class = EXCLUDED.armor_class, max_hp = EXCLUDED.max_hp, details = EXCLUDED.details
+		 RETURNING (xmax = 0)`,
+		template.Name, template.Description, template.BaseStats.String(), template.ArmorClass, template.MaxHP,
+		string(details), source, sourceKey,
+	).Scan(&inserted)
+	return inserted, err
 }
 
 // RollD20 is the die used for NPC initiative. A package variable so tests can
