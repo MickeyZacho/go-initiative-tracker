@@ -25,6 +25,7 @@ import {
 } from "react-router-dom";
 import Footer from "./components/Footer";
 import ColorModeToggle from "./components/ColorModeToggle";
+import ThemePlayground from "./components/ThemePlayground";
 
 // Each page is its own chunk, loaded on first visit, so the entry bundle is
 // only the shell (React, MUI core, router, app bar). Keep these imports out of
@@ -119,6 +120,7 @@ function App() {
 						</Tabs>
 						<Box sx={{ flexGrow: 1, display: { xs: "block", md: "none" } }} />
 						<Stack direction="row" spacing={1} alignItems="center">
+							<ThemePlayground />
 							<ColorModeToggle />
 							<AuthButtons />
 							<IconButton

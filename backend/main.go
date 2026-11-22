@@ -182,6 +182,7 @@ func main() {
 	http.Handle("/characters/library/save", loggingMiddleware(http.HandlerFunc(apiSaveLibraryCharacterHandler)))
 	http.Handle("/characters/library/delete", loggingMiddleware(http.HandlerFunc(apiDeleteLibraryCharacterHandler)))
 	http.Handle("/me", loggingMiddleware(http.HandlerFunc(apiMeHandler)))
+	http.Handle("/user/theme", loggingMiddleware(http.HandlerFunc(apiUserThemeHandler)))
 	http.Handle("/version", loggingMiddleware(http.HandlerFunc(apiVersionHandler)))
 	http.Handle("/encounters/combat/start", loggingMiddleware(http.HandlerFunc(apiStartCombatHandler)))
 	http.Handle("/encounters/combat/setup", loggingMiddleware(http.HandlerFunc(apiResetCombatHandler)))
