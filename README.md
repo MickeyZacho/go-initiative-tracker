@@ -1,5 +1,10 @@
 # Go Initiative Tracker
 
+> [!NOTE]
+> **AI disclaimer:** AI has been used heavily in this project. Much of the code,
+> tests and documentation was written with AI coding assistants, then reviewed
+> and directed by a human maintainer.
+
 A web-based initiative tracker for tabletop role-playing games. A Go (`net/http`)
 backend exposes a JSON API over PostgreSQL; a React 19 + Material UI frontend
 (built with Vite) consumes it.
