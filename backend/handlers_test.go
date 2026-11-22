@@ -955,14 +955,14 @@ func TestCreateCharacterFromTemplateAllowsOwner(t *testing.T) {
 	dao.RollD20 = func() int { return 10 }
 	defer func() { dao.RollD20 = prevRoll }()
 
-	// Inside one transaction: resolve the owner, count existing copies (one
-	// Goblin already present), then create two numbered copies with initiative
-	// d20 (10) + DEX 14 modifier (+2) = 12.
+	// Inside one transaction: resolve the owner, list who's already there (one
+	// plain Goblin, which counts as copy 1), then create two numbered copies
+	// with initiative d20 (10) + DEX 14 modifier (+2) = 12.
 	m.ExpectBegin()
 	m.ExpectQuery("SELECT COALESCE\\(owner_id, ''\\) FROM encounters").WithArgs(1).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("dm1"))
-	m.ExpectQuery("SELECT COUNT").WithArgs(1, 2).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	m.ExpectQuery("SELECT c.name").WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "npc_template_id"}).AddRow("Goblin", 2).AddRow("Aria", 0))
 	m.ExpectQuery("INSERT INTO characters").
 		WithArgs("Goblin 2", 13, 0, 7, "dm1", "npc", 2).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(50))

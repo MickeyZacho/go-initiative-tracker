@@ -1,20 +1,47 @@
 import React from "react";
-import { Autocomplete, Box, Button, TextField, Typography } from "@mui/material";
+import {
+	Autocomplete,
+	Box,
+	Button,
+	FormControlLabel,
+	Switch,
+	TextField,
+	Typography,
+} from "@mui/material";
 import { useNpcTemplateSearch, type NpcTemplate } from "../hooks/useNpcTemplates";
 
 export const MAX_NPC_COPIES = 20;
 
+// The "generate names" choice is a per-browser preference. Storage can be
+// unavailable (private mode, blocked site data), so fall back to off.
+const NAMES_KEY = "addNpc.generateNames";
+const loadGenerateNames = () => {
+	try {
+		return localStorage.getItem(NAMES_KEY) === "1";
+	} catch {
+		return false;
+	}
+};
+const saveGenerateNames = (on: boolean) => {
+	try {
+		localStorage.setItem(NAMES_KEY, on ? "1" : "0");
+	} catch {
+		// Not remembered; harmless.
+	}
+};
+
 export interface AddNpcControlProps {
 	selectedNpc: NpcTemplate | null;
 	setSelectedNpc: (npc: NpcTemplate | null) => void;
-	addNpcToEncounter: (count: number) => void;
+	addNpcToEncounter: (count: number, generateNames: boolean) => void;
 	encounterId: number;
 }
 
 // Searchable template picker plus a quantity, so "four goblins" is one action.
 // Options come from the server as you type (your own templates when empty),
 // so the full SRD list is never loaded. The backend numbers the copies
-// (Goblin 1–4) and rolls each one's initiative.
+// (Goblin 1–4), optionally gives each a nickname ("Goblin 3 · Snagtooth"),
+// and rolls each one's initiative.
 export const AddNpcControl: React.FC<AddNpcControlProps> = ({
 	selectedNpc,
 	setSelectedNpc,
@@ -23,6 +50,7 @@ export const AddNpcControl: React.FC<AddNpcControlProps> = ({
 }) => {
 	const [count, setCount] = React.useState("1");
 	const [input, setInput] = React.useState("");
+	const [generateNames, setGenerateNames] = React.useState(loadGenerateNames);
 	const { results, loading } = useNpcTemplateSearch(input);
 	const parsed = Math.floor(Number(count));
 	const validCount =
@@ -73,10 +101,23 @@ export const AddNpcControl: React.FC<AddNpcControlProps> = ({
 				slotProps={{ htmlInput: { min: 1, max: MAX_NPC_COPIES } }}
 				sx={{ width: 110 }}
 			/>
+			<FormControlLabel
+				control={
+					<Switch
+						checked={generateNames}
+						onChange={(e) => {
+							setGenerateNames(e.target.checked);
+							saveGenerateNames(e.target.checked);
+						}}
+					/>
+				}
+				label="Names"
+				title='Give each copy a nickname, e.g. "Goblin 3 · Snagtooth"'
+			/>
 			<Button
 				variant="outlined"
 				onClick={() => {
-					addNpcToEncounter(parsed);
+					addNpcToEncounter(parsed, generateNames);
 					setCount("1");
 				}}
 				disabled={!encounterId || !selectedNpc || !validCount}

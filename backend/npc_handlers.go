@@ -153,6 +153,8 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		EncounterID int `json:"encounter_id"`
 		// Count is how many copies to add (default 1).
 		Count int `json:"count"`
+		// GenerateNames adds a nickname to each copy ("Goblin 3 · Snagtooth").
+		GenerateNames bool `json:"generate_names"`
 		dao.Staging
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -184,7 +186,7 @@ func apiCreateCharacterFromTemplateHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	characters, err := npcTemplateDAO.AddCharactersToEncounterFromTemplate(req.TemplateID, req.EncounterID, req.Count, staging)
+	characters, err := npcTemplateDAO.AddCharactersToEncounterFromTemplate(req.TemplateID, req.EncounterID, req.Count, staging, req.GenerateNames)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to create character from template")
 		return

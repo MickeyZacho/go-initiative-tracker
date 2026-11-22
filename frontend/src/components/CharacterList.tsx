@@ -203,8 +203,8 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 		void fetchCombatState(encounterId);
 	});
 	// Add one or more copies of an NPC template to the encounter. The backend
-	// numbers them and rolls their initiative.
-	const addNpcToEncounter = async (count: number) => {
+	// numbers them (optionally nicknames them) and rolls their initiative.
+	const addNpcToEncounter = async (count: number, generateNames: boolean) => {
 		if (!encounterId || !selectedAddNpc) {
 			return;
 		}
@@ -216,6 +216,7 @@ export const CharacterList: React.FC<CharacterListProps> = ({
 					encounter_id: encounterId,
 					npc_template_id: selectedAddNpc.ID,
 					count,
+					generate_names: generateNames,
 					...staging(),
 				},
 				"Failed to add NPC to encounter",
